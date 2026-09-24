@@ -1,0 +1,99 @@
+name: Bootstrap ATK Apps Script from DEV
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/bootstrap-dev.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: atk-vpe-bootstrap-dev
+  cancel-in-progress: false
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install clasp
+        run: npm install --global @google/clasp@3.4.1
+
+      - name: Configure clasp authentication
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+        run: |
+          if [ -z "$CLASPRC_JSON" ]; then
+            echo "CLASPRC_JSON secret is missing."
+            exit 1
+          fi
+
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          raw = os.environ.get('CLASPRC_JSON', '').strip()
+          start = raw.find('{')
+          end = raw.rfind('}')
+
+          if start == -1 or end == -1 or end < start:
+              raise SystemExit(
+                  'CLASPRC_JSON does not contain a JSON object.'
+              )
+
+          parsed = json.loads(raw[start:end + 1])
+          target = Path.home() / '.clasprc.json'
+          target.write_text(json.dumps(parsed))
+          target.chmod(0o600)
+          print('Clasp authentication JSON validated.')
+          PY
+
+      - name: Verify ATK DEV target
+        run: |
+          if ! grep -q '1LS3HabXjXOainAMiNLVVlRX5LEaA-o5Y7Kf31Fg-JQJZsR4ZKHI5zHUN' .clasp.json; then
+            echo "Refusing bootstrap: .clasp.json is not the ATK DEV project."
+            exit 1
+          fi
+
+      - name: Pull current DEV Apps Script source
+        run: |
+          rm -rf /tmp/atk-vpe-bootstrap
+          mkdir -p /tmp/atk-vpe-bootstrap
+          cp .clasp.json /tmp/atk-vpe-bootstrap/.clasp.json
+          cd /tmp/atk-vpe-bootstrap
+          clasp pull
+
+          find "$GITHUB_WORKSPACE" -maxdepth 1 -type f \
+            \( -name '*.js' -o -name '*.gs' -o -name '*.html' -o -name 'appsscript.json' \) \
+            -delete
+
+          find /tmp/atk-vpe-bootstrap -maxdepth 1 -type f \
+            \( -name '*.js' -o -name '*.gs' -o -name '*.html' -o -name 'appsscript.json' \) \
+            -exec cp {} "$GITHUB_WORKSPACE"/ \;
+
+      - name: Commit pulled source
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- '*.js' '*.gs' '*.html' 'appsscript.json' 2>/dev/null || true
+
+          if git diff --cached --quiet; then
+            echo "No Apps Script source changes to commit."
+            exit 0
+          fi
+
+          git commit -m "Bootstrap current ATK DEV Apps Script source"
+          git push
