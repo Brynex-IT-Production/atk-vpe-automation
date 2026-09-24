@@ -77,14 +77,14 @@ function buildReadinessRow_(row, taskRows) {
 
   return [
     meetingNo,
-    roles.length + '/6',
-    speakers.length + '/3',
+    roles.length + ' of 6',
+    speakers.length + ' of 3',
     themeStatus,
     grammarStatus,
-    introCompleted + '/' + introAssigned,
-    speakerDetailsCompleted + '/' + speakers.length,
-    evaluators.length + '/' + speakers.length,
-    coordinationCompleted + '/' + evaluators.length,
+    introCompleted + ' of ' + introAssigned,
+    speakerDetailsCompleted + ' of ' + speakers.length,
+    evaluators.length + ' of ' + speakers.length,
+    coordinationCompleted + ' of ' + evaluators.length,
     fullyReady ? 'Ready' : 'Action needed'
   ];
 }
