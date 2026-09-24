@@ -79,6 +79,18 @@ function processInboundWhatsAppMessage_(message) {
     return;
   }
 
+  if (interaction.kind === 'ADMIN_EXCEPTIONS') {
+    const vpeMember = configValue_('VPE_MEMBER_NAME', 'Riyas AF');
+    if (member === vpeMember) {
+      const digest = buildVpeExceptionDigest_();
+      sendWhatsAppText_(
+        phone,
+        digest || 'ATK VPE — No action needed in the configured exception window.'
+      );
+    }
+    return;
+  }
+
   // VPE-only administration through WhatsApp.
   const rawText = String(interaction.text || '').trim();
   const vpeMember = configValue_('VPE_MEMBER_NAME', 'Riyas AF');
@@ -143,6 +155,9 @@ function parseInteraction_(message) {
           text: String(reply.title || '')
         };
       }
+      if (id === 'ADMIN_EXCEPTIONS') {
+        return { kind: 'ADMIN_EXCEPTIONS', text: String(reply.title || '') };
+      }
       if (id === 'ROLE_MENU') {
         return { kind: 'ROLE_MENU', text: String(reply.title || '') };
       }
@@ -151,6 +166,12 @@ function parseInteraction_(message) {
 
   if (message.type === 'button' && message.button) {
     const payload = String(message.button.payload || '');
+    if (payload === 'ADMIN_EXCEPTIONS') {
+      return {
+        kind: 'ADMIN_EXCEPTIONS',
+        text: String(message.button.text || '')
+      };
+    }
     if (payload.indexOf('SPEAK|') === 0) {
       const parts = payload.split('|');
       return {
