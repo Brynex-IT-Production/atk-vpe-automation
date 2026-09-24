@@ -12,6 +12,8 @@ function phase1ScheduledTick() {
   syncPhase1Tasks_();
   processVacantRoleReminders_();
   processReadyIntroductionBundles_();
+  processSpeakerDetailPrompts_();
+  processEvaluatorNotifications_();
 }
 
 function installPhase1Triggers_() {
