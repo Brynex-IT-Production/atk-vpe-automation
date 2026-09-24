@@ -526,19 +526,33 @@ function isDuplicateWebhookMessage_(messageId) {
   return false;
 }
 
-function configValue_(key, fallback) {
+let CONFIG_CACHE_ = null;
+
+function getConfigMap_() {
+  if (CONFIG_CACHE_) return CONFIG_CACHE_;
+
+  const map = {};
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const sheet = ss.getSheetByName('Automation Config');
-  if (!sheet || sheet.getLastRow() < 2) return fallback;
 
-  const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).getValues();
-  for (let i = 0; i < rows.length; i++) {
-    if (String(rows[i][0] || '').trim() === key) {
-      const value = rows[i][1];
-      return value === '' || value === null ? fallback : String(value);
-    }
+  if (sheet && sheet.getLastRow() >= 2) {
+    const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).getValues();
+    rows.forEach(row => {
+      const key = String(row[0] || '').trim();
+      if (key) map[key] = row[1];
+    });
   }
-  return fallback;
+
+  CONFIG_CACHE_ = map;
+  return CONFIG_CACHE_;
+}
+
+function configValue_(key, fallback) {
+  const map = getConfigMap_();
+  if (!Object.prototype.hasOwnProperty.call(map, key)) return fallback;
+
+  const value = map[key];
+  return value === '' || value === null ? fallback : String(value);
 }
 
 function configBool_(key) {
