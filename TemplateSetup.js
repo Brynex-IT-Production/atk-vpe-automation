@@ -205,3 +205,86 @@ function createOrReadTemplate_(token, wabaId, spec) {
     error: parsed.error && parsed.error.message ? parsed.error.message : body
   };
 }
+
+
+function syncAtkTemplateApprovalStatus_() {
+  const props = PropertiesService.getScriptProperties();
+  const token = props.getProperty('META_ACCESS_TOKEN');
+  const wabaId = props.getProperty('WA_WABA_ID');
+  if (!token || !wabaId) return;
+
+  const specs = getAtkWhatsAppTemplateSpecs_();
+  const wanted = new Set(specs.map(s => s.name));
+
+  const url =
+    'https://graph.facebook.com/v26.0/' +
+    encodeURIComponent(wabaId) +
+    '/message_templates?fields=id,name,status,category,language&limit=100';
+
+  const response = UrlFetchApp.fetch(url, {
+    method: 'get',
+    headers: { Authorization: 'Bearer ' + token },
+    muteHttpExceptions: true
+  });
+
+  const http = response.getResponseCode();
+  if (http < 200 || http >= 300) {
+    logAutomation_(
+      'WhatsApp Templates',
+      '',
+      '',
+      'Approval status sync',
+      'Error',
+      'HTTP ' + http + ': ' + response.getContentText()
+    );
+    return;
+  }
+
+  const data = JSON.parse(response.getContentText() || '{}').data || [];
+  const statusMap = {};
+  data.forEach(t => {
+    if (wanted.has(t.name) && t.language === 'en_US') {
+      statusMap[t.name] = {
+        status: String(t.status || 'UNKNOWN'),
+        category: String(t.category || '')
+      };
+    }
+  });
+
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = ss.getSheetByName('Automation Config');
+  if (!sheet) return;
+
+  const rows = sheet.getRange(48, 1, 10, 4).getValues();
+  const updates = [];
+  let changed = false;
+
+  rows.forEach(row => {
+    const key = String(row[0] || '');
+    const templateName = String(row[1] || '');
+    const oldStatus = String(row[3] || '');
+    const meta = statusMap[templateName];
+
+    let newStatus = oldStatus;
+    if (meta) {
+      newStatus = meta.status + (meta.category ? ' · ' + meta.category : '');
+    } else if (templateName) {
+      newStatus = 'NOT FOUND';
+    }
+
+    updates.push([newStatus]);
+    if (newStatus !== oldStatus) changed = true;
+  });
+
+  if (changed) {
+    sheet.getRange(48, 4, 10, 1).setValues(updates);
+    logAutomation_(
+      'WhatsApp Templates',
+      '',
+      '',
+      'Approval status sync',
+      'Success',
+      'Template review statuses updated'
+    );
+  }
+}
