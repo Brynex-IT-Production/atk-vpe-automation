@@ -38,6 +38,18 @@ function doPost(e) {
 
     const payload = JSON.parse(e.postData.contents);
 
+    if (
+      payload &&
+      payload.system_action === 'PHASE1_TICK' &&
+      payload.verify_token === VERIFY_TOKEN
+    ) {
+      phase1ScheduledTick();
+
+      return ContentService
+        .createTextOutput('PHASE1_TICK_OK')
+        .setMimeType(ContentService.MimeType.TEXT);
+    }
+
     logWhatsAppWebhook_(payload);
     processWhatsAppAutomation_(payload);
 
