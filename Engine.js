@@ -77,6 +77,11 @@ function processInboundWhatsAppMessage_(message) {
   // VPE-only administration through WhatsApp.
   const rawText = String(interaction.text || '').trim();
   const vpeMember = configValue_('VPE_MEMBER_NAME', 'Riyas AF');
+
+  if (handleStructuredSubmission_(member, phone, rawText, messageId)) {
+    return;
+  }
+
   if (member === vpeMember && rawText.toUpperCase() === 'ADMIN SETUP') {
     if (configBool_('TASK_ENGINE_ENABLED')) {
       syncPhase1Tasks_();
@@ -277,6 +282,13 @@ function handleRoleSelection_(member, phone, interaction) {
       if (configBool_('TASK_ENGINE_ENABLED')) {
         syncPhase1Tasks_();
       }
+
+      sendImmediateAssignmentPrompts_(
+        interaction.meetingNo,
+        roleDef,
+        member,
+        phone
+      );
       return;
     }
 
