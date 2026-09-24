@@ -1,0 +1,176 @@
+/**
+ * Scheduled WhatsApp messaging layer.
+ *
+ * Free-form messages are used only when the member has an open service window.
+ * Otherwise an approved template name must be configured for that message kind.
+ * The actual template definitions/approval remain in Meta.
+ */
+
+let WA_INBOUND_CACHE_ = null;
+
+function getLastInboundMap_() {
+  if (WA_INBOUND_CACHE_) return WA_INBOUND_CACHE_;
+
+  const map = {};
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = ss.getSheetByName('WA Webhook Log');
+
+  if (sheet && sheet.getLastRow() >= 2) {
+    const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 3).getValues();
+    rows.forEach(row => {
+      const at = row[0];
+      const event = String(row[1] || '').trim();
+      const phone = normalizePhone_(row[2] || '');
+      if (event !== 'Incoming Message' || !phone || !(at instanceof Date)) return;
+
+      if (!map[phone] || at > map[phone]) {
+        map[phone] = at;
+      }
+    });
+  }
+
+  WA_INBOUND_CACHE_ = map;
+  return WA_INBOUND_CACHE_;
+}
+
+function hasOpenWhatsAppServiceWindow_(phone) {
+  const destination = normalizePhone_(phone);
+  const lastInbound = getLastInboundMap_()[destination];
+  if (!(lastInbound instanceof Date)) return false;
+
+  // Small safety margin so a message is not attempted on the exact boundary.
+  const hours = Math.max(
+    1,
+    Number(configValue_('WA_SERVICE_WINDOW_HOURS', '23.5')) || 23.5
+  );
+
+  return (new Date().getTime() - lastInbound.getTime()) <= hours * 60 * 60 * 1000;
+}
+
+function templateNameForKind_(kind) {
+  return String(
+    configValue_('WA_TEMPLATE_' + String(kind || '').toUpperCase(), '')
+  ).trim();
+}
+
+function sendAutomatedText_(phone, kind, freeformBody, templateParams) {
+  const destination = normalizePhone_(phone);
+  if (!destination) return { ok: false, error: 'Missing destination phone.' };
+
+  if (hasOpenWhatsAppServiceWindow_(destination)) {
+    const result = sendWhatsAppText_(destination, freeformBody);
+    result.channelMode = 'FREEFORM';
+    return result;
+  }
+
+  const templateName = templateNameForKind_(kind);
+  if (!templateName) {
+    logAutomation_(
+      'WhatsApp',
+      '',
+      destination,
+      'Template required for scheduled message: ' + kind,
+      'Deferred',
+      'No approved template configured'
+    );
+
+    return {
+      ok: false,
+      deferred: true,
+      templateRequired: true,
+      error: 'No approved WhatsApp template configured for ' + kind + '.'
+    };
+  }
+
+  const result = sendWhatsAppTemplate_(
+    destination,
+    templateName,
+    templateParams || [],
+    null
+  );
+  result.channelMode = 'TEMPLATE';
+  return result;
+}
+
+function sendAutomatedQuickReply_(phone, kind, freeformPayload, templateParams, buttonPayload) {
+  const destination = normalizePhone_(phone);
+  if (!destination) return { ok: false, error: 'Missing destination phone.' };
+
+  if (hasOpenWhatsAppServiceWindow_(destination)) {
+    const result = sendWhatsAppPayload_(freeformPayload);
+    result.channelMode = 'FREEFORM';
+    return result;
+  }
+
+  const templateName = templateNameForKind_(kind);
+  if (!templateName) {
+    logAutomation_(
+      'WhatsApp',
+      '',
+      destination,
+      'Template required for scheduled interactive message: ' + kind,
+      'Deferred',
+      'No approved template configured'
+    );
+
+    return {
+      ok: false,
+      deferred: true,
+      templateRequired: true,
+      error: 'No approved WhatsApp template configured for ' + kind + '.'
+    };
+  }
+
+  const result = sendWhatsAppTemplate_(
+    destination,
+    templateName,
+    templateParams || [],
+    buttonPayload || null
+  );
+  result.channelMode = 'TEMPLATE';
+  return result;
+}
+
+function sendWhatsAppTemplate_(phone, templateName, bodyParams, quickReplyPayload) {
+  const components = [];
+  const params = (bodyParams || []).map(value => ({
+    type: 'text',
+    text: String(value === null || value === undefined ? '' : value)
+  }));
+
+  if (params.length) {
+    components.push({
+      type: 'body',
+      parameters: params
+    });
+  }
+
+  if (quickReplyPayload) {
+    components.push({
+      type: 'button',
+      sub_type: 'quick_reply',
+      index: '0',
+      parameters: [{
+        type: 'payload',
+        payload: String(quickReplyPayload)
+      }]
+    });
+  }
+
+  const template = {
+    name: templateName,
+    language: {
+      code: configValue_('WA_TEMPLATE_LANGUAGE', 'en_US')
+    }
+  };
+
+  if (components.length) template.components = components;
+
+  return sendWhatsAppPayload_({
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to: normalizePhone_(phone),
+    type: 'template',
+    template: template
+  });
+}
