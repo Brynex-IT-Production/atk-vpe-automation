@@ -78,8 +78,11 @@ function processInboundWhatsAppMessage_(message) {
   const rawText = String(interaction.text || '').trim();
   const vpeMember = configValue_('VPE_MEMBER_NAME', 'Riyas AF');
   if (member === vpeMember && rawText.toUpperCase() === 'ADMIN SETUP') {
-    const setup = installPhase1Triggers_();
-    sendWhatsAppText_(phone, setup);
+    if (configBool_('TASK_ENGINE_ENABLED')) {
+      syncPhase1Tasks_();
+    }
+    sendWhatsAppText_(phone,
+      'ATK Phase 1 setup is active ✅\nThe hourly scheduler is managed automatically through GitHub Actions, so no Apps Script trigger authorization is required.');
     return;
   }
 
