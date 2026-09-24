@@ -1,0 +1,38 @@
+name: ATK Phase 1 Hourly Scheduler
+
+on:
+  schedule:
+    - cron: '12 * * * *'
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/phase1-scheduler.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atk-phase1-hourly
+  cancel-in-progress: false
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run Phase 1 scheduler tick
+        shell: bash
+        run: |
+          response=$(curl --fail-with-body --silent --show-error \
+            --request POST \
+            --header 'Content-Type: application/json' \
+            --data '{"system_action":"PHASE1_TICK","verify_token":"ATK_VPE_VERIFY_2026_X7K9M4P2"}' \
+            'https://script.google.com/macros/s/AKfycbwzHdJptr44J1aWN4UqHp6qN435kwFPbG8ngYGEYABqypF2urE0Jyd0hLd63M-wYVVE/exec')
+
+          echo "$response"
+
+          if [ "$response" != "PHASE1_TICK_OK" ]; then
+            echo "Unexpected scheduler response."
+            exit 1
+          fi
