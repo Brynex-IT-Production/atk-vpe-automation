@@ -187,19 +187,22 @@ function syncPhase1Tasks_() {
       });
 
       if (sp.evaluator) {
-        const materialKey = taskId_(meetingNo, 'EVALUATION_MATERIAL', slotRef, sp.member);
-        const materialDone = submissions.has(submissionKey_(meetingNo, sp.member, 'EVALUATION_MATERIAL', slotRef));
-
-        generated[materialKey] = buildTask_(existing[materialKey], {
-          taskId: materialKey,
+        const coordinationKey = taskId_(meetingNo, 'EVALUATOR_COORDINATION', slotRef, sp.member);
+        generated[coordinationKey] = buildTask_(existing[coordinationKey], {
+          taskId: coordinationKey,
           meetingNo,
-          taskType: 'EVALUATION_MATERIAL',
+          taskType: 'EVALUATOR_COORDINATION',
           member: sp.member,
           related: slotRef,
-          state: materialDone ? 'Completed' : 'Pending',
-          dueAt: daysBefore_(meetingDate, Number(configValue_('EVALUATION_MATERIAL_DUE_DAYS', '3')) || 3),
+          state: 'Pending',
+          dueAt: daysBefore_(meetingDate, Number(configValue_('EVALUATOR_COORDINATION_DUE_DAYS', '5')) || 5),
           reference: sp.evaluator,
-          payload: JSON.stringify({ speaker: sp.member, evaluator: sp.evaluator, slot: sp.slot })
+          payload: JSON.stringify({
+            speaker: sp.member,
+            evaluator: sp.evaluator,
+            slot: sp.slot,
+            mode: 'DIRECT_COMMUNICATION_REMINDER_ONLY'
+          })
         });
       }
     });
