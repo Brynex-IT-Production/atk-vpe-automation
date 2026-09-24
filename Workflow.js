@@ -278,18 +278,32 @@ function appendSubmission_(data) {
   return true;
 }
 
-function phoneForMember_(member) {
+let MEMBER_PHONE_CACHE_ = null;
+
+function getMemberPhoneMap_() {
+  if (MEMBER_PHONE_CACHE_) return MEMBER_PHONE_CACHE_;
+
+  const map = {};
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const sheet = ss.getSheetByName('Member Master');
-  if (!sheet || sheet.getLastRow() < 2) return '';
 
-  const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 4).getValues();
-  const match = rows.find(r =>
-    String(r[1] || '').trim() === member &&
-    String(r[3] || '').trim() === 'Active'
-  );
+  if (sheet && sheet.getLastRow() >= 2) {
+    const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 4).getValues();
+    rows.forEach(r => {
+      const name = String(r[1] || '').trim();
+      const status = String(r[3] || '').trim();
+      if (name && status === 'Active') {
+        map[name] = normalizePhone_(r[2] || '');
+      }
+    });
+  }
 
-  return match ? normalizePhone_(match[2] || '') : '';
+  MEMBER_PHONE_CACHE_ = map;
+  return MEMBER_PHONE_CACHE_;
+}
+
+function phoneForMember_(member) {
+  return getMemberPhoneMap_()[String(member || '').trim()] || '';
 }
 
 function recordWorkflowOutbound_(member, phone, kind, text, meetingNo, result, idempotencyKey) {
@@ -484,6 +498,7 @@ function processSpeakerDetailPrompts_() {
     const slotRef = String(row[4] || '').trim();
     const phone = phoneForMember_(member);
     if (!meetingNo || !member || !slotRef || !phone) return;
+    if (!isWhatsAppRecipientAllowed_(phone)) return;
 
     const key = ['SPEAKER_DETAILS_PROMPT', meetingNo, slotRef, member].join('|');
     if (hasReminderBeenSent_(key)) return;
@@ -572,7 +587,7 @@ function processEvaluatorCoordinationForMeeting_(meetingNo, daysLeft, reminderDa
 
     // Always try the initial pairing notification once.
     const initialSpeakerKey = ['EVALUATOR_PAIR_SPEAKER', meetingNo, sp.slotRef, sp.member, sp.evaluator].join('|');
-    if (speakerPhone && !hasReminderBeenSent_(initialSpeakerKey)) {
+    if (speakerPhone && isWhatsAppRecipientAllowed_(speakerPhone) && !hasReminderBeenSent_(initialSpeakerKey)) {
       const text =
         'Hi ' + sp.member + ',\n\n' +
         sp.evaluator + ' is your evaluator for ATK Meeting ' + meetingNo + '.\n\n' +
@@ -597,7 +612,7 @@ function processEvaluatorCoordinationForMeeting_(meetingNo, daysLeft, reminderDa
     }
 
     const initialEvaluatorKey = ['EVALUATOR_PAIR_EVALUATOR', meetingNo, sp.slotRef, sp.evaluator, sp.member].join('|');
-    if (evaluatorPhone && !hasReminderBeenSent_(initialEvaluatorKey)) {
+    if (evaluatorPhone && isWhatsAppRecipientAllowed_(evaluatorPhone) && !hasReminderBeenSent_(initialEvaluatorKey)) {
       const text =
         'Hi ' + sp.evaluator + ',\n\n' +
         'You are the evaluator for ' + sp.member + ' in ATK Meeting ' + meetingNo + '.\n\n' +
@@ -626,7 +641,7 @@ function processEvaluatorCoordinationForMeeting_(meetingNo, daysLeft, reminderDa
     const reminderSuffix = 'D' + daysLeft;
 
     const speakerReminderKey = ['EVALUATOR_COORD_REMINDER_SPEAKER', meetingNo, sp.slotRef, reminderSuffix, sp.member].join('|');
-    if (speakerPhone && !hasReminderBeenSent_(speakerReminderKey)) {
+    if (speakerPhone && isWhatsAppRecipientAllowed_(speakerPhone) && !hasReminderBeenSent_(speakerReminderKey)) {
       const text =
         'Hi ' + sp.member + ',\n\n' +
         'A quick reminder for ATK Meeting ' + meetingNo + ': please connect directly with ' +
@@ -636,7 +651,7 @@ function processEvaluatorCoordinationForMeeting_(meetingNo, daysLeft, reminderDa
     }
 
     const evaluatorReminderKey = ['EVALUATOR_COORD_REMINDER_EVALUATOR', meetingNo, sp.slotRef, reminderSuffix, sp.evaluator].join('|');
-    if (evaluatorPhone && !hasReminderBeenSent_(evaluatorReminderKey)) {
+    if (evaluatorPhone && isWhatsAppRecipientAllowed_(evaluatorPhone) && !hasReminderBeenSent_(evaluatorReminderKey)) {
       const text =
         'Hi ' + sp.evaluator + ',\n\n' +
         'A quick reminder for ATK Meeting ' + meetingNo + ': please connect directly with ' +
