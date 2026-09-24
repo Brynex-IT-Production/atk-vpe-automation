@@ -33,8 +33,10 @@ function sendImmediateAssignmentPrompts_(meetingNo, roleDef, member, phone) {
 
   if (roleDef.code === 'TMOD' && configBool_('TMOD_WORKFLOW_ENABLED')) {
     prompts.push(
-      'As Toastmaster for ATK Meeting ' + meetingNo +
-      ', please send the meeting theme like this:\n\nTHEME ' + meetingNo + ': Your theme'
+      'Hi ' + member + ',\n\n' +
+      'Please share the theme at the earliest, so that the role players can align with the same.\n\n' +
+      'Thank you.\n\n' +
+      'Reply in this format:\nTHEME ' + meetingNo + ': Your theme'
     );
   }
 
