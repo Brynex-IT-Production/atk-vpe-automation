@@ -69,6 +69,11 @@ function processInboundWhatsAppMessage_(message) {
     return;
   }
 
+  if (interaction.kind === 'SPEECH_SLOT_ACCEPT') {
+    handleSpeechSlotSelection_(member, phone, interaction);
+    return;
+  }
+
   if (interaction.kind === 'ROLE_MENU') {
     handleRoleMenuRequest_(member, phone);
     return;
@@ -121,6 +126,14 @@ function parseInteraction_(message) {
           text: String(reply.title || '')
         };
       }
+      if (id.indexOf('SPEAK|') === 0) {
+        const parts = id.split('|');
+        return {
+          kind: 'SPEECH_SLOT_ACCEPT',
+          meetingNo: Number(parts[1]),
+          text: String(reply.title || '')
+        };
+      }
       if (id === 'ROLE_MENU') {
         return { kind: 'ROLE_MENU', text: String(reply.title || '') };
       }
@@ -129,6 +142,14 @@ function parseInteraction_(message) {
 
   if (message.type === 'button' && message.button) {
     const payload = String(message.button.payload || '');
+    if (payload.indexOf('SPEAK|') === 0) {
+      const parts = payload.split('|');
+      return {
+        kind: 'SPEECH_SLOT_ACCEPT',
+        meetingNo: Number(parts[1]),
+        text: String(message.button.text || '')
+      };
+    }
     if (payload === 'ROLE_MENU') {
       return { kind: 'ROLE_MENU', text: String(message.button.text || '') };
     }
