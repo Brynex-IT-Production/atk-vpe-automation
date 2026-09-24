@@ -516,6 +516,11 @@ function processEvaluatorNotifications_() {
   if (!planner) return;
 
   const today = startOfDay_(new Date());
+  const reminderDays = String(configValue_('EVALUATOR_COORDINATION_REMINDER_DAYS', '5,2'))
+    .split(',')
+    .map(v => Number(String(v).trim()))
+    .filter(v => Number.isFinite(v) && v >= 0);
+
   const rows = planner.getRange(
     3,
     1,
@@ -528,20 +533,24 @@ function processEvaluatorNotifications_() {
     const meetingDate = row[1];
     const status = String(row[2] || '');
     if (!meetingNo || !(meetingDate instanceof Date)) return;
-    if (startOfDay_(meetingDate) < today) return;
     if (status === 'Completed' || status === 'Cancelled') return;
 
-    processEvaluatorNotificationsForMeeting_(meetingNo);
+    const daysLeft = Math.round((startOfDay_(meetingDate) - today) / 86400000);
+    processEvaluatorCoordinationForMeeting_(meetingNo, daysLeft, reminderDays);
   });
 }
 
 function processEvaluatorNotificationsForMeeting_(meetingNo) {
+  // Immediate pairing notification after speaker details or evaluator assignment changes.
+  return processEvaluatorCoordinationForMeeting_(meetingNo, null, []);
+}
+
+function processEvaluatorCoordinationForMeeting_(meetingNo, daysLeft, reminderDays) {
   if (!configBool_('EVALUATION_WORKFLOW_ENABLED')) return false;
 
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const planner = ss.getSheetByName('VPE Weekly Planner');
-  const submissions = ss.getSheetByName('WA Submissions');
-  if (!planner || !submissions) return false;
+  if (!planner) return false;
 
   const lastRow = Math.min(62, planner.getLastRow());
   const ids = planner.getRange(3, 1, Math.max(0, lastRow - 2), 1).getValues().flat();
@@ -550,14 +559,10 @@ function processEvaluatorNotificationsForMeeting_(meetingNo) {
 
   const row = planner.getRange(idx + 3, 1, 1, 28).getValues()[0];
   const speakers = [
-    {slot: 1, slotRef: 'S1', member: String(row[6] || '').trim(), evaluator: String(row[25] || '').trim()},
-    {slot: 2, slotRef: 'S2', member: String(row[10] || '').trim(), evaluator: String(row[26] || '').trim()},
-    {slot: 3, slotRef: 'S3', member: String(row[14] || '').trim(), evaluator: String(row[27] || '').trim()}
+    {slotRef: 'S1', member: String(row[6] || '').trim(), evaluator: String(row[25] || '').trim()},
+    {slotRef: 'S2', member: String(row[10] || '').trim(), evaluator: String(row[26] || '').trim()},
+    {slotRef: 'S3', member: String(row[14] || '').trim(), evaluator: String(row[27] || '').trim()}
   ];
-
-  const submissionRows = submissions.getLastRow() >= 2
-    ? submissions.getRange(2, 1, submissions.getLastRow() - 1, 14).getValues()
-    : [];
 
   speakers.forEach(sp => {
     if (!sp.member || !sp.evaluator) return;
@@ -565,48 +570,80 @@ function processEvaluatorNotificationsForMeeting_(meetingNo) {
     const speakerPhone = phoneForMember_(sp.member);
     const evaluatorPhone = phoneForMember_(sp.evaluator);
 
-    const speakerKey = ['EVALUATOR_ASSIGNED_SPEAKER', meetingNo, sp.slotRef, sp.member, sp.evaluator].join('|');
-    if (speakerPhone && !hasReminderBeenSent_(speakerKey)) {
+    // Always try the initial pairing notification once.
+    const initialSpeakerKey = ['EVALUATOR_PAIR_SPEAKER', meetingNo, sp.slotRef, sp.member, sp.evaluator].join('|');
+    if (speakerPhone && !hasReminderBeenSent_(initialSpeakerKey)) {
       const text =
         'Hi ' + sp.member + ',\n\n' +
         sp.evaluator + ' is your evaluator for ATK Meeting ' + meetingNo + '.\n\n' +
-        'Please share your project/evaluation material here once it is ready.\n\n' +
+        'Please connect with your evaluator directly and share the following at the earliest:\n' +
+        '• Speech title\n' +
+        '• Path, Level & Project\n' +
+        '• Project / evaluation sheet\n' +
+        '• Your project objective and any specific area where you would like feedback\n\n' +
+        'Direct communication between you and your evaluator is important before the meeting.\n\n' +
         'Thank you.';
+
       const result = sendWhatsAppText_(speakerPhone, text);
-      recordWorkflowOutbound_(sp.member, speakerPhone, 'EVALUATOR_ASSIGNED', text, meetingNo, result, speakerKey);
+      recordWorkflowOutbound_(sp.member, speakerPhone, 'EVALUATOR_PAIRING', text, meetingNo, result, initialSpeakerKey);
+      logAutomation_(
+        'Evaluation Coordination',
+        meetingNo,
+        sp.member,
+        'Speaker informed of evaluator',
+        result.ok ? 'Sent' : (result.blocked ? 'Blocked' : 'Error'),
+        sp.evaluator
+      );
     }
 
-    const details = submissionRows.find(r =>
-      Number(r[1]) === Number(meetingNo) &&
-      String(r[2] || '').trim() === sp.member &&
-      String(r[3] || '').trim() === 'SPEAKER_DETAILS' &&
-      String(r[4] || '').trim() === sp.slotRef
-    );
+    const initialEvaluatorKey = ['EVALUATOR_PAIR_EVALUATOR', meetingNo, sp.slotRef, sp.evaluator, sp.member].join('|');
+    if (evaluatorPhone && !hasReminderBeenSent_(initialEvaluatorKey)) {
+      const text =
+        'Hi ' + sp.evaluator + ',\n\n' +
+        'You are the evaluator for ' + sp.member + ' in ATK Meeting ' + meetingNo + '.\n\n' +
+        'Please connect with the speaker directly before the meeting and ensure you receive:\n' +
+        '• Speech title\n' +
+        '• Path, Level & Project\n' +
+        '• Project / evaluation sheet\n' +
+        '• Project objective and any specific feedback request from the speaker\n\n' +
+        'Please use the direct conversation to understand the project before the meeting.\n\n' +
+        'Thank you.';
 
-    if (!details || !evaluatorPhone) return;
+      const result = sendWhatsAppText_(evaluatorPhone, text);
+      recordWorkflowOutbound_(sp.evaluator, evaluatorPhone, 'EVALUATOR_PAIRING', text, meetingNo, result, initialEvaluatorKey);
+      logAutomation_(
+        'Evaluation Coordination',
+        meetingNo,
+        sp.evaluator,
+        'Evaluator informed of speaker',
+        result.ok ? 'Sent' : (result.blocked ? 'Blocked' : 'Error'),
+        sp.member
+      );
+    }
 
-    const evaluatorKey = ['EVALUATOR_BRIEF', meetingNo, sp.slotRef, sp.evaluator, sp.member].join('|');
-    if (hasReminderBeenSent_(evaluatorKey)) return;
+    if (daysLeft === null || reminderDays.indexOf(daysLeft) === -1) return;
 
-    const text =
-      'Hi ' + sp.evaluator + ',\n\n' +
-      'You are the evaluator for ' + sp.member + ' in ATK Meeting ' + meetingNo + '.\n\n' +
-      'Speech: ' + String(details[5] || '') + '\n' +
-      'Path: ' + String(details[6] || '') + '\n' +
-      'Level: ' + String(details[7] || '') + '\n' +
-      'Project: ' + String(details[8] || '') + '\n\n' +
-      'The project/evaluation material will be shared with you once received.';
+    const reminderSuffix = 'D' + daysLeft;
 
-    const result = sendWhatsAppText_(evaluatorPhone, text);
-    recordWorkflowOutbound_(sp.evaluator, evaluatorPhone, 'EVALUATOR_BRIEF', text, meetingNo, result, evaluatorKey);
-    logAutomation_(
-      'Evaluation',
-      meetingNo,
-      sp.evaluator,
-      'Evaluator brief',
-      result.ok ? 'Sent' : (result.blocked ? 'Blocked' : 'Error'),
-      sp.member
-    );
+    const speakerReminderKey = ['EVALUATOR_COORD_REMINDER_SPEAKER', meetingNo, sp.slotRef, reminderSuffix, sp.member].join('|');
+    if (speakerPhone && !hasReminderBeenSent_(speakerReminderKey)) {
+      const text =
+        'Hi ' + sp.member + ',\n\n' +
+        'A quick reminder for ATK Meeting ' + meetingNo + ': please connect directly with ' +
+        sp.evaluator + ' and make sure you have shared your speech title, Path, Level, Project, project/evaluation sheet, and any specific feedback area.\n\nThank you.';
+      const result = sendWhatsAppText_(speakerPhone, text);
+      recordWorkflowOutbound_(sp.member, speakerPhone, 'EVALUATOR_COORD_REMINDER', text, meetingNo, result, speakerReminderKey);
+    }
+
+    const evaluatorReminderKey = ['EVALUATOR_COORD_REMINDER_EVALUATOR', meetingNo, sp.slotRef, reminderSuffix, sp.evaluator].join('|');
+    if (evaluatorPhone && !hasReminderBeenSent_(evaluatorReminderKey)) {
+      const text =
+        'Hi ' + sp.evaluator + ',\n\n' +
+        'A quick reminder for ATK Meeting ' + meetingNo + ': please connect directly with ' +
+        sp.member + ' and confirm you have the speech title, Path, Level, Project, project/evaluation sheet, and the speaker\'s specific feedback expectations.\n\nThank you.';
+      const result = sendWhatsAppText_(evaluatorPhone, text);
+      recordWorkflowOutbound_(sp.evaluator, evaluatorPhone, 'EVALUATOR_COORD_REMINDER', text, meetingNo, result, evaluatorReminderKey);
+    }
   });
 
   return true;
