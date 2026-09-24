@@ -25,6 +25,13 @@ function handleStructuredSubmission_(member, phone, rawText, messageId) {
     return true;
   }
 
+
+  const speechMatch = text.match(/^SPEECH(?:\s+(\d+))?\s*:\s*(.+)$/i);
+  if (speechMatch) {
+    handleSpeakerDetailsSubmission_(member, phone, Number(speechMatch[1] || 0), speechMatch[2], messageId);
+    return true;
+  }
+
   return false;
 }
 
@@ -373,4 +380,234 @@ function sendConsolidatedIntroductionsIfReady_(meetingNo) {
   logAutomation_('Introduction', meetingNo, tmod, 'Consolidated introductions sent to TMOD', result.ok ? 'Sent' : 'Error', result.error || '');
 
   return Boolean(result.ok);
+}
+
+
+function handleSpeakerDetailsSubmission_(member, phone, requestedMeetingNo, body, messageId) {
+  if (!configBool_('SPEAKER_DETAILS_WORKFLOW_ENABLED')) {
+    sendWhatsAppText_(phone, 'Speaker-detail collection is not active yet.');
+    return;
+  }
+
+  const task = findPendingTaskForMember_('SPEAKER_DETAILS', member, requestedMeetingNo);
+  if (!task) {
+    sendWhatsAppText_(phone, 'I could not find a pending speech-detail request for you.');
+    return;
+  }
+
+  const parts = String(body || '').split('|').map(v => v.trim());
+  if (parts.length < 4 || parts.slice(0, 4).some(v => !v)) {
+    sendWhatsAppText_(phone,
+      'Please use this format:\nSPEECH ' + task.meetingNo +
+      ': Speech Title | Path | Level | Project');
+    return;
+  }
+
+  const assignment = verifySpeakerAssignment_(task.meetingNo, task.related, member);
+  if (!assignment.ok) {
+    sendWhatsAppText_(phone,
+      'Your speaking assignment for Meeting ' + task.meetingNo +
+      ' has changed, so I did not save these details.');
+    syncPhase1Tasks_();
+    return;
+  }
+
+  appendSubmission_({
+    meetingNo: task.meetingNo,
+    member,
+    type: 'SPEAKER_DETAILS',
+    related: task.related,
+    values: parts.slice(0, 4),
+    sourceMessageId: messageId
+  });
+
+  syncPhase1Tasks_();
+
+  sendWhatsAppText_(phone,
+    'Speech details received ✅\n' +
+    'Title: ' + parts[0] + '\n' +
+    'Path: ' + parts[1] + '\n' +
+    'Level: ' + parts[2] + '\n' +
+    'Project: ' + parts[3]);
+
+  logAutomation_(
+    'Speaker Details',
+    task.meetingNo,
+    member,
+    'Speech details received',
+    'Success',
+    task.related
+  );
+
+  processEvaluatorNotificationsForMeeting_(task.meetingNo);
+}
+
+function verifySpeakerAssignment_(meetingNo, slotRef, member) {
+  const slot = Number(String(slotRef || '').replace(/^S/i, ''));
+  const columnMap = {1: 7, 2: 11, 3: 15};
+  const column = columnMap[slot];
+  if (!column) return { ok: false };
+
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = ss.getSheetByName('VPE Weekly Planner');
+  if (!sheet) return { ok: false };
+
+  const lastRow = Math.min(62, sheet.getLastRow());
+  const ids = sheet.getRange(3, 1, Math.max(0, lastRow - 2), 1).getValues().flat();
+  const idx = ids.findIndex(v => Number(v) === Number(meetingNo));
+  if (idx < 0) return { ok: false };
+
+  const rowNumber = idx + 3;
+  const assigned = String(sheet.getRange(rowNumber, column).getValue() || '').trim();
+  return { ok: assigned === member, sheet, rowNumber, assigned, slot, column };
+}
+
+function processSpeakerDetailPrompts_() {
+  if (!configBool_('SPEAKER_DETAILS_WORKFLOW_ENABLED')) return;
+
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const tasks = ss.getSheetByName('Automation Tasks');
+  if (!tasks || tasks.getLastRow() < 2) return;
+
+  const rows = tasks.getRange(2, 1, tasks.getLastRow() - 1, 18).getValues();
+  const today = new Date();
+
+  rows.forEach(row => {
+    const taskType = String(row[2] || '');
+    const state = String(row[5] || '');
+    const dueAt = row[6];
+    if (taskType !== 'SPEAKER_DETAILS' || state !== 'Pending') return;
+    if (!(dueAt instanceof Date) || dueAt > today) return;
+
+    const meetingNo = Number(row[1]);
+    const member = String(row[3] || '').trim();
+    const slotRef = String(row[4] || '').trim();
+    const phone = phoneForMember_(member);
+    if (!meetingNo || !member || !slotRef || !phone) return;
+
+    const key = ['SPEAKER_DETAILS_PROMPT', meetingNo, slotRef, member].join('|');
+    if (hasReminderBeenSent_(key)) return;
+
+    const text =
+      'Hi ' + member + ',\n\n' +
+      'Please share your speech details for ATK Meeting ' + meetingNo + '.\n\n' +
+      'Reply in this format:\n' +
+      'SPEECH ' + meetingNo + ': Speech Title | Path | Level | Project\n\n' +
+      'Thank you.';
+
+    const result = sendWhatsAppText_(phone, text);
+    recordWorkflowOutbound_(member, phone, 'SPEAKER_DETAILS_PROMPT', text, meetingNo, result, key);
+    logAutomation_(
+      'Speaker Details',
+      meetingNo,
+      member,
+      'Speech-detail prompt',
+      result.ok ? 'Sent' : (result.blocked ? 'Blocked' : 'Error'),
+      result.error || slotRef
+    );
+  });
+}
+
+function processEvaluatorNotifications_() {
+  if (!configBool_('EVALUATION_WORKFLOW_ENABLED')) return;
+
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const planner = ss.getSheetByName('VPE Weekly Planner');
+  if (!planner) return;
+
+  const today = startOfDay_(new Date());
+  const rows = planner.getRange(
+    3,
+    1,
+    Math.min(60, Math.max(0, planner.getLastRow() - 2)),
+    28
+  ).getValues();
+
+  rows.forEach(row => {
+    const meetingNo = Number(row[0]);
+    const meetingDate = row[1];
+    const status = String(row[2] || '');
+    if (!meetingNo || !(meetingDate instanceof Date)) return;
+    if (startOfDay_(meetingDate) < today) return;
+    if (status === 'Completed' || status === 'Cancelled') return;
+
+    processEvaluatorNotificationsForMeeting_(meetingNo);
+  });
+}
+
+function processEvaluatorNotificationsForMeeting_(meetingNo) {
+  if (!configBool_('EVALUATION_WORKFLOW_ENABLED')) return false;
+
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const planner = ss.getSheetByName('VPE Weekly Planner');
+  const submissions = ss.getSheetByName('WA Submissions');
+  if (!planner || !submissions) return false;
+
+  const lastRow = Math.min(62, planner.getLastRow());
+  const ids = planner.getRange(3, 1, Math.max(0, lastRow - 2), 1).getValues().flat();
+  const idx = ids.findIndex(v => Number(v) === Number(meetingNo));
+  if (idx < 0) return false;
+
+  const row = planner.getRange(idx + 3, 1, 1, 28).getValues()[0];
+  const speakers = [
+    {slot: 1, slotRef: 'S1', member: String(row[6] || '').trim(), evaluator: String(row[25] || '').trim()},
+    {slot: 2, slotRef: 'S2', member: String(row[10] || '').trim(), evaluator: String(row[26] || '').trim()},
+    {slot: 3, slotRef: 'S3', member: String(row[14] || '').trim(), evaluator: String(row[27] || '').trim()}
+  ];
+
+  const submissionRows = submissions.getLastRow() >= 2
+    ? submissions.getRange(2, 1, submissions.getLastRow() - 1, 14).getValues()
+    : [];
+
+  speakers.forEach(sp => {
+    if (!sp.member || !sp.evaluator) return;
+
+    const speakerPhone = phoneForMember_(sp.member);
+    const evaluatorPhone = phoneForMember_(sp.evaluator);
+
+    const speakerKey = ['EVALUATOR_ASSIGNED_SPEAKER', meetingNo, sp.slotRef, sp.member, sp.evaluator].join('|');
+    if (speakerPhone && !hasReminderBeenSent_(speakerKey)) {
+      const text =
+        'Hi ' + sp.member + ',\n\n' +
+        sp.evaluator + ' is your evaluator for ATK Meeting ' + meetingNo + '.\n\n' +
+        'Please share your project/evaluation material here once it is ready.\n\n' +
+        'Thank you.';
+      const result = sendWhatsAppText_(speakerPhone, text);
+      recordWorkflowOutbound_(sp.member, speakerPhone, 'EVALUATOR_ASSIGNED', text, meetingNo, result, speakerKey);
+    }
+
+    const details = submissionRows.find(r =>
+      Number(r[1]) === Number(meetingNo) &&
+      String(r[2] || '').trim() === sp.member &&
+      String(r[3] || '').trim() === 'SPEAKER_DETAILS' &&
+      String(r[4] || '').trim() === sp.slotRef
+    );
+
+    if (!details || !evaluatorPhone) return;
+
+    const evaluatorKey = ['EVALUATOR_BRIEF', meetingNo, sp.slotRef, sp.evaluator, sp.member].join('|');
+    if (hasReminderBeenSent_(evaluatorKey)) return;
+
+    const text =
+      'Hi ' + sp.evaluator + ',\n\n' +
+      'You are the evaluator for ' + sp.member + ' in ATK Meeting ' + meetingNo + '.\n\n' +
+      'Speech: ' + String(details[5] || '') + '\n' +
+      'Path: ' + String(details[6] || '') + '\n' +
+      'Level: ' + String(details[7] || '') + '\n' +
+      'Project: ' + String(details[8] || '') + '\n\n' +
+      'The project/evaluation material will be shared with you once received.';
+
+    const result = sendWhatsAppText_(evaluatorPhone, text);
+    recordWorkflowOutbound_(sp.evaluator, evaluatorPhone, 'EVALUATOR_BRIEF', text, meetingNo, result, evaluatorKey);
+    logAutomation_(
+      'Evaluation',
+      meetingNo,
+      sp.evaluator,
+      'Evaluator brief',
+      result.ok ? 'Sent' : (result.blocked ? 'Blocked' : 'Error'),
+      sp.member
+    );
+  });
+
+  return true;
 }
