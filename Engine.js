@@ -58,6 +58,10 @@ function processInboundWhatsAppMessage_(message) {
     return;
   }
 
+  if (configBool_('TASK_ENGINE_ENABLED')) {
+    syncPhase1Tasks_();
+  }
+
   const interaction = parseInteraction_(message);
 
   if (interaction.kind === 'ROLE_SELECTION') {
@@ -70,8 +74,22 @@ function processInboundWhatsAppMessage_(message) {
     return;
   }
 
+  // VPE-only administration through WhatsApp.
+  const rawText = String(interaction.text || '').trim();
+  const vpeMember = configValue_('VPE_MEMBER_NAME', 'Riyas AF');
+  if (member === vpeMember && rawText.toUpperCase() === 'ADMIN SETUP') {
+    const setup = installPhase1Triggers_();
+    sendWhatsAppText_(phone, setup);
+    return;
+  }
+
+  if (member === vpeMember && rawText.toUpperCase() === 'ADMIN STATUS') {
+    sendWhatsAppText_(phone, buildPhase1StatusText_());
+    return;
+  }
+
   // Natural-language shortcuts for the permanent group link or direct chat.
-  const text = String(interaction.text || '').trim().toLowerCase();
+  const text = rawText.toLowerCase();
   if (['role', 'roles', 'choose role', 'choose my role', 'role selection'].includes(text)) {
     handleRoleMenuRequest_(member, phone);
     return;
@@ -252,6 +270,10 @@ function handleRoleSelection_(member, phone, interaction) {
 
       logAutomation_('Role Selection', interaction.meetingNo, member,
         'Role booked: ' + roleDef.name, 'Success', 'Planner row ' + result.rowNumber);
+
+      if (configBool_('TASK_ENGINE_ENABLED')) {
+        syncPhase1Tasks_();
+      }
       return;
     }
 
