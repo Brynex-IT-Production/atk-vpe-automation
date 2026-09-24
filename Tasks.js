@@ -11,6 +11,7 @@ function phase1ScheduledTick() {
   if (!configBool_('TASK_ENGINE_ENABLED')) return;
   syncPhase1Tasks_();
   processVacantRoleReminders_();
+  processReadyIntroductionBundles_();
 }
 
 function installPhase1Triggers_() {
@@ -443,4 +444,33 @@ function recordReminderSend_(idempotencyKey, member, meetingNo, result, text) {
     result.error || '',
     idempotencyKey
   ]);
+}
+
+
+function processReadyIntroductionBundles_() {
+  if (!configBool_('INTRO_WORKFLOW_ENABLED')) return;
+
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const planner = ss.getSheetByName('VPE Weekly Planner');
+  if (!planner) return;
+
+  const today = startOfDay_(new Date());
+  const rows = planner.getRange(
+    3,
+    1,
+    Math.min(60, Math.max(0, planner.getLastRow() - 2)),
+    24
+  ).getValues();
+
+  rows.forEach(row => {
+    const meetingNo = Number(row[0]);
+    const meetingDate = row[1];
+    const status = String(row[2] || '');
+
+    if (!meetingNo || !(meetingDate instanceof Date)) return;
+    if (startOfDay_(meetingDate) < today) return;
+    if (status === 'Completed' || status === 'Cancelled') return;
+
+    sendConsolidatedIntroductionsIfReady_(meetingNo);
+  });
 }
