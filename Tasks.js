@@ -9,6 +9,13 @@ const SUBMISSION_SHEET_ = 'WA Submissions';
 
 function phase1ScheduledTick() {
   if (!configBool_('TASK_ENGINE_ENABLED')) return;
+
+  try {
+    syncAtkTemplateApprovalStatus_();
+  } catch (error) {
+    logAutomation_('WhatsApp Templates', '', '', 'Approval status sync', 'Error', String(error));
+  }
+
   syncPhase1Tasks_();
   processVacantRoleReminders_();
   processAssignedRolePrompts_();
