@@ -1,0 +1,129 @@
+name: Deploy ATK VPE to DEV
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '*.js'
+      - '*.gs'
+      - '*.html'
+      - '.clasp.json'
+      - '.github/workflows/deploy-dev.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atk-vpe-dev
+  cancel-in-progress: false
+
+env:
+  ATK_DEV_SCRIPT_ID: 1LS3HabXjXOainAMiNLVVlRX5LEaA-o5Y7Kf31Fg-JQJZsR4ZKHI5zHUN
+  ATK_DEV_WEBAPP_DEPLOYMENT_ID: AKfycbwzHdJptr44J1aWN4UqHp6qN435kwFPbG8ngYGEYABqypF2urE0Jyd0hLd63M-wYVVE
+
+jobs:
+  deploy-dev:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Validate JavaScript
+        run: |
+          files=$(find . -maxdepth 1 -type f -name '*.js' -print)
+          if [ -z "$files" ]; then
+            echo "No JavaScript source files found."
+            exit 1
+          fi
+          while IFS= read -r file; do
+            node --check "$file"
+          done <<< "$files"
+
+      - name: Install clasp
+        run: npm install --global @google/clasp@3.4.1
+
+      - name: Configure clasp authentication
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+        run: |
+          if [ -z "$CLASPRC_JSON" ]; then
+            echo "CLASPRC_JSON secret is missing."
+            exit 1
+          fi
+
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          raw = os.environ.get('CLASPRC_JSON', '').strip()
+          start = raw.find('{')
+          end = raw.rfind('}')
+
+          if start == -1 or end == -1 or end < start:
+              raise SystemExit(
+                  'CLASPRC_JSON does not contain a JSON object.'
+              )
+
+          parsed = json.loads(raw[start:end + 1])
+          target = Path.home() / '.clasprc.json'
+          target.write_text(json.dumps(parsed))
+          target.chmod(0o600)
+          print('Clasp authentication JSON validated.')
+          PY
+
+      - name: Verify ATK DEV target
+        run: |
+          if ! grep -q "$ATK_DEV_SCRIPT_ID" .clasp.json; then
+            echo "Refusing deployment: .clasp.json is not the ATK DEV project."
+            exit 1
+          fi
+
+      - name: Build safe DEV deployment workspace
+        run: |
+          rm -rf /tmp/atk-vpe-dev
+          mkdir -p /tmp/atk-vpe-dev
+          cp .clasp.json /tmp/atk-vpe-dev/.clasp.json
+
+          cd /tmp/atk-vpe-dev
+          clasp pull
+
+          # Preserve the remote manifest and Script Properties. GitHub owns
+          # only source files after the initial bootstrap.
+          find . -maxdepth 1 -type f \
+            \( -name '*.js' -o -name '*.gs' -o -name '*.html' \) \
+            -delete
+
+          find "$GITHUB_WORKSPACE" -maxdepth 1 -type f \
+            \( -name '*.js' -o -name '*.gs' -o -name '*.html' \) \
+            -exec cp {} /tmp/atk-vpe-dev/ \;
+
+          test -f /tmp/atk-vpe-dev/Code.js
+
+      - name: Push source to ATK DEV Apps Script
+        run: |
+          cd /tmp/atk-vpe-dev
+          clasp push --force
+
+      - name: Verify existing DEV web app deployment
+        run: |
+          cd /tmp/atk-vpe-dev
+          clasp list-deployments | tee /tmp/atk-deployments.txt
+          if ! grep -q "$ATK_DEV_WEBAPP_DEPLOYMENT_ID" /tmp/atk-deployments.txt; then
+            echo "Refusing web app update: expected ATK DEV deployment ID was not found."
+            exit 1
+          fi
+
+      - name: Update existing DEV web app deployment
+        run: |
+          cd /tmp/atk-vpe-dev
+          clasp update-deployment "$ATK_DEV_WEBAPP_DEPLOYMENT_ID" \
+            --description "GitHub Actions $GITHUB_SHA"
