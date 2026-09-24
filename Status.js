@@ -37,6 +37,11 @@ function updateControlCenterReadiness_() {
 
   const target = control.getRange(55, 1, 4, 10);
   target.clearContent();
+
+  // Keep ratio strings such as 1/3 and 3/3 as text. Without this,
+  // Google Sheets can interpret them as dates.
+  control.getRange(55, 2, 4, 8).setNumberFormat('@');
+
   if (rows.length) {
     control.getRange(55, 1, rows.length, 10).setValues(rows);
   }
