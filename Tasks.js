@@ -417,7 +417,12 @@ function processVacantRoleReminders_() {
         'ATK Meeting ' + meetingNo + ' still has open roles: ' + roleNames +
         '.\n\nIf you would like to take one, reply ROLE to see the live available list.';
 
-      const result = sendWhatsAppText_(member.phone, text);
+      const result = sendAutomatedText_(
+        member.phone,
+        'ROLE_REMINDER',
+        text,
+        [member.name, meetingNo, roleNames]
+      );
       recordReminderSend_(idempotency, member, meetingNo, result, text);
     });
   });
