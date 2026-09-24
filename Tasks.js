@@ -188,13 +188,17 @@ function syncPhase1Tasks_() {
 
       if (sp.evaluator) {
         const coordinationKey = taskId_(meetingNo, 'EVALUATOR_COORDINATION', slotRef, sp.member);
+        const speakerPairKey = ['EVALUATOR_PAIR_SPEAKER', meetingNo, slotRef, sp.member, sp.evaluator].join('|');
+        const evaluatorPairKey = ['EVALUATOR_PAIR_EVALUATOR', meetingNo, slotRef, sp.evaluator, sp.member].join('|');
+        const pairInformed = hasReminderBeenSent_(speakerPairKey) && hasReminderBeenSent_(evaluatorPairKey);
+
         generated[coordinationKey] = buildTask_(existing[coordinationKey], {
           taskId: coordinationKey,
           meetingNo,
           taskType: 'EVALUATOR_COORDINATION',
           member: sp.member,
           related: slotRef,
-          state: 'Pending',
+          state: pairInformed ? 'Completed' : 'Pending',
           dueAt: daysBefore_(meetingDate, Number(configValue_('EVALUATOR_COORDINATION_DUE_DAYS', '5')) || 5),
           reference: sp.evaluator,
           payload: JSON.stringify({
