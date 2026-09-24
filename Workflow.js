@@ -693,3 +693,88 @@ function processEvaluatorCoordinationForMeeting_(meetingNo, daysLeft, reminderDa
 
   return true;
 }
+
+
+function processAssignedRolePrompts_() {
+  if (
+    !configBool_('TMOD_WORKFLOW_ENABLED') &&
+    !configBool_('GRAMMARIAN_WORKFLOW_ENABLED') &&
+    !configBool_('INTRO_WORKFLOW_ENABLED')
+  ) return;
+
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const tasks = ss.getSheetByName('Automation Tasks');
+  if (!tasks || tasks.getLastRow() < 2) return;
+
+  const rows = tasks.getRange(2, 1, tasks.getLastRow() - 1, 18).getValues();
+  const now = new Date();
+
+  rows.forEach(row => {
+    const taskId = String(row[0] || '');
+    const meetingNo = Number(row[1]);
+    const type = String(row[2] || '');
+    const member = String(row[3] || '').trim();
+    const related = String(row[4] || '').trim();
+    const state = String(row[5] || '');
+    const dueAt = row[6];
+
+    if (!taskId || !meetingNo || !member || state !== 'Pending') return;
+    if (!(dueAt instanceof Date) || dueAt > now) return;
+
+    let kind = '';
+    let text = '';
+    let params = [];
+
+    if (type === 'THEME' && configBool_('TMOD_WORKFLOW_ENABLED')) {
+      kind = 'THEME_REQUEST';
+      text =
+        'Hi ' + member + ',\n\n' +
+        'Please share the theme at the earliest, so that the role players can align with the same.\n\n' +
+        'Thank you.\n\n' +
+        'Reply in this format:\nTHEME ' + meetingNo + ': Your theme';
+      params = [member, meetingNo];
+    }
+
+    if (type === 'GRAMMAR' && configBool_('GRAMMARIAN_WORKFLOW_ENABLED')) {
+      kind = 'GRAMMAR_REQUEST';
+      text =
+        'Hi ' + member + ',\n\n' +
+        'Please share the Word of the Day and Idiom of the Day for ATK Meeting ' + meetingNo + ' at the earliest.\n\n' +
+        'Reply in this format:\nGRAMMAR ' + meetingNo +
+        ': Word | Meaning | Idiom | Meaning\n\nThank you.';
+      params = [member, meetingNo];
+    }
+
+    if (type === 'INTRO' && configBool_('INTRO_WORKFLOW_ENABLED')) {
+      const role = ROLE_DEFS_.find(r => r.code === related);
+      kind = 'INTRO_REQUEST';
+      text =
+        'Hi ' + member + ',\n\n' +
+        'Please share a short introduction that the Toastmaster can use while introducing you as ' +
+        (role ? role.name : related) + ' for ATK Meeting ' + meetingNo + '.\n\n' +
+        'Reply in this format:\nINTRO ' + meetingNo +
+        ': Your short introduction\n\nThank you.';
+      params = [member, meetingNo, role ? role.name : related];
+    }
+
+    if (!kind || !text) return;
+
+    const phone = phoneForMember_(member);
+    if (!phone || !isWhatsAppRecipientAllowed_(phone)) return;
+
+    const key = [kind, meetingNo, related, member].join('|');
+    if (hasReminderBeenSent_(key)) return;
+
+    const result = sendAutomatedText_(phone, kind, text, params);
+    recordWorkflowOutbound_(member, phone, kind, text, meetingNo, result, key);
+
+    logAutomation_(
+      'Assignment Follow-up',
+      meetingNo,
+      member,
+      kind,
+      result.ok ? 'Sent' : (result.deferred ? 'Deferred' : (result.blocked ? 'Blocked' : 'Error')),
+      result.error || taskId
+    );
+  });
+}
