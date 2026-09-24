@@ -401,6 +401,32 @@ function sendWhatsAppText_(phone, text) {
 }
 
 function sendWhatsAppPayload_(payload) {
+  const destination = normalizePhone_(payload && payload.to ? payload.to : '');
+  const sendMode = String(configValue_('WA_SEND_MODE', 'TEST')).toUpperCase();
+
+  if (sendMode !== 'LIVE') {
+    const allowlist = String(configValue_('WA_TEST_RECIPIENTS', ''))
+      .split(',')
+      .map(v => normalizePhone_(v))
+      .filter(Boolean);
+
+    if (!destination || allowlist.indexOf(destination) === -1) {
+      logAutomation_(
+        'WhatsApp',
+        '',
+        destination,
+        'DEV outbound blocked by test-recipient allowlist',
+        'Blocked',
+        sendMode
+      );
+      return {
+        ok: false,
+        blocked: true,
+        error: 'DEV outbound blocked by WA_TEST_RECIPIENTS.'
+      };
+    }
+  }
+
   const props = PropertiesService.getScriptProperties();
   const token = props.getProperty('META_ACCESS_TOKEN');
   const phoneNumberId = props.getProperty('WA_PHONE_NUMBER_ID');
