@@ -40,9 +40,14 @@ function processSpeakingSlotTargeting_() {
     if (!candidates.length) return;
 
     const inviteLimit = Math.max(batchSize, openSlots.length * 2);
+    const invitePrefix = ['SPEECH_INVITE', meetingNo, stage].join('|') + '|';
+    const alreadyInvited = countSuccessfulOutboxByPrefix_(invitePrefix);
+    const remainingQuota = Math.max(0, inviteLimit - alreadyInvited);
+    if (!remainingQuota) return;
+
     let invited = 0;
 
-    for (let i = 0; i < candidates.length && invited < inviteLimit; i++) {
+    for (let i = 0; i < candidates.length && invited < remainingQuota; i++) {
       const candidate = candidates[i];
       if (!isWhatsAppRecipientAllowed_(candidate.phone)) continue;
 
@@ -389,4 +394,25 @@ function isWhatsAppRecipientAllowed_(phone) {
     .filter(Boolean);
 
   return Boolean(destination) && allowlist.indexOf(destination) !== -1;
+}
+
+
+function countSuccessfulOutboxByPrefix_(prefix) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = ss.getSheetByName('WA Outbox');
+  if (!sheet || sheet.getLastRow() < 2) return 0;
+
+  const rows = sheet.getRange(2, 7, sheet.getLastRow() - 1, 10).getValues();
+  const successfulStates = new Set(['SENT', 'DELIVERED', 'READ', 'ACCEPTED']);
+  let count = 0;
+
+  rows.forEach(row => {
+    const state = String(row[0] || '').toUpperCase();
+    const key = String(row[9] || '');
+    if (successfulStates.has(state) && key.indexOf(prefix) === 0) {
+      count++;
+    }
+  });
+
+  return count;
 }
