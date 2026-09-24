@@ -25,7 +25,6 @@ jobs:
         shell: bash
         run: |
           response=$(curl --location --fail-with-body --silent --show-error \
-            --request POST \
             --header 'Content-Type: application/json' \
             --data '{"system_action":"PHASE1_TICK","verify_token":"ATK_VPE_VERIFY_2026_X7K9M4P2"}' \
             'https://script.google.com/macros/s/AKfycbwzHdJptr44J1aWN4UqHp6qN435kwFPbG8ngYGEYABqypF2urE0Jyd0hLd63M-wYVVE/exec')
