@@ -24,7 +24,7 @@ jobs:
       - name: Run Phase 1 scheduler tick
         shell: bash
         run: |
-          response=$(curl --fail-with-body --silent --show-error \
+          response=$(curl --location --fail-with-body --silent --show-error \
             --request POST \
             --header 'Content-Type: application/json' \
             --data '{"system_action":"PHASE1_TICK","verify_token":"ATK_VPE_VERIFY_2026_X7K9M4P2"}' \
