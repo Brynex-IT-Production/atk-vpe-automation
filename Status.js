@@ -200,7 +200,20 @@ function processVpeExceptionDigest_() {
 
   if (hasReminderBeenSent_(key)) return;
 
-  const result = sendWhatsAppText_(phone, digest);
+  let result;
+  if (hasOpenWhatsAppServiceWindow_(phone)) {
+    result = sendWhatsAppText_(phone, digest);
+  } else {
+    const templateName = templateNameForKind_('VPE_EXCEPTION');
+    if (!templateName) return;
+
+    result = sendWhatsAppTemplate_(
+      phone,
+      templateName,
+      [member],
+      'ADMIN_EXCEPTIONS'
+    );
+  }
   recordWorkflowOutbound_(member, phone, 'VPE_EXCEPTION_DIGEST', digest, '', result, key);
   logAutomation_(
     'VPE Exception',
