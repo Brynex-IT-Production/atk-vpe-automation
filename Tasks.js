@@ -14,6 +14,9 @@ function phase1ScheduledTick() {
   processReadyIntroductionBundles_();
   processSpeakerDetailPrompts_();
   processEvaluatorNotifications_();
+  processSpeakingSlotTargeting_();
+  updateControlCenterReadiness_();
+  processVpeExceptionDigest_();
 }
 
 function installPhase1Triggers_() {
