@@ -101,6 +101,15 @@ function processInboundWhatsAppMessage_(message) {
     return;
   }
 
+  if (member === vpeMember && rawText.toUpperCase() === 'ADMIN EXCEPTIONS') {
+    const digest = buildVpeExceptionDigest_();
+    sendWhatsAppText_(
+      phone,
+      digest || 'ATK VPE — No action needed in the configured exception window.'
+    );
+    return;
+  }
+
   // Natural-language shortcuts for the permanent group link or direct chat.
   const text = rawText.toLowerCase();
   if (['role', 'roles', 'choose role', 'choose my role', 'role selection'].includes(text)) {
