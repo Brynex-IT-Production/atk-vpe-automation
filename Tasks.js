@@ -418,8 +418,13 @@ function hasReminderBeenSent_(idempotencyKey) {
   const sheet = ss.getSheetByName('WA Outbox');
   if (!sheet || sheet.getLastRow() < 2) return false;
 
-  const keys = sheet.getRange(2, 16, sheet.getLastRow() - 1, 1).getValues().flat();
-  return keys.some(v => String(v || '') === idempotencyKey);
+  const rows = sheet.getRange(2, 7, sheet.getLastRow() - 1, 10).getValues();
+  const successfulStates = new Set(['SENT', 'DELIVERED', 'READ', 'ACCEPTED']);
+
+  return rows.some(row =>
+    String(row[9] || '') === idempotencyKey &&
+    successfulStates.has(String(row[0] || '').toUpperCase())
+  );
 }
 
 function recordReminderSend_(idempotencyKey, member, meetingNo, result, text) {
