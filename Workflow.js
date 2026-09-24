@@ -389,7 +389,12 @@ function sendConsolidatedIntroductionsIfReady_(meetingNo) {
     'ATK Meeting ' + meetingNo + ' · Role-player introductions\n\n' +
     lines.join('\n\n');
 
-  const result = sendWhatsAppText_(phone, body);
+  const result = sendAutomatedText_(
+    phone,
+    'INTRO_BUNDLE',
+    body,
+    [tmod, meetingNo, lines.join('\n\n')]
+  );
   recordWorkflowOutbound_(tmod, phone, 'INTRO_BUNDLE', body, meetingNo, result, idempotencyKey);
   logAutomation_('Introduction', meetingNo, tmod, 'Consolidated introductions sent to TMOD', result.ok ? 'Sent' : 'Error', result.error || '');
 
@@ -510,7 +515,12 @@ function processSpeakerDetailPrompts_() {
       'SPEECH ' + meetingNo + ': Speech Title | Path | Level | Project\n\n' +
       'Thank you.';
 
-    const result = sendWhatsAppText_(phone, text);
+    const result = sendAutomatedText_(
+      phone,
+      'SPEAKER_DETAILS',
+      text,
+      [member, meetingNo]
+    );
     recordWorkflowOutbound_(member, phone, 'SPEAKER_DETAILS_PROMPT', text, meetingNo, result, key);
     logAutomation_(
       'Speaker Details',
@@ -599,7 +609,12 @@ function processEvaluatorCoordinationForMeeting_(meetingNo, daysLeft, reminderDa
         'Direct communication between you and your evaluator is important before the meeting.\n\n' +
         'Thank you.';
 
-      const result = sendWhatsAppText_(speakerPhone, text);
+      const result = sendAutomatedText_(
+        speakerPhone,
+        'EVALUATOR_PAIRING',
+        text,
+        [sp.member, sp.evaluator, meetingNo]
+      );
       recordWorkflowOutbound_(sp.member, speakerPhone, 'EVALUATOR_PAIRING', text, meetingNo, result, initialSpeakerKey);
       logAutomation_(
         'Evaluation Coordination',
@@ -624,7 +639,12 @@ function processEvaluatorCoordinationForMeeting_(meetingNo, daysLeft, reminderDa
         'Please use the direct conversation to understand the project before the meeting.\n\n' +
         'Thank you.';
 
-      const result = sendWhatsAppText_(evaluatorPhone, text);
+      const result = sendAutomatedText_(
+        evaluatorPhone,
+        'EVALUATOR_PAIRING',
+        text,
+        [sp.evaluator, sp.member, meetingNo]
+      );
       recordWorkflowOutbound_(sp.evaluator, evaluatorPhone, 'EVALUATOR_PAIRING', text, meetingNo, result, initialEvaluatorKey);
       logAutomation_(
         'Evaluation Coordination',
@@ -646,7 +666,12 @@ function processEvaluatorCoordinationForMeeting_(meetingNo, daysLeft, reminderDa
         'Hi ' + sp.member + ',\n\n' +
         'A quick reminder for ATK Meeting ' + meetingNo + ': please connect directly with ' +
         sp.evaluator + ' and make sure you have shared your speech title, Path, Level, Project, project/evaluation sheet, and any specific feedback area.\n\nThank you.';
-      const result = sendWhatsAppText_(speakerPhone, text);
+      const result = sendAutomatedText_(
+        speakerPhone,
+        'EVALUATOR_COORD_REMINDER',
+        text,
+        [sp.member, meetingNo, sp.evaluator]
+      );
       recordWorkflowOutbound_(sp.member, speakerPhone, 'EVALUATOR_COORD_REMINDER', text, meetingNo, result, speakerReminderKey);
     }
 
@@ -656,7 +681,12 @@ function processEvaluatorCoordinationForMeeting_(meetingNo, daysLeft, reminderDa
         'Hi ' + sp.evaluator + ',\n\n' +
         'A quick reminder for ATK Meeting ' + meetingNo + ': please connect directly with ' +
         sp.member + ' and confirm you have the speech title, Path, Level, Project, project/evaluation sheet, and the speaker\'s specific feedback expectations.\n\nThank you.';
-      const result = sendWhatsAppText_(evaluatorPhone, text);
+      const result = sendAutomatedText_(
+        evaluatorPhone,
+        'EVALUATOR_COORD_REMINDER',
+        text,
+        [sp.evaluator, meetingNo, sp.member]
+      );
       recordWorkflowOutbound_(sp.evaluator, evaluatorPhone, 'EVALUATOR_COORD_REMINDER', text, meetingNo, result, evaluatorReminderKey);
     }
   });
