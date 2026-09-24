@@ -11,6 +11,7 @@ function phase1ScheduledTick() {
   if (!configBool_('TASK_ENGINE_ENABLED')) return;
   syncPhase1Tasks_();
   processVacantRoleReminders_();
+  processAssignedRolePrompts_();
   processReadyIntroductionBundles_();
   processSpeakerDetailPrompts_();
   processEvaluatorNotifications_();
