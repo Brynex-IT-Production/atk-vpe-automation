@@ -519,7 +519,7 @@ function processSpeakerDetailPrompts_() {
       phone,
       'SPEAKER_DETAILS',
       text,
-      [member, meetingNo]
+      [member, meetingNo, meetingNo]
     );
     recordWorkflowOutbound_(member, phone, 'SPEAKER_DETAILS_PROMPT', text, meetingNo, result, key);
     logAutomation_(
@@ -732,7 +732,7 @@ function processAssignedRolePrompts_() {
         'Please share the theme at the earliest, so that the role players can align with the same.\n\n' +
         'Thank you.\n\n' +
         'Reply in this format:\nTHEME ' + meetingNo + ': Your theme';
-      params = [member, meetingNo];
+      params = [member, meetingNo, meetingNo];
     }
 
     if (type === 'GRAMMAR' && configBool_('GRAMMARIAN_WORKFLOW_ENABLED')) {
@@ -742,7 +742,7 @@ function processAssignedRolePrompts_() {
         'Please share the Word of the Day and Idiom of the Day for ATK Meeting ' + meetingNo + ' at the earliest.\n\n' +
         'Reply in this format:\nGRAMMAR ' + meetingNo +
         ': Word | Meaning | Idiom | Meaning\n\nThank you.';
-      params = [member, meetingNo];
+      params = [member, meetingNo, meetingNo];
     }
 
     if (type === 'INTRO' && configBool_('INTRO_WORKFLOW_ENABLED')) {
@@ -754,7 +754,7 @@ function processAssignedRolePrompts_() {
         (role ? role.name : related) + ' for ATK Meeting ' + meetingNo + '.\n\n' +
         'Reply in this format:\nINTRO ' + meetingNo +
         ': Your short introduction\n\nThank you.';
-      params = [member, meetingNo, role ? role.name : related];
+      params = [member, meetingNo, role ? role.name : related, meetingNo];
     }
 
     if (!kind || !text) return;
