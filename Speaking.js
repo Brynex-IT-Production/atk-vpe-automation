@@ -106,7 +106,13 @@ function sendSpeechSlotInvite_(candidate, meetingNo, meetingDate, openCount, sta
     }
   };
 
-  const result = sendWhatsAppPayload_(payload);
+  const result = sendAutomatedQuickReply_(
+    candidate.phone,
+    'SPEECH_INVITE',
+    payload,
+    [candidate.name, meetingNo, dateText, openCount],
+    'SPEAK|' + meetingNo
+  );
   result.body = body;
   logAutomation_(
     'Speaking Slot',
