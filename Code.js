@@ -39,6 +39,7 @@ function doPost(e) {
     const payload = JSON.parse(e.postData.contents);
 
     logWhatsAppWebhook_(payload);
+    processWhatsAppAutomation_(payload);
 
     return ContentService
       .createTextOutput('EVENT_RECEIVED')
