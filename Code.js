@@ -300,6 +300,17 @@ function logWhatsAppWebhook_(payload) {
 
       value.statuses.forEach(status => {
 
+        const errorText = (status.errors || []).map(error => {
+          const parts = [];
+          if (error.code !== undefined) parts.push('code=' + error.code);
+          if (error.title) parts.push('title=' + error.title);
+          if (error.message) parts.push('message=' + error.message);
+          if (error.error_data && error.error_data.details) {
+            parts.push('details=' + error.error_data.details);
+          }
+          return parts.join(' | ');
+        }).join(' || ');
+
         sheet.appendRow([
           new Date(),
           'Status: ' + (status.status || ''),
@@ -307,7 +318,7 @@ function logWhatsAppWebhook_(payload) {
           '',
           status.id || '',
           '',
-          ''
+          errorText
         ]);
 
       });
