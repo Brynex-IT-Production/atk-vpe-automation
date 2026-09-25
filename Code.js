@@ -62,6 +62,18 @@ function doPost(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
 
+    if (
+      payload &&
+      payload.system_action === 'TEST_APPROVED_WA_TEMPLATES' &&
+      payload.verify_token === VERIFY_TOKEN
+    ) {
+      const result = testApprovedTemplatesToVpe_();
+
+      return ContentService
+        .createTextOutput(JSON.stringify(result))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
     logWhatsAppWebhook_(payload);
     processWhatsAppAutomation_(payload);
 
