@@ -74,6 +74,18 @@ function doPost(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
 
+    if (
+      payload &&
+      payload.system_action === 'TEST_ROLE_TEMPLATE_ONLY' &&
+      payload.verify_token === VERIFY_TOKEN
+    ) {
+      const result = testRoleReminderTemplateToVpe_();
+
+      return ContentService
+        .createTextOutput(JSON.stringify(result))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
     logWhatsAppWebhook_(payload);
     processWhatsAppAutomation_(payload);
 
