@@ -335,3 +335,23 @@ function testApprovedTemplatesToVpe_() {
     vpeException: exceptionResult
   };
 }
+
+
+function testRoleReminderTemplateToVpe_() {
+  const member = configValue_('VPE_MEMBER_NAME', 'Riyas AF');
+  const phone = phoneForMember_(member);
+  if (!phone) throw new Error('VPE WhatsApp number not found.');
+
+  const meetingNo = 450;
+  const result = sendWhatsAppTemplate_(
+    phone,
+    configValue_('WA_TEMPLATE_ROLE_REMINDER', 'atk_role_reminder'),
+    [member, meetingNo, 'Timer, Grammarian'],
+    null
+  );
+
+  return {
+    ok: Boolean(result && result.ok),
+    result: result
+  };
+}
