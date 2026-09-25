@@ -288,3 +288,50 @@ function syncAtkTemplateApprovalStatus_() {
     );
   }
 }
+
+
+function testApprovedTemplatesToVpe_() {
+  const member = configValue_('VPE_MEMBER_NAME', 'Riyas AF');
+  const phone = phoneForMember_(member);
+  if (!phone) throw new Error('VPE WhatsApp number not found.');
+
+  const planner = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('VPE Weekly Planner');
+  const rows = planner.getRange(3, 1, Math.min(60, Math.max(0, planner.getLastRow() - 2)), 28).getValues();
+  const today = startOfDay_(new Date());
+  const next = rows.find(r => {
+    const d = r[1];
+    const status = String(r[2] || '');
+    return Number(r[0]) && d instanceof Date && startOfDay_(d) >= today &&
+      status !== 'Completed' && status !== 'Cancelled';
+  });
+
+  const meetingNo = next ? Number(next[0]) : 450;
+  const openRoles = next
+    ? ROLE_DEFS_.filter(def => !String(next[def.column - 1] || '').trim()).map(def => def.name)
+    : ['Timer', 'Grammarian'];
+
+  const roleText = openRoles.length ? openRoles.join(', ') : 'No core roles currently open';
+
+  const roleResult = sendWhatsAppTemplate_(
+    phone,
+    configValue_('WA_TEMPLATE_ROLE_REMINDER', 'atk_role_reminder'),
+    [member, meetingNo, roleText],
+    null
+  );
+
+  Utilities.sleep(1200);
+
+  const exceptionResult = sendWhatsAppTemplate_(
+    phone,
+    configValue_('WA_TEMPLATE_VPE_EXCEPTION', 'atk_vpe_exception'),
+    [member],
+    'ADMIN_EXCEPTIONS'
+  );
+
+  return {
+    ok: Boolean(roleResult && roleResult.ok && exceptionResult && exceptionResult.ok),
+    meetingNo: meetingNo,
+    roleReminder: roleResult,
+    vpeException: exceptionResult
+  };
+}
