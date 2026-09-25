@@ -1,0 +1,28 @@
+name: Test Approved ATK WhatsApp Templates
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/test-approved-templates.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send approved templates to VPE test recipient
+        shell: bash
+        run: |
+          response=$(curl --location --fail-with-body --silent --show-error \
+            --header 'Content-Type: application/json' \
+            --data '{"system_action":"TEST_APPROVED_WA_TEMPLATES","verify_token":"ATK_VPE_VERIFY_2026_X7K9M4P2"}' \
+            'https://script.google.com/macros/s/AKfycbwzHdJptr44J1aWN4UqHp6qN435kwFPbG8ngYGEYABqypF2urE0Jyd0hLd63M-wYVVE/exec')
+          echo "$response"
+          if ! echo "$response" | grep -q '"ok":true'; then
+            echo "Approved-template test failed."
+            exit 1
+          fi
