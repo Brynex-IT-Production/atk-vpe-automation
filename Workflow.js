@@ -168,13 +168,13 @@ function handleGrammarSubmission_(member, phone, requestedMeetingNo, body, messa
   logAutomation_('Grammarian', task.meetingNo, member, 'Word and idiom received', 'Success', parts[0] + ' / ' + parts[2]);
 }
 
-function handleIntroSubmission_(member, phone, requestedMeetingNo, intro, messageId) {
+function handleIntroSubmission_(member, phone, requestedMeetingNo, intro, messageId, requestedRelated) {
   if (!configBool_('INTRO_WORKFLOW_ENABLED')) {
     sendWhatsAppText_(phone, 'Introduction collection is not active yet.');
     return;
   }
 
-  const task = findPendingTaskForMember_('INTRO', member, requestedMeetingNo);
+  const task = findPendingTaskForMember_('INTRO', member, requestedMeetingNo, requestedRelated);
   if (!task) {
     sendWhatsAppText_(phone, 'I could not find a pending role-player introduction for you.');
     return;
@@ -212,7 +212,7 @@ function handleIntroSubmission_(member, phone, requestedMeetingNo, intro, messag
   sendConsolidatedIntroductionsIfReady_(task.meetingNo);
 }
 
-function findPendingTaskForMember_(type, member, meetingNo) {
+function findPendingTaskForMember_(type, member, meetingNo, related) {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const sheet = ss.getSheetByName('Automation Tasks');
   if (!sheet || sheet.getLastRow() < 2) return null;
@@ -223,7 +223,8 @@ function findPendingTaskForMember_(type, member, meetingNo) {
       String(r[2] || '') === type &&
       String(r[3] || '').trim() === member &&
       ['Pending', 'Sent', 'Escalated'].indexOf(String(r[5] || '')) !== -1 &&
-      (!meetingNo || Number(r[1]) === Number(meetingNo))
+      (!meetingNo || Number(r[1]) === Number(meetingNo)) &&
+      (!related || String(r[4] || '') === related)
     )
     .sort((a, b) => Number(a[1]) - Number(b[1]));
 
