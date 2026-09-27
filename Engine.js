@@ -529,8 +529,18 @@ function updateOutboxDeliveryStatus_(status) {
   if (idx < 0) return;
 
   const row = idx + 2;
-  const state = String(status.status || '');
-  sheet.getRange(row, 7).setValue(state ? state.toUpperCase() : 'STATUS');
+  const next = String(status.status || '').toUpperCase();
+  if (!next) return;
+
+  // Meta status webhooks can arrive out of order. Never downgrade a message
+  // that was already delivered or read when a delayed SENT receipt arrives.
+  const cell = sheet.getRange(row, 7);
+  const current = String(cell.getValue() || '').toUpperCase();
+  const rank = { SENT: 1, DELIVERED: 2, READ: 3 };
+  if (rank[next] && rank[current] && rank[next] < rank[current]) return;
+  if (next === 'FAILED' && (current === 'DELIVERED' || current === 'READ')) return;
+  if (next === 'SENT' && current === 'FAILED') return;
+  cell.setValue(next);
 }
 
 function isDuplicateWebhookMessage_(messageId) {
