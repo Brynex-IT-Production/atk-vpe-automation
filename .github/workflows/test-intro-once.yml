@@ -1,0 +1,20 @@
+name: ATK DEV one-time introduction replay
+on:
+  push:
+    paths:
+      - '.github/workflows/test-intro-once.yml'
+permissions:
+  contents: read
+jobs:
+  intro:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Replay the earlier DEV test reply
+        shell: bash
+        run: |
+          response=$(curl --location --fail-with-body --silent --show-error \
+            --header 'Content-Type: application/json' \
+            --data '{"entry":[{"changes":[{"value":{"messages":[{"id":"atk-dev-intro-replay-20260927-01","from":"919746462423","type":"text","text":{"body":"Short introduction"}}]}}]}]}' \
+            'https://script.google.com/macros/s/AKfycbwzHdJptr44J1aWN4UqHp6qN435kwFPbG8ngYGEYABqypF2urE0Jyd0hLd63M-wYVVE/exec')
+          echo "$response"
+          test "$response" = "EVENT_RECEIVED"
