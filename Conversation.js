@@ -223,6 +223,10 @@ function processAgendaSecondReminders_() {
     if (!member || !phone || !isWhatsAppRecipientAllowed_(phone)) return;
     const key = ['AGENDA_SECOND', meetingNo, kind, row[4], member].join('|');
     if (hasReminderBeenSent_(key)) return;
+    const active = activeConversation_(phone);
+    if (active && (active.kind !== kind ||
+        Number(active.meetingNo) !== meetingNo ||
+        String(active.related || '') !== String(row[4] || ''))) return;
     const firstKind = kind === 'INTRO' ? 'INTRO_REQUEST' :
       kind === 'GRAMMAR' ? 'GRAMMAR_REQUEST' :
       kind === 'THEME' ? 'THEME_REQUEST' : 'SPEAKER_DETAILS_PROMPT';
@@ -237,6 +241,12 @@ function processAgendaSecondReminders_() {
       ' today. We can publish the agenda by Saturday evening only after receiving the pending details. Thank you.';
     const result = sendAutomatedText_(phone, 'AGENDA_REMINDER', body, [member, meetingNo, item]);
     recordWorkflowOutbound_(member, phone, 'AGENDA_SECOND', body, meetingNo, result, key);
+    if (result.ok && !active) {
+      const role = ROLE_DEFS_.find(def => def.code === String(row[4] || ''));
+      const request = startGuidedRequest_(member, phone, kind, meetingNo,
+        String(row[4] || ''), role ? role.name : 'speaker');
+      if (request) setConversation_(phone, request.state);
+    }
   });
 }
 
