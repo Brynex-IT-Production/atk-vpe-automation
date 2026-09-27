@@ -699,7 +699,7 @@ function sendSpeakerDetailsToTmod_(meetingNo, member, slotRef, parts) {
     '\nLevel: ' + parts[2] + '\nProject: ' + parts[3];
   const key = ['SPEECH_TO_TMOD', meetingNo, slotRef, member, parts.join('|')].join('|');
   if (hasReminderBeenSent_(key)) return;
-  const result = sendAutomatedText_(phone, 'INTRO_BUNDLE', body,
+  const result = sendAutomatedText_(phone, 'TMOD_UPDATE', body,
     [tmod, meetingNo, member + ' — ' + parts[0] + ' | ' + parts[1] +
       ' | ' + parts[2] + ' | ' + parts[3]]);
   recordWorkflowOutbound_(tmod, phone, 'SPEECH_TO_TMOD', body, meetingNo, result, key);
