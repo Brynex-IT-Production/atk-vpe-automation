@@ -88,6 +88,12 @@ function handleGuidedReply_(member, phone, text, messageId) {
   const answer = String(text || '').trim();
   if (!answer || /^(ROLE|ROLES|ADMIN STATUS|ADMIN SETUP|ADMIN EXCEPTIONS)$/i.test(answer)) return false;
 
+  // Existing approved templates may still show the earlier structured syntax
+  // until Meta approves the new ones. Let the legacy parser handle that reply.
+  if (/^(THEME|GRAMMAR|INTRO|SPEECH)(?:\\s+\\d+)?\\s*:/i.test(answer)) {
+    clearConversation_(phone);
+    return false;
+  }
   const kind = state.kind;
   const n = state.meetingNo;
   if (kind === 'THEME') {
