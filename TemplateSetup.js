@@ -117,6 +117,48 @@ function getAtkWhatsAppTemplateSpecs_() {
         'Hi {{1}}, please share a short introduction for your {{3}} role in ATK Meeting {{2}}.\n\n' +
         'Reply in this format:\nINTRO {{4}}: Your short introduction',
       examples: ['Riyas AF', '450', 'Timer', '450']
+    },
+    {
+      name: 'atk_theme_guided',
+      language: 'en_US', category: 'UTILITY',
+      body: 'Hi {{1}}, for ATK Meeting {{2}}, please reply with your theme in your own words. We will save it for the agenda.',
+      examples: ['Riyas AF', '450']
+    },
+    {
+      name: 'atk_grammar_guided',
+      language: 'en_US', category: 'UTILITY',
+      body: 'Hi {{1}}, as Grammarian for ATK Meeting {{2}}, please reply with your Word of the Day. We will ask for its meaning and your idiom one by one.',
+      examples: ['Riyas AF', '450']
+    },
+    {
+      name: 'atk_intro_guided',
+      language: 'en_US', category: 'UTILITY',
+      body: 'Hi {{1}}, for your {{3}} role in ATK Meeting {{2}}, please reply to choose your saved introduction or share something new. We will guide you.',
+      examples: ['Riyas AF', '450', 'Timer']
+    },
+    {
+      name: 'atk_speaker_guided',
+      language: 'en_US', category: 'UTILITY',
+      body: 'Hi {{1}}, for ATK Meeting {{2}}, please reply with your speech title. We will ask for Path, Level, Project and your introduction one by one.',
+      examples: ['Anil Mathew', '450']
+    },
+    {
+      name: 'atk_member_intro',
+      language: 'en_US', category: 'UTILITY',
+      body: 'Hi {{1}}, welcome to ATK! Please reply with a short introduction about yourself. We will save it for future meeting introductions.',
+      examples: ['Riyas AF']
+    },
+    {
+      name: 'atk_agenda_followup',
+      language: 'en_US', category: 'UTILITY',
+      body: 'Hi {{1}}, this is a second reminder for ATK Meeting {{2}}. Please share your pending {{3}} today. We can publish the agenda by Saturday evening only after receiving the details.',
+      examples: ['Riyas AF', '450', 'speech title, Path, Level and Project']
+    },
+    {
+      name: 'atk_tmod_update',
+      language: 'en_US', category: 'UTILITY',
+      body: 'Hi {{1}}, here are details received for ATK Meeting {{2}}:\n\n{{3}}',
+      examples: ['Riyas AF', '450', 'Speaker Anil Mathew — speech title and project details']
     }
   ];
 }
