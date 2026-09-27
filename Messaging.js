@@ -82,10 +82,21 @@ function sendAutomatedText_(phone, kind, freeformBody, templateParams) {
     };
   }
 
+  if (/^atk_(theme_guided|grammar_guided|intro_guided|speaker_guided|member_intro|agenda_followup|tmod_update)$/.test(templateName) &&
+      !isApprovedTemplate_(templateName)) {
+    return { ok: false, deferred: true, error: 'Template awaiting Meta approval: ' + templateName };
+  }
+
+  const params = templateParams || [];
+  const parameterCount = {
+    atk_theme_guided: 2, atk_grammar_guided: 2,
+    atk_intro_guided: 3, atk_speaker_guided: 2,
+    atk_member_intro: 1, atk_agenda_followup: 3, atk_tmod_update: 3
+  }[templateName];
   const result = sendWhatsAppTemplate_(
     destination,
     templateName,
-    templateParams || [],
+    parameterCount ? params.slice(0, parameterCount) : params,
     null
   );
   result.channelMode = 'TEMPLATE';
@@ -173,4 +184,12 @@ function sendWhatsAppTemplate_(phone, templateName, bodyParams, quickReplyPayloa
     type: 'template',
     template: template
   });
+}
+
+function isApprovedTemplate_(name) {
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('Automation Config');
+  if (!sheet || sheet.getLastRow() < 48) return false;
+  const rows = sheet.getRange(48, 1, sheet.getLastRow() - 47, 4).getValues();
+  return rows.some(r => String(r[1] || '') === name &&
+    String(r[3] || '').toUpperCase().indexOf('APPROVED') === 0);
 }
