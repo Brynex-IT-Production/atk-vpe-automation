@@ -157,7 +157,7 @@ function getAtkWhatsAppTemplateSpecs_() {
     {
       name: 'atk_tmod_update',
       language: 'en_US', category: 'UTILITY',
-      body: 'Hi {{1}}, here are details received for ATK Meeting {{2}}:\n\n{{3}}',
+      body: 'Hi {{1}}, here are details received for ATK Meeting {{2}}:\n\n{{3}}\n\nPlease use these details while preparing for the meeting.',
       examples: ['Riyas AF', '450', 'Speaker Anil Mathew — speech title and project details']
     }
   ];
@@ -244,7 +244,7 @@ function createOrReadTemplate_(token, wabaId, spec) {
     name: spec.name,
     action: 'ERROR',
     http: http,
-    error: parsed.error && parsed.error.message ? parsed.error.message : body
+    error: parsed.error ? JSON.stringify(parsed.error) : body
   };
 }
 
