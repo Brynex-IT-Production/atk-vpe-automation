@@ -46,7 +46,7 @@ function handleStructuredSubmission_(member, phone, rawText, messageId) {
 
 function recentUnambiguousIntroTask_(member, phone, text) {
   if (!configBool_('INTRO_WORKFLOW_ENABLED') || text.length < 10) return null;
-  if (/^(ROLE|ROLES|ADMIN|THEME|GRAMMAR|INTRO|SPEECH)\\b/i.test(text)) return null;
+  if (/^(ROLE|ROLES|ADMIN|THEME|GRAMMAR|INTRO|SPEECH)\b/i.test(text)) return null;
 
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const tasks = ss.getSheetByName('Automation Tasks');
@@ -63,7 +63,7 @@ function recentUnambiguousIntroTask_(member, phone, text) {
   const rows = outbox.getRange(2, 1, outbox.getLastRow() - 1, 16).getValues();
   const now = Date.now();
   const recentRequest = rows.some(r =>
-    String(r[2] || '').replace(/\\D/g, '') === String(phone || '').replace(/\\D/g, '') &&
+    String(r[2] || '').replace(/\D/g, '') === String(phone || '').replace(/\D/g, '') &&
     String(r[3] || '') === 'INTRO_REQUEST' &&
     Number(r[10]) === meetingNo &&
     ['SENT', 'DELIVERED', 'READ'].indexOf(String(r[6] || '')) !== -1 &&
