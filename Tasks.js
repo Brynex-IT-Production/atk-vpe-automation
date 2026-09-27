@@ -21,6 +21,8 @@ function phase1ScheduledTick() {
   processAssignedRolePrompts_();
   processReadyIntroductionBundles_();
   processSpeakerDetailPrompts_();
+  processAgendaSecondReminders_();
+  processMemberIntroOnboarding_();
   processEvaluatorNotifications_();
   processSpeakingSlotTargeting_();
   updateControlCenterReadiness_();
@@ -181,6 +183,20 @@ function syncPhase1Tasks_() {
         state: detailsDone ? 'Completed' : 'Pending',
         dueAt: daysBefore_(meetingDate, Number(configValue_('SPEAKER_DETAILS_DUE_DAYS', '7')) || 7),
         reference: 'Speaker slot ' + sp.slot,
+        payload: JSON.stringify({ slot: sp.slot })
+      });
+
+      const speakerIntroKey = taskId_(meetingNo, 'INTRO', slotRef, sp.member);
+      const speakerIntroDone = submissions.has(submissionKey_(meetingNo, sp.member, 'INTRO', slotRef));
+      generated[speakerIntroKey] = buildTask_(existing[speakerIntroKey], {
+        taskId: speakerIntroKey,
+        meetingNo,
+        taskType: 'INTRO',
+        member: sp.member,
+        related: slotRef,
+        state: speakerIntroDone ? 'Completed' : 'Pending',
+        dueAt: daysBefore_(meetingDate, Number(configValue_('INTRO_DUE_DAYS', '7')) || 7),
+        reference: 'Speaker ' + sp.slot,
         payload: JSON.stringify({ slot: sp.slot })
       });
 
