@@ -32,7 +32,46 @@ function handleStructuredSubmission_(member, phone, rawText, messageId) {
     return true;
   }
 
+  // A plain-text reply can be an introduction when exactly one recent
+  // introduction request is pending for this member. Explicit commands above
+  // always take priority, and ambiguous replies remain unhandled.
+  const pendingIntro = recentUnambiguousIntroTask_(member, phone, text);
+  if (pendingIntro) {
+    handleIntroSubmission_(member, phone, pendingIntro.meetingNo, text, messageId);
+    return true;
+  }
+
   return false;
+}
+
+function recentUnambiguousIntroTask_(member, phone, text) {
+  if (!configBool_('INTRO_WORKFLOW_ENABLED') || text.length < 10) return null;
+  if (/^(ROLE|ROLES|ADMIN|THEME|GRAMMAR|INTRO|SPEECH)\\b/i.test(text)) return null;
+
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const tasks = ss.getSheetByName('Automation Tasks');
+  const outbox = ss.getSheetByName('WA Outbox');
+  if (!tasks || !outbox || tasks.getLastRow() < 2 || outbox.getLastRow() < 2) return null;
+
+  const pending = tasks.getRange(2, 1, tasks.getLastRow() - 1, 18).getValues()
+    .filter(r => String(r[2] || '') === 'INTRO' &&
+      String(r[3] || '').trim() === member &&
+      String(r[5] || '') === 'Pending');
+  if (pending.length !== 1) return null;
+
+  const meetingNo = Number(pending[0][1]);
+  const rows = outbox.getRange(2, 1, outbox.getLastRow() - 1, 16).getValues();
+  const now = Date.now();
+  const recentRequest = rows.some(r =>
+    String(r[2] || '').replace(/\\D/g, '') === String(phone || '').replace(/\\D/g, '') &&
+    String(r[3] || '') === 'INTRO_REQUEST' &&
+    Number(r[10]) === meetingNo &&
+    ['SENT', 'DELIVERED', 'READ'].indexOf(String(r[6] || '')) !== -1 &&
+    r[12] instanceof Date && now - r[12].getTime() >= 0 &&
+    now - r[12].getTime() <= 24 * 60 * 60 * 1000
+  );
+
+  return recentRequest ? { meetingNo: meetingNo } : null;
 }
 
 function sendImmediateAssignmentPrompts_(meetingNo, roleDef, member, phone) {
