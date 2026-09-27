@@ -36,7 +36,19 @@ function doPost(e) {
 
   try {
 
-    const payload = JSON.parse(e.postData.contents);
+    const incoming = JSON.parse(e.postData.contents);
+    const relaySecret = PropertiesService.getScriptProperties()
+      .getProperty('RELAY_SHARED_SECRET');
+    let payload = incoming;
+    if (incoming && incoming.relay_payload !== undefined) {
+      if (!relaySecret || !verifyRelayEnvelope_(incoming, relaySecret)) {
+        return ContentService.createTextOutput('EVENT_REJECTED');
+      }
+      payload = JSON.parse(incoming.relay_payload);
+    } else if (relaySecret && (!incoming || !incoming.system_action)) {
+      // Once the relay secret is configured, direct unsigned Meta events fail closed.
+      return ContentService.createTextOutput('EVENT_REJECTED');
+    }
 
     if (
       payload &&
@@ -101,6 +113,29 @@ function doPost(e) {
       .createTextOutput('EVENT_RECEIVED')
       .setMimeType(ContentService.MimeType.TEXT);
   }
+}
+
+
+/**
+ * The Worker verifies Meta's signed header. Apps Script receives this
+ * short-lived HMAC envelope because doPost does not expose HTTP headers.
+ */
+function verifyRelayEnvelope_(envelope, secret) {
+  const timestamp = String(envelope.relay_timestamp || '');
+  const raw = envelope.relay_payload;
+  const mac = String(envelope.relay_mac || '').toLowerCase();
+  if (!/^\\d{13}$/.test(timestamp) || typeof raw !== 'string' ||
+      !/^[0-9a-f]{64}$/.test(mac)) return false;
+  if (Math.abs(Date.now() - Number(timestamp)) > 5 * 60 * 1000) return false;
+  const bytes = Utilities.computeHmacSha256Signature(
+    timestamp + '.' + raw, secret, Utilities.Charset.UTF_8
+  );
+  const expected = bytes.map(v => ('0' + (v & 255).toString(16)).slice(-2)).join('');
+  let difference = 0;
+  for (let i = 0; i < expected.length; i++) {
+    difference |= expected.charCodeAt(i) ^ mac.charCodeAt(i);
+  }
+  return difference === 0;
 }
 
 
