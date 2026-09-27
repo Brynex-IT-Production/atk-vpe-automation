@@ -75,45 +75,15 @@ function recentUnambiguousIntroTask_(member, phone, text) {
 }
 
 function sendImmediateAssignmentPrompts_(meetingNo, roleDef, member, phone) {
-  const prompts = [];
-
-  if (roleDef.code === 'TMOD' && configBool_('TMOD_WORKFLOW_ENABLED')) {
-    prompts.push(
-      'Hi ' + member + ',\n\n' +
-      'Please share the theme at the earliest, so that the role players can align with the same.\n\n' +
-      'Thank you.\n\n' +
-      'Reply in this format:\nTHEME ' + meetingNo + ': Your theme'
-    );
-  }
-
-  if (roleDef.code === 'GRM' && configBool_('GRAMMARIAN_WORKFLOW_ENABLED')) {
-    prompts.push(
-      'As Grammarian for ATK Meeting ' + meetingNo +
-      ', please send your Word and Idiom in this format:\n\nGRAMMAR ' + meetingNo +
-      ': Word | Meaning | Idiom | Meaning'
-    );
-  }
-
-  if (roleDef.code !== 'TMOD' && configBool_('INTRO_WORKFLOW_ENABLED')) {
-    prompts.push(
-      'Please also send a short introduction for the Toastmaster to use:\n\nINTRO ' +
-      meetingNo + ': Your short introduction'
-    );
-  }
-
-  if (!prompts.length) return;
-
-  const body = prompts.join('\n\n');
-  const result = sendWhatsAppText_(phone, body);
-  recordWorkflowOutbound_(
-    member,
-    phone,
-    'ASSIGNMENT_PROMPT',
-    body,
-    meetingNo,
-    result,
-    ['ASSIGNMENT_PROMPT', meetingNo, roleDef.code, member].join('|')
-  );
+  const kind = roleDef.code === 'TMOD' ? 'THEME' :
+    roleDef.code === 'GRM' ? 'GRAMMAR' : 'INTRO';
+  const request = startGuidedRequest_(member, phone, kind, meetingNo, roleDef.code, roleDef.name);
+  if (!request) return;
+  const result = sendWhatsAppText_(phone, request.text);
+  if (result.ok) setConversation_(phone, request.state);
+  recordWorkflowOutbound_(member, phone, 'ASSIGNMENT_PROMPT',
+    request.text, meetingNo, result,
+    ['ASSIGNMENT_PROMPT', meetingNo, roleDef.code, member].join('|'));
 }
 
 function handleThemeSubmission_(member, phone, requestedMeetingNo, theme, messageId) {
@@ -217,7 +187,9 @@ function handleIntroSubmission_(member, phone, requestedMeetingNo, intro, messag
     return;
   }
 
-  const assignment = verifyRoleAssignment_(task.meetingNo, task.related, member);
+  const assignment = /^S[123]$/.test(task.related)
+    ? verifySpeakerAssignment_(task.meetingNo, task.related, member)
+    : verifyRoleAssignment_(task.meetingNo, task.related, member);
   if (!assignment.ok) {
     sendWhatsAppText_(phone, 'Your role assignment for Meeting ' + task.meetingNo + ' has changed, so I did not save this introduction.');
     syncPhase1Tasks_();
@@ -377,69 +349,42 @@ function sendConsolidatedIntroductionsIfReady_(meetingNo) {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const planner = ss.getSheetByName('VPE Weekly Planner');
   const submissions = ss.getSheetByName('WA Submissions');
-  if (!planner || !submissions) return false;
-
-  const lastRow = Math.min(62, planner.getLastRow());
-  const ids = planner.getRange(3, 1, Math.max(0, lastRow - 2), 1).getValues().flat();
-  const idx = ids.findIndex(v => Number(v) === Number(meetingNo));
-  if (idx < 0) return false;
-
-  const rowNumber = idx + 3;
-  const row = planner.getRange(rowNumber, 1, 1, 24).getValues()[0];
+  if (!planner || !submissions || submissions.getLastRow() < 2) return false;
+  const ids = planner.getRange(3, 1, Math.max(0, Math.min(60, planner.getLastRow() - 2)), 1)
+    .getValues().flat();
+  const index = ids.findIndex(v => Number(v) === Number(meetingNo));
+  if (index < 0) return false;
+  const row = planner.getRange(index + 3, 1, 1, 28).getValues()[0];
   const tmod = String(row[18] || '').trim();
-  if (!tmod) return false;
-
-  const assigned = ROLE_DEFS_
-    .filter(def => def.code !== 'TMOD')
-    .map(def => ({ def, member: String(row[def.column - 1] || '').trim() }))
-    .filter(x => x.member);
-
-  if (!assigned.length) return false;
-
-  const submissionRows = submissions.getLastRow() >= 2
-    ? submissions.getRange(2, 1, submissions.getLastRow() - 1, 14).getValues()
-    : [];
-
-  const intros = [];
-  for (let i = 0; i < assigned.length; i++) {
-    const item = assigned[i];
-    const found = submissionRows.find(r =>
-      Number(r[1]) === Number(meetingNo) &&
-      String(r[2] || '').trim() === item.member &&
-      String(r[3] || '').trim() === 'INTRO' &&
-      String(r[4] || '').trim() === item.def.code
-    );
-    if (!found) return false;
-    intros.push({
-      role: item.def.name,
-      member: item.member,
-      text: String(found[5] || '').trim()
-    });
-  }
-
   const phone = phoneForMember_(tmod);
-  if (!phone) return false;
-
-  const idempotencyKey = 'INTRO_BUNDLE|' + meetingNo + '|' + tmod;
-  if (hasReminderBeenSent_(idempotencyKey)) return true;
-
-  const lines = intros.map(x => x.role + ' — ' + x.member + '\n' + x.text);
-  const body =
-    'ATK Meeting ' + meetingNo + ' · Role-player introductions\n\n' +
-    lines.join('\n\n');
-
-  const result = sendAutomatedText_(
-    phone,
-    'INTRO_BUNDLE',
-    body,
-    [tmod, meetingNo, lines.join('\n\n')]
-  );
-  recordWorkflowOutbound_(tmod, phone, 'INTRO_BUNDLE', body, meetingNo, result, idempotencyKey);
-  logAutomation_('Introduction', meetingNo, tmod, 'Consolidated introductions sent to TMOD', result.ok ? 'Sent' : 'Error', result.error || '');
-
-  return Boolean(result.ok);
+  if (!phone || !isWhatsAppRecipientAllowed_(phone)) return false;
+  const assigned = ROLE_DEFS_.filter(def => def.code !== 'TMOD')
+    .map(def => ({ member: String(row[def.column - 1] || '').trim(),
+      related: def.code, role: def.name }))
+    .concat([1, 2, 3].map(slot => ({
+      member: String(row[slot === 1 ? 6 : slot === 2 ? 10 : 14] || '').trim(),
+      related: 'S' + slot, role: 'Speaker'
+    }))).filter(x => x.member);
+  const rows = submissions.getRange(2, 1, submissions.getLastRow() - 1, 14).getValues();
+  let sent = false;
+  assigned.forEach(item => {
+    const matches = rows.filter(r => Number(r[1]) === Number(meetingNo) &&
+      String(r[2] || '').trim() === item.member &&
+      String(r[3] || '') === 'INTRO' && String(r[4] || '') === item.related);
+    const latest = matches[matches.length - 1];
+    if (!latest) return;
+    const body = 'This is the introduction of the ' + item.role + ', ' +
+      item.member + ':\n\n' + String(latest[5] || '').trim();
+    const key = ['INTRO_TO_TMOD', meetingNo, item.related, item.member,
+      String(latest[0] || '')].join('|');
+    if (hasReminderBeenSent_(key)) return;
+    const result = sendAutomatedText_(phone, 'INTRO_BUNDLE',
+      body, [tmod, meetingNo, item.role + ' — ' + item.member + '\n' + String(latest[5] || '')]);
+    recordWorkflowOutbound_(tmod, phone, 'INTRO_TO_TMOD', body, meetingNo, result, key);
+    if (result.ok) sent = true;
+  });
+  return sent;
 }
-
 
 function handleSpeakerDetailsSubmission_(member, phone, requestedMeetingNo, body, messageId) {
   if (!configBool_('SPEAKER_DETAILS_WORKFLOW_ENABLED')) {
@@ -497,6 +442,7 @@ function handleSpeakerDetailsSubmission_(member, phone, requestedMeetingNo, body
     task.related
   );
 
+  sendSpeakerDetailsToTmod_(task.meetingNo, member, task.related, parts);
   processEvaluatorNotificationsForMeeting_(task.meetingNo);
 }
 
@@ -522,53 +468,26 @@ function verifySpeakerAssignment_(meetingNo, slotRef, member) {
 
 function processSpeakerDetailPrompts_() {
   if (!configBool_('SPEAKER_DETAILS_WORKFLOW_ENABLED')) return;
-
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const tasks = ss.getSheetByName('Automation Tasks');
   if (!tasks || tasks.getLastRow() < 2) return;
-
   const rows = tasks.getRange(2, 1, tasks.getLastRow() - 1, 18).getValues();
-  const today = new Date();
-
   rows.forEach(row => {
-    const taskType = String(row[2] || '');
-    const state = String(row[5] || '');
-    const dueAt = row[6];
-    if (taskType !== 'SPEAKER_DETAILS' || state !== 'Pending') return;
-    if (!(dueAt instanceof Date) || dueAt > today) return;
-
     const meetingNo = Number(row[1]);
     const member = String(row[3] || '').trim();
-    const slotRef = String(row[4] || '').trim();
+    const related = String(row[4] || '').trim();
+    if (String(row[2]) !== 'SPEAKER_DETAILS' || String(row[5]) !== 'Pending' ||
+        !(row[6] instanceof Date) || row[6] > new Date()) return;
     const phone = phoneForMember_(member);
-    if (!meetingNo || !member || !slotRef || !phone) return;
-    if (!isWhatsAppRecipientAllowed_(phone)) return;
-
-    const key = ['SPEAKER_DETAILS_PROMPT', meetingNo, slotRef, member].join('|');
+    if (!phone || !isWhatsAppRecipientAllowed_(phone) || activeConversation_(phone)) return;
+    const key = ['SPEAKER_DETAILS_PROMPT', meetingNo, related, member].join('|');
     if (hasReminderBeenSent_(key)) return;
-
-    const text =
-      'Hi ' + member + ',\n\n' +
-      'Please share your speech details for ATK Meeting ' + meetingNo + '.\n\n' +
-      'Reply in this format:\n' +
-      'SPEECH ' + meetingNo + ': Speech Title | Path | Level | Project\n\n' +
-      'Thank you.';
-
-    const result = sendAutomatedText_(
-      phone,
-      'SPEAKER_DETAILS',
-      text,
-      [member, meetingNo, meetingNo]
-    );
-    recordWorkflowOutbound_(member, phone, 'SPEAKER_DETAILS_PROMPT', text, meetingNo, result, key);
-    logAutomation_(
-      'Speaker Details',
-      meetingNo,
-      member,
-      'Speech-detail prompt',
-      result.ok ? 'Sent' : (result.blocked ? 'Blocked' : 'Error'),
-      result.error || slotRef
-    );
+    const prompt = startGuidedRequest_(member, phone, 'SPEAKER_DETAILS', meetingNo, related, 'speaker');
+    const result = sendAutomatedText_(phone, 'SPEAKER_DETAILS',
+      prompt.text, [member, meetingNo, meetingNo]);
+    recordWorkflowOutbound_(member, phone, 'SPEAKER_DETAILS_PROMPT',
+      prompt.text, meetingNo, result, key);
+    if (result.ok) setConversation_(phone, prompt.state);
   });
 }
 
@@ -735,85 +654,64 @@ function processEvaluatorCoordinationForMeeting_(meetingNo, daysLeft, reminderDa
 
 
 function processAssignedRolePrompts_() {
-  if (
-    !configBool_('TMOD_WORKFLOW_ENABLED') &&
-    !configBool_('GRAMMARIAN_WORKFLOW_ENABLED') &&
-    !configBool_('INTRO_WORKFLOW_ENABLED')
-  ) return;
-
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const tasks = ss.getSheetByName('Automation Tasks');
   if (!tasks || tasks.getLastRow() < 2) return;
-
   const rows = tasks.getRange(2, 1, tasks.getLastRow() - 1, 18).getValues();
-  const now = new Date();
-
   rows.forEach(row => {
-    const taskId = String(row[0] || '');
-    const meetingNo = Number(row[1]);
     const type = String(row[2] || '');
+    if (['THEME', 'GRAMMAR', 'INTRO'].indexOf(type) < 0 ||
+        String(row[5] || '') !== 'Pending' ||
+        !(row[6] instanceof Date) || row[6] > new Date()) return;
+    const meetingNo = Number(row[1]);
     const member = String(row[3] || '').trim();
     const related = String(row[4] || '').trim();
-    const state = String(row[5] || '');
-    const dueAt = row[6];
-
-    if (!taskId || !meetingNo || !member || state !== 'Pending') return;
-    if (!(dueAt instanceof Date) || dueAt > now) return;
-
-    let kind = '';
-    let text = '';
-    let params = [];
-
-    if (type === 'THEME' && configBool_('TMOD_WORKFLOW_ENABLED')) {
-      kind = 'THEME_REQUEST';
-      text =
-        'Hi ' + member + ',\n\n' +
-        'Please share the theme at the earliest, so that the role players can align with the same.\n\n' +
-        'Thank you.\n\n' +
-        'Reply in this format:\nTHEME ' + meetingNo + ': Your theme';
-      params = [member, meetingNo, meetingNo];
-    }
-
-    if (type === 'GRAMMAR' && configBool_('GRAMMARIAN_WORKFLOW_ENABLED')) {
-      kind = 'GRAMMAR_REQUEST';
-      text =
-        'Hi ' + member + ',\n\n' +
-        'Please share the Word of the Day and Idiom of the Day for ATK Meeting ' + meetingNo + ' at the earliest.\n\n' +
-        'Reply in this format:\nGRAMMAR ' + meetingNo +
-        ': Word | Meaning | Idiom | Meaning\n\nThank you.';
-      params = [member, meetingNo, meetingNo];
-    }
-
-    if (type === 'INTRO' && configBool_('INTRO_WORKFLOW_ENABLED')) {
-      const role = ROLE_DEFS_.find(r => r.code === related);
-      kind = 'INTRO_REQUEST';
-      text =
-        'Hi ' + member + ',\n\n' +
-        'Please share a short introduction that the Toastmaster can use while introducing you as ' +
-        (role ? role.name : related) + ' for ATK Meeting ' + meetingNo + '.\n\n' +
-        'Reply in this format:\nINTRO ' + meetingNo +
-        ': Your short introduction\n\nThank you.';
-      params = [member, meetingNo, role ? role.name : related, meetingNo];
-    }
-
-    if (!kind || !text) return;
-
     const phone = phoneForMember_(member);
-    if (!phone || !isWhatsAppRecipientAllowed_(phone)) return;
-
+    if (!phone || !isWhatsAppRecipientAllowed_(phone) || activeConversation_(phone)) return;
+    const kind = type === 'THEME' ? 'THEME_REQUEST' :
+      type === 'GRAMMAR' ? 'GRAMMAR_REQUEST' : 'INTRO_REQUEST';
     const key = [kind, meetingNo, related, member].join('|');
     if (hasReminderBeenSent_(key)) return;
+    const role = ROLE_DEFS_.find(def => def.code === related);
+    const prompt = startGuidedRequest_(member, phone, type, meetingNo,
+      related, role ? role.name : 'speaker');
+    const params = type === 'INTRO'
+      ? [member, meetingNo, role ? role.name : 'speaker', meetingNo]
+      : [member, meetingNo, meetingNo];
+    const result = sendAutomatedText_(phone, kind, prompt.text, params);
+    recordWorkflowOutbound_(member, phone, kind, prompt.text, meetingNo, result, key);
+    if (result.ok) setConversation_(phone, prompt.state);
+  });
+}
 
-    const result = sendAutomatedText_(phone, kind, text, params);
-    recordWorkflowOutbound_(member, phone, kind, text, meetingNo, result, key);
+function sendSpeakerDetailsToTmod_(meetingNo, member, slotRef, parts) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const planner = ss.getSheetByName('VPE Weekly Planner');
+  const ids = planner.getRange(3, 1, Math.max(0, Math.min(60, planner.getLastRow() - 2)), 1)
+    .getValues().flat();
+  const idx = ids.findIndex(v => Number(v) === Number(meetingNo));
+  if (idx < 0) return;
+  const tmod = String(planner.getRange(idx + 3, 19).getValue() || '').trim();
+  const phone = phoneForMember_(tmod);
+  if (!phone || !isWhatsAppRecipientAllowed_(phone)) return;
+  const body = 'Speech details for ' + member + ' · ATK Meeting ' + meetingNo +
+    '\nTitle: ' + parts[0] + '\nPath: ' + parts[1] +
+    '\nLevel: ' + parts[2] + '\nProject: ' + parts[3];
+  const key = ['SPEECH_TO_TMOD', meetingNo, slotRef, member, parts.join('|')].join('|');
+  if (hasReminderBeenSent_(key)) return;
+  const result = sendAutomatedText_(phone, 'INTRO_BUNDLE', body,
+    [tmod, meetingNo, member + ' — ' + parts[0] + ' | ' + parts[1] +
+      ' | ' + parts[2] + ' | ' + parts[3]]);
+  recordWorkflowOutbound_(tmod, phone, 'SPEECH_TO_TMOD', body, meetingNo, result, key);
+}
 
-    logAutomation_(
-      'Assignment Follow-up',
-      meetingNo,
-      member,
-      kind,
-      result.ok ? 'Sent' : (result.deferred ? 'Deferred' : (result.blocked ? 'Blocked' : 'Error')),
-      result.error || taskId
-    );
+function processReadySpeakerDetailsToTmod_() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const subs = ss.getSheetByName('WA Submissions');
+  if (!subs || subs.getLastRow() < 2) return;
+  subs.getRange(2, 1, subs.getLastRow() - 1, 14).getValues().forEach(row => {
+    if (String(row[3]) !== 'SPEAKER_DETAILS') return;
+    sendSpeakerDetailsToTmod_(Number(row[1]), String(row[2] || ''),
+      String(row[4] || ''), [row[5], row[6], row[7], row[8]].map(String));
   });
 }
