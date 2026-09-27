@@ -417,6 +417,8 @@ function processVacantRoleReminders_() {
       .filter(m => m.name && m.phone && !speakers.has(m.name) && !assigned.has(m.name));
 
     eligible.forEach(member => {
+      // In DEV, do not create failed outbox entries for members outside the test allowlist.
+      if (!isWhatsAppRecipientAllowed_(member.phone)) return;
       const idempotency = ['ROLE_REMINDER', meetingNo, daysLeft, member.name].join('|');
       if (hasReminderBeenSent_(idempotency)) return;
 
