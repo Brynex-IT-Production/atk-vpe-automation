@@ -124,7 +124,7 @@ function verifyRelayEnvelope_(envelope, secret) {
   const timestamp = String(envelope.relay_timestamp || '');
   const raw = envelope.relay_payload;
   const mac = String(envelope.relay_mac || '').toLowerCase();
-  if (!/^\\d{13}$/.test(timestamp) || typeof raw !== 'string' ||
+  if (!/^\d{13}$/.test(timestamp) || typeof raw !== 'string' ||
       !/^[0-9a-f]{64}$/.test(mac)) return false;
   if (Math.abs(Date.now() - Number(timestamp)) > 5 * 60 * 1000) return false;
   const bytes = Utilities.computeHmacSha256Signature(
