@@ -1,0 +1,25 @@
+name: ATK DEV one-time speech and pairing test
+on:
+  push:
+    paths:
+      - '.github/workflows/test-speech-once.yml'
+permissions:
+  contents: read
+jobs:
+  speech:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sync DEV assignment and submit speech details
+        shell: bash
+        run: |
+          tick=$(curl --location --fail-with-body --silent --show-error \
+            --header 'Content-Type: application/json' \
+            --data '{"system_action":"PHASE1_TICK","verify_token":"ATK_VPE_VERIFY_2026_X7K9M4P2"}' \
+            'https://script.google.com/macros/s/AKfycbwzHdJptr44J1aWN4UqHp6qN435kwFPbG8ngYGEYABqypF2urE0Jyd0hLd63M-wYVVE/exec')
+          test "$tick" = "PHASE1_TICK_OK"
+          reply=$(curl --location --fail-with-body --silent --show-error \
+            --header 'Content-Type: application/json' \
+            --data '{"entry":[{"changes":[{"value":{"messages":[{"id":"atk-dev-speech-test-20260927-01","from":"919746462423","type":"text","text":{"body":"SPEECH 450: DEV Test Speech | Presentation Mastery | 1 | Ice Breaker"}}]}}]}]}' \
+            'https://script.google.com/macros/s/AKfycbwzHdJptr44J1aWN4UqHp6qN435kwFPbG8ngYGEYABqypF2urE0Jyd0hLd63M-wYVVE/exec')
+          echo "$reply"
+          test "$reply" = "EVENT_RECEIVED"
