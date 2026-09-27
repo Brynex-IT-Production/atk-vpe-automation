@@ -4,7 +4,7 @@
  */
 
 const ROLE_DEFS_ = [
-  { code: 'TMOD', name: 'Toastmaster', column: 19 },
+  { code: 'TMOD', name: 'Toastmaster of the Day', column: 19 },
   { code: 'GE', name: 'General Evaluator', column: 20 },
   { code: 'TTM', name: 'Table Topics Master', column: 21 },
   { code: 'Timer', name: 'Timer', column: 22 },
@@ -94,6 +94,8 @@ function processInboundWhatsAppMessage_(message) {
   // VPE-only administration through WhatsApp.
   const rawText = String(interaction.text || '').trim();
   const vpeMember = configValue_('VPE_MEMBER_NAME', 'Riyas AF');
+
+  if (handleGuidedReply_(member, phone, rawText, messageId)) return;
 
   if (handleStructuredSubmission_(member, phone, rawText, messageId)) {
     return;
