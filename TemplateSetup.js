@@ -297,7 +297,7 @@ function syncAtkTemplateApprovalStatus_() {
   const sheet = ss.getSheetByName('Automation Config');
   if (!sheet) return;
 
-  const rows = sheet.getRange(48, 1, 10, 4).getValues();
+  const rows = sheet.getRange(48, 1, Math.max(10, sheet.getLastRow() - 47), 4).getValues();
   const updates = [];
   let changed = false;
 
@@ -319,7 +319,7 @@ function syncAtkTemplateApprovalStatus_() {
   });
 
   if (changed) {
-    sheet.getRange(48, 4, 10, 1).setValues(updates);
+    sheet.getRange(48, 4, updates.length, 1).setValues(updates);
     logAutomation_(
       'WhatsApp Templates',
       '',
