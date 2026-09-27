@@ -1,0 +1,20 @@
+name: ATK DEV remaining workflow checks
+on:
+  push:
+    paths:
+      - '.github/workflows/test-remaining-once.yml'
+permissions:
+  contents: read
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run DEV tasks for introduction bundle and role reminder
+        shell: bash
+        run: |
+          response=$(curl --location --fail-with-body --silent --show-error \
+            --header 'Content-Type: application/json' \
+            --data '{"system_action":"PHASE1_TICK","verify_token":"ATK_VPE_VERIFY_2026_X7K9M4P2"}' \
+            'https://script.google.com/macros/s/AKfycbwzHdJptr44J1aWN4UqHp6qN435kwFPbG8ngYGEYABqypF2urE0Jyd0hLd63M-wYVVE/exec')
+          echo "$response"
+          test "$response" = "PHASE1_TICK_OK"
