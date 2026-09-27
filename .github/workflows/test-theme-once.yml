@@ -1,0 +1,25 @@
+name: ATK DEV one-time theme workflow test
+on:
+  push:
+    paths:
+      - '.github/workflows/test-theme-once.yml'
+permissions:
+  contents: read
+jobs:
+  theme:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sync assignment and submit DEV theme
+        shell: bash
+        run: |
+          tick=$(curl --location --fail-with-body --silent --show-error \
+            --header 'Content-Type: application/json' \
+            --data '{"system_action":"PHASE1_TICK","verify_token":"ATK_VPE_VERIFY_2026_X7K9M4P2"}' \
+            'https://script.google.com/macros/s/AKfycbwzHdJptr44J1aWN4UqHp6qN435kwFPbG8ngYGEYABqypF2urE0Jyd0hLd63M-wYVVE/exec')
+          test "$tick" = "PHASE1_TICK_OK"
+          reply=$(curl --location --fail-with-body --silent --show-error \
+            --header 'Content-Type: application/json' \
+            --data '{"entry":[{"changes":[{"value":{"messages":[{"id":"atk-dev-theme-test-20260927-01","from":"919746462423","type":"text","text":{"body":"THEME 450: DEV Test Theme"}}]}}]}]}' \
+            'https://script.google.com/macros/s/AKfycbwzHdJptr44J1aWN4UqHp6qN435kwFPbG8ngYGEYABqypF2urE0Jyd0hLd63M-wYVVE/exec')
+          echo "$reply"
+          test "$reply" = "EVENT_RECEIVED"
