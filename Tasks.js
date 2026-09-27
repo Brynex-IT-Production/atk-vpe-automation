@@ -18,10 +18,10 @@ function phase1ScheduledTick() {
 
   syncPhase1Tasks_();
   processVacantRoleReminders_();
+  processSpeakerDetailPrompts_();
   processAssignedRolePrompts_();
   processReadyIntroductionBundles_();
   processReadySpeakerDetailsToTmod_();
-  processSpeakerDetailPrompts_();
   processAgendaSecondReminders_();
   processMemberIntroOnboarding_();
   processEvaluatorNotifications_();
