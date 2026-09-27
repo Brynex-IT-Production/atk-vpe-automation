@@ -157,7 +157,7 @@ function handleGuidedReply_(member, phone, text, messageId) {
     if (state.step === 'CHOICE' && saved) {
       if (answer === '1' || /^use (my )?(saved|default)/i.test(answer)) {
         clearConversation_(phone);
-        if (kind === 'INTRO') handleIntroSubmission_(member, phone, n, saved, messageId);
+        if (kind === 'INTRO') handleIntroSubmission_(member, phone, n, saved, messageId, state.related);
         else sendWhatsAppText_(phone, 'Your saved introduction is ready ✅');
         return true;
       }
@@ -182,7 +182,7 @@ function handleGuidedReply_(member, phone, text, messageId) {
     }
     if (state.step !== 'MEETING_INTRO') saveDefaultIntro_(member, answer);
     clearConversation_(phone);
-    if (kind === 'INTRO') handleIntroSubmission_(member, phone, n, answer, messageId);
+    if (kind === 'INTRO') handleIntroSubmission_(member, phone, n, answer, messageId, state.related);
     else sendWhatsAppText_(phone, 'Your standard ATK introduction is saved ✅');
     return true;
   }
@@ -190,7 +190,7 @@ function handleGuidedReply_(member, phone, text, messageId) {
 }
 
 function promptSpeakerIntro_(member, phone, meetingNo, slotRef) {
-  const task = findPendingTaskForMember_('INTRO', member, meetingNo);
+  const task = findPendingTaskForMember_('INTRO', member, meetingNo, slotRef);
   if (!task || task.related !== slotRef || activeConversation_(phone)) return;
   const prompt = startGuidedRequest_(member, phone, 'INTRO', meetingNo, slotRef, 'speaker');
   if (!prompt) return;
