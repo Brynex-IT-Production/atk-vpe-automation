@@ -227,7 +227,8 @@ function processAgendaSecondReminders_() {
       kind === 'GRAMMAR' ? 'GRAMMAR_REQUEST' :
       kind === 'THEME' ? 'THEME_REQUEST' : 'SPEAKER_DETAILS_PROMPT';
     const firstKey = [firstKind, meetingNo, row[4], member].join('|');
-    if (!hasReminderBeenSent_(firstKey)) return;
+    const assignmentKey = ['ASSIGNMENT_PROMPT', meetingNo, row[4], member].join('|');
+    if (!hasReminderBeenSent_(firstKey) && !hasReminderBeenSent_(assignmentKey)) return;
     const item = kind === 'SPEAKER_DETAILS' ? 'speech title, Path, Level and Project' :
       kind === 'INTRO' ? 'introduction' :
       kind === 'GRAMMAR' ? 'Word and Idiom details' : 'meeting theme';
