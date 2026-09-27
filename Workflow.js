@@ -75,6 +75,10 @@ function recentUnambiguousIntroTask_(member, phone, text) {
 }
 
 function sendImmediateAssignmentPrompts_(meetingNo, roleDef, member, phone) {
+  if (roleDef.code === 'TMOD' && !configBool_('TMOD_WORKFLOW_ENABLED')) return;
+  if (roleDef.code === 'GRM' && !configBool_('GRAMMARIAN_WORKFLOW_ENABLED')) return;
+  if (roleDef.code !== 'TMOD' && roleDef.code !== 'GRM' &&
+      !configBool_('INTRO_WORKFLOW_ENABLED')) return;
   const kind = roleDef.code === 'TMOD' ? 'THEME' :
     roleDef.code === 'GRM' ? 'GRAMMAR' : 'INTRO';
   const request = startGuidedRequest_(member, phone, kind, meetingNo, roleDef.code, roleDef.name);
