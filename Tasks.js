@@ -20,6 +20,7 @@ function phase1ScheduledTick() {
   processVacantRoleReminders_();
   processAssignedRolePrompts_();
   processReadyIntroductionBundles_();
+  processReadySpeakerDetailsToTmod_();
   processSpeakerDetailPrompts_();
   processAgendaSecondReminders_();
   processMemberIntroOnboarding_();
