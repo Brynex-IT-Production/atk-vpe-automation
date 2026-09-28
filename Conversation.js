@@ -205,7 +205,13 @@ function promptSpeakerIntro_(member, phone, meetingNo, slotRef) {
   if (result.ok) setConversation_(phone, prompt.state);
 }
 
-function processAgendaSecondReminders_() {
+function processAgendaSecondReminders_(testOptions) {
+  const test = testOptions && testOptions.devTest === true;
+  if (test && (configValue_('SYSTEM_MODE', '') !== 'DEV' ||
+      configValue_('WA_SEND_MODE', '') !== 'TEST')) {
+    throw new Error('Agenda test is restricted to DEV TEST mode.');
+  }
+  const testResults = [];
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const planner = ss.getSheetByName('VPE Weekly Planner');
   const tasks = ss.getSheetByName('Automation Tasks');
@@ -216,9 +222,12 @@ function processAgendaSecondReminders_() {
     const date = row[1];
     if (!(date instanceof Date) || String(row[2]) === 'Cancelled' || String(row[2]) === 'Completed') return;
     if (Utilities.formatDate(date, configValue_('TIMEZONE', 'Asia/Kolkata'), 'EEE') !== 'Mon') return;
-    meetings[Number(row[0])] = Math.round((startOfDay_(date) - startOfDay_(new Date())) / 86400000);
+    meetings[Number(row[0])] = Math.round((startOfDay_(date) - startOfDay_(test ? testOptions.date : new Date())) / 86400000);
   });
-  const pending = tasks.getRange(2, 1, tasks.getLastRow() - 1, 18).getValues();
+  const pending = test ? [[
+    'DEV_AGENDA_TEST', 451, 'INTRO', configValue_('VPE_MEMBER_NAME', ''),
+    'Timer', 'Pending'
+  ]] : tasks.getRange(2, 1, tasks.getLastRow() - 1, 18).getValues();
   pending.forEach(row => {
     const meetingNo = Number(row[1]);
     const days = meetings[meetingNo];
@@ -228,7 +237,8 @@ function processAgendaSecondReminders_() {
     const member = String(row[3] || '').trim();
     const phone = phoneForMember_(member);
     if (!member || !phone || !isWhatsAppRecipientAllowed_(phone)) return;
-    const key = ['AGENDA_SECOND', meetingNo, kind, row[4], member].join('|');
+    const key = [test ? 'AGENDA_SECOND_DEV_TEST_20260928' : 'AGENDA_SECOND',
+      meetingNo, kind, row[4], member].join('|');
     if (hasReminderBeenSent_(key)) return;
     const active = activeConversation_(phone);
     if (active && (active.kind !== kind ||
@@ -239,22 +249,27 @@ function processAgendaSecondReminders_() {
       kind === 'THEME' ? 'THEME_REQUEST' : 'SPEAKER_DETAILS_PROMPT';
     const firstKey = [firstKind, meetingNo, row[4], member].join('|');
     const assignmentKey = ['ASSIGNMENT_PROMPT', meetingNo, row[4], member].join('|');
-    if (!hasReminderBeenSent_(firstKey) && !hasReminderBeenSent_(assignmentKey)) return;
+    if (!test && !hasReminderBeenSent_(firstKey) && !hasReminderBeenSent_(assignmentKey)) return;
     const item = kind === 'SPEAKER_DETAILS' ? 'speech title, Path, Level and Project' :
       kind === 'INTRO' ? 'introduction' :
       kind === 'GRAMMAR' ? 'Word and Idiom details' : 'meeting theme';
     const body = 'Hi ' + member + ', this is a second reminder for ATK Meeting ' +
       meetingNo + '. Please send your ' + item +
       ' today. We can publish the agenda by Saturday evening only after receiving the pending details. Thank you.';
-    const result = sendAutomatedText_(phone, 'AGENDA_REMINDER', body, [member, meetingNo, item]);
-    recordWorkflowOutbound_(member, phone, 'AGENDA_SECOND', body, meetingNo, result, key);
-    if (result.ok && !active) {
+    const result = sendAutomatedText_(phone, 'AGENDA_REMINDER', body,
+      [member, meetingNo, test ? 'DEV test introduction — no reply needed' : item]);
+    recordWorkflowOutbound_(member, phone, test ? 'AGENDA_SECOND_DEV_TEST' : 'AGENDA_SECOND',
+      body, meetingNo, result, key);
+    if (test) testResults.push({ok: Boolean(result.ok), messageId: result.messageId || '',
+      error: result.error || '', key: key, days: days});
+    if (result.ok && !active && !test) {
       const role = ROLE_DEFS_.find(def => def.code === String(row[4] || ''));
       const request = startGuidedRequest_(member, phone, kind, meetingNo,
         String(row[4] || ''), role ? role.name : 'speaker');
       if (request) setConversation_(phone, request.state);
     }
   });
+  return test ? testResults : undefined;
 }
 
 function processMemberIntroOnboarding_() {
@@ -278,4 +293,29 @@ function processMemberIntroOnboarding_() {
       request.text, 0, result, key);
     if (result.ok) setConversation_(phone, request.state);
   });
+}
+
+/** Synthetic clock, real DEV template delivery; no planner or task mutations. */
+function testAgendaReminderDev_() {
+  if (configValue_('SYSTEM_MODE', '') !== 'DEV' ||
+      configValue_('WA_SEND_MODE', '') !== 'TEST') {
+    throw new Error('Agenda test requires DEV TEST mode.');
+  }
+  const member = configValue_('VPE_MEMBER_NAME', '');
+  const phone = phoneForMember_(member);
+  if (!member || !phone || !isWhatsAppRecipientAllowed_(phone)) {
+    throw new Error('VPE is not allowlisted.');
+  }
+  if (activeConversation_(phone)) throw new Error('Another guided conversation is active.');
+  const friday = new Date('2026-10-02T12:00:00+05:30');
+  const saturday = new Date('2026-10-03T12:00:00+05:30');
+  const first = processAgendaSecondReminders_({devTest: true, date: friday});
+  const duplicate = processAgendaSecondReminders_({devTest: true, date: friday});
+  const saturdayDuplicate = processAgendaSecondReminders_({devTest: true, date: saturday});
+  return {
+    ok: first.length === 1 && first[0].ok &&
+      duplicate.length === 0 && saturdayDuplicate.length === 0,
+    friday: first, repeatedFriday: duplicate.length, saturday: saturdayDuplicate.length,
+    recipient: 'VPE allowlisted number'
+  };
 }
