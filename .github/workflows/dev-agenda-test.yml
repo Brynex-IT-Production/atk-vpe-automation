@@ -1,0 +1,44 @@
+name: DEV agenda reminder one-time test
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/dev-agenda-test.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Allow DEV source deployment to complete
+        run: sleep 120
+      - name: Run guarded test
+        shell: bash
+        run: |
+          curl --fail-with-body --silent --show-error --max-time 120 \
+            --request POST --header 'Content-Type: application/json' \
+            --data '{"system_action":"TEST_DEV_AGENDA_REMINDER","verify_token":"ATK_VPE_VERIFY_2026_X7K9M4P2"}' \
+            'https://script.google.com/macros/s/AKfycbwzHdJptr44J1aWN4UqHp6qN435kwFPbG8ngYGEYABqypF2urE0Jyd0hLd63M-wYVVE/exec' \
+            > dev-agenda-test-result.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          result = json.loads(Path('dev-agenda-test-result.json').read_text())
+          print('Friday sent:', len(result.get('friday', [])))
+          print('Repeated Friday sent:', result.get('repeatedFriday'))
+          print('Saturday sent:', result.get('saturday'))
+          print('Test passed:', result.get('ok'))
+          PY
+      - name: Preserve test receipt
+        if: always()
+        run: |
+          if [ -f dev-agenda-test-result.json ]; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add dev-agenda-test-result.json
+            git commit -m 'Record DEV agenda reminder test receipt' || true
+            git push
+          fi
