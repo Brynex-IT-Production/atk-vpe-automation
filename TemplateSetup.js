@@ -333,48 +333,86 @@ function syncAtkTemplateApprovalStatus_() {
 
 
 function testApprovedTemplatesToVpe_() {
-  const member = configValue_('VPE_MEMBER_NAME', 'Riyas AF');
-  const phone = phoneForMember_(member);
-  if (!phone) throw new Error('VPE WhatsApp number not found.');
+  if (configValue_('SYSTEM_MODE', '') !== 'DEV' ||
+      configValue_('WA_SEND_MODE', '') !== 'TEST') {
+    throw new Error('Template test is restricted to DEV TEST mode.');
+  }
 
-  const planner = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('VPE Weekly Planner');
-  const rows = planner.getRange(3, 1, Math.min(60, Math.max(0, planner.getLastRow() - 2)), 28).getValues();
-  const today = startOfDay_(new Date());
-  const next = rows.find(r => {
-    const d = r[1];
-    const status = String(r[2] || '');
-    return Number(r[0]) && d instanceof Date && startOfDay_(d) >= today &&
-      status !== 'Completed' && status !== 'Cancelled';
+  const member = configValue_('VPE_MEMBER_NAME', 'Riyas AF');
+  const phone = normalizePhone_(phoneForMember_(member));
+  if (!phone) throw new Error('VPE WhatsApp number not found.');
+  if (!isWhatsAppRecipientAllowed_(phone)) {
+    throw new Error('VPE is not listed in WA_TEST_RECIPIENTS.');
+  }
+
+  const meetingNo = 'DEV TEST';
+  const tests = [
+    {
+      key: 'WA_TEMPLATE_SPEAKER_DETAILS',
+      fallback: 'atk_speaker_guided',
+      params: [member, meetingNo]
+    },
+    {
+      key: 'WA_TEMPLATE_THEME_REQUEST',
+      fallback: 'atk_theme_guided',
+      params: [member, meetingNo]
+    },
+    {
+      key: 'WA_TEMPLATE_GRAMMAR_REQUEST',
+      fallback: 'atk_grammar_guided',
+      params: [member, meetingNo]
+    },
+    {
+      key: 'WA_TEMPLATE_INTRO_REQUEST',
+      fallback: 'atk_intro_guided',
+      params: [member, meetingNo, 'Timer']
+    },
+    {
+      key: 'WA_TEMPLATE_DEFAULT_INTRO_REQUEST',
+      fallback: 'atk_member_intro',
+      params: [member]
+    },
+    {
+      key: 'WA_TEMPLATE_AGENDA_REMINDER',
+      fallback: 'atk_agenda_followup',
+      params: [member, meetingNo, 'speech details']
+    },
+    {
+      key: 'WA_TEMPLATE_TMOD_UPDATE',
+      fallback: 'atk_tmod_update',
+      params: [member, meetingNo, 'DEV template verification only']
+    }
+  ];
+
+  const results = [];
+  tests.forEach((test, index) => {
+    const templateName = configValue_(test.key, test.fallback);
+    if (!isApprovedTemplate_(templateName)) {
+      results.push({
+        ok: false,
+        key: test.key,
+        template: templateName,
+        error: 'Template is not marked APPROVED in Automation Config.'
+      });
+      return;
+    }
+
+    if (index > 0) Utilities.sleep(1200);
+    const result = sendWhatsAppTemplate_(phone, templateName, test.params, null);
+    results.push({
+      ok: Boolean(result && result.ok),
+      key: test.key,
+      template: templateName,
+      messageId: result && result.messageId ? result.messageId : '',
+      error: result && result.error ? result.error : ''
+    });
   });
 
-  const meetingNo = next ? Number(next[0]) : 450;
-  const openRoles = next
-    ? ROLE_DEFS_.filter(def => !String(next[def.column - 1] || '').trim()).map(def => def.name)
-    : ['Timer', 'Grammarian'];
-
-  const roleText = openRoles.length ? openRoles.join(', ') : 'No core roles currently open';
-
-  const roleResult = sendWhatsAppTemplate_(
-    phone,
-    configValue_('WA_TEMPLATE_ROLE_REMINDER', 'atk_role_reminder'),
-    [member, meetingNo, roleText],
-    null
-  );
-
-  Utilities.sleep(1200);
-
-  const exceptionResult = sendWhatsAppTemplate_(
-    phone,
-    configValue_('WA_TEMPLATE_VPE_EXCEPTION', 'atk_vpe_exception'),
-    [member],
-    'ADMIN_EXCEPTIONS'
-  );
-
   return {
-    ok: Boolean(roleResult && roleResult.ok && exceptionResult && exceptionResult.ok),
-    meetingNo: meetingNo,
-    roleReminder: roleResult,
-    vpeException: exceptionResult
+    ok: results.length === 7 && results.every(result => result.ok),
+    recipient: phone,
+    mode: 'DEV TEST',
+    results: results
   };
 }
 
