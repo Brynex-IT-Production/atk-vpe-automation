@@ -43,7 +43,14 @@ function saveDefaultIntro_(member, intro) {
   const names = sheet.getRange(2, 2, sheet.getLastRow() - 1, 1).getValues().flat();
   const idx = names.findIndex(v => String(v || '').trim() === member);
   if (idx < 0) throw new Error('Member not found for default introduction.');
-  sheet.getRange(idx + 2, 6).setValue(intro);
+  const cell = sheet.getRange(idx + 2, 6);
+  cell.setValue(intro);
+  SpreadsheetApp.flush();
+  if (String(cell.getValue() || '') !== String(intro)) {
+    throw new Error('Introduction save could not be verified; please try again.');
+  }
+  logAutomation_('Introduction', '', member, 'Standard introduction saved and verified',
+    'Success', 'Member Master!' + cell.getA1Notation());
 }
 
 function introductionPrompt_(member, role, meetingNo) {
