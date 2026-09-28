@@ -98,6 +98,25 @@ function doPost(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
 
+    if (payload && payload.system_action === 'CHECK_DEV_VPE_INTRO' &&
+        payload.verify_token === VERIFY_TOKEN) {
+      if (configValue_('SYSTEM_MODE', '') !== 'DEV' ||
+          configValue_('WA_SEND_MODE', '') !== 'TEST') {
+        throw new Error('Introduction diagnostic is restricted to DEV TEST mode.');
+      }
+      const member = configValue_('VPE_MEMBER_NAME', '');
+      const phone = phoneForMember_(member);
+      if (!member || !phone || !isWhatsAppRecipientAllowed_(phone)) {
+        throw new Error('VPE must be an allowlisted DEV recipient.');
+      }
+      SpreadsheetApp.flush();
+      return ContentService.createTextOutput(JSON.stringify({
+        ok: true, member: member, introduction: defaultIntro_(member),
+        activeRequest: activeConversation_(phone),
+        spreadsheetId: SPREADSHEET_ID
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
     if (payload && payload.system_action === 'RESEND_DEV_VPE_INTRO' &&
         payload.verify_token === VERIFY_TOKEN) {
       return ContentService.createTextOutput(JSON.stringify(resendDevVpeIntro_()))
