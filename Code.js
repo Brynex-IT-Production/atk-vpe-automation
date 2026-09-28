@@ -144,6 +144,16 @@ function doPost(e) {
 
   } catch (error) {
 
+    try {
+      const failedAction = JSON.parse(e.postData.contents);
+      if (failedAction.verify_token === VERIFY_TOKEN &&
+          ['CHECK_DEV_VPE_INTRO', 'RECOVER_DEV_VPE_INTRO'].indexOf(failedAction.system_action) !== -1) {
+        return ContentService.createTextOutput(JSON.stringify({
+          ok: false, error: String(error.message || error)
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+    } catch (ignore) {}
+
     console.error(error);
 
     return ContentService
