@@ -98,7 +98,7 @@ function doPost(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
 
-    if (payload && payload.system_action === 'CHECK_DEV_VPE_INTRO' &&
+    if (payload && ['CHECK_DEV_VPE_INTRO', 'RECOVER_DEV_VPE_INTRO'].indexOf(payload.system_action) !== -1 &&
         payload.verify_token === VERIFY_TOKEN) {
       if (configValue_('SYSTEM_MODE', '') !== 'DEV' ||
           configValue_('WA_SEND_MODE', '') !== 'TEST') {
@@ -108,6 +108,18 @@ function doPost(e) {
       const phone = phoneForMember_(member);
       if (!member || !phone || !isWhatsAppRecipientAllowed_(phone)) {
         throw new Error('VPE must be an allowlisted DEV recipient.');
+      }
+      if (payload.system_action === 'RECOVER_DEV_VPE_INTRO') {
+        if (defaultIntro_(member)) throw new Error('An introduction is already saved.');
+        const log = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('WA Webhook Log');
+        const rows = log.getRange(2, 1, log.getLastRow() - 1, 7).getValues();
+        const matches = rows.filter(row => row[1] === 'Incoming Message' &&
+          normalizePhone_(row[2]) === phone && row[3] === member &&
+          row[4] === payload.message_id && row[5] === 'text');
+        if (matches.length !== 1) throw new Error('One matching original message is required.');
+        const intro = String(matches[0][6] || '').trim();
+        if (intro.length < 10) throw new Error('Original introduction is too short.');
+        saveDefaultIntro_(member, intro);
       }
       SpreadsheetApp.flush();
       return ContentService.createTextOutput(JSON.stringify({
