@@ -13,7 +13,7 @@ on:
       - '.github/workflows/deploy-dev.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: atk-vpe-dev
@@ -127,3 +127,26 @@ jobs:
           cd /tmp/atk-vpe-dev
           clasp update-deployment "$ATK_DEV_WEBAPP_DEPLOYMENT_ID" \
             --description "GitHub Actions $GITHUB_SHA"
+
+      - name: Run controlled agenda reminder test
+        if: contains(github.event.head_commit.message, '[test-agenda]')
+        shell: bash
+        run: |
+          curl --location --fail-with-body --silent --show-error --max-time 120 \
+            --header 'Content-Type: application/json' \
+            --data '{"system_action":"TEST_DEV_AGENDA_REMINDER","verify_token":"ATK_VPE_VERIFY_2026_X7K9M4P2"}' \
+            'https://script.google.com/macros/s/AKfycbwzHdJptr44J1aWN4UqHp6qN435kwFPbG8ngYGEYABqypF2urE0Jyd0hLd63M-wYVVE/exec' \
+            > dev-agenda-test-result.json
+          python3 -m json.tool dev-agenda-test-result.json
+
+      - name: Preserve agenda test receipt
+        if: contains(github.event.head_commit.message, '[test-agenda]') && always()
+        shell: bash
+        run: |
+          if [ -f dev-agenda-test-result.json ]; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add dev-agenda-test-result.json
+            git commit -m 'Record DEV agenda reminder test receipt' || true
+            git push
+          fi
