@@ -242,18 +242,18 @@ function reserveSpeechSlot_(meetingNo, member) {
 function sendSpeakerDetailsPrompt_(meetingNo, slot, member, phone) {
   if (!configBool_('SPEAKER_DETAILS_WORKFLOW_ENABLED')) return;
 
-  const key = ['SPEAKER_DETAILS_PROMPT', meetingNo, 'S' + slot, member].join('|');
-  if (hasReminderBeenSent_(key)) return;
+  const related = 'S' + slot;
+  const key = ['SPEAKER_DETAILS_PROMPT', meetingNo, related, member].join('|');
+  if (hasReminderBeenSent_(key) || activeConversation_(phone)) return;
 
-  const text =
-    'Hi ' + member + ',\n\n' +
-    'Please share your speech details for ATK Meeting ' + meetingNo + '.\n\n' +
-    'Reply in this format:\n' +
-    'SPEECH ' + meetingNo + ': Speech Title | Path | Level | Project\n\n' +
-    'Thank you.';
+  const prompt = startGuidedRequest_(member, phone, 'SPEAKER_DETAILS',
+    meetingNo, related, 'speaker');
+  if (!prompt) return;
 
-  const result = sendWhatsAppText_(phone, text);
-  recordWorkflowOutbound_(member, phone, 'SPEAKER_DETAILS_PROMPT', text, meetingNo, result, key);
+  const result = sendWhatsAppText_(phone, prompt.text);
+  recordWorkflowOutbound_(member, phone, 'SPEAKER_DETAILS_PROMPT',
+    prompt.text, meetingNo, result, key);
+  if (result.ok) setConversation_(phone, prompt.state);
 }
 
 function getOpenSpeechSlotsFromRow_(row) {
