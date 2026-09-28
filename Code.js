@@ -98,6 +98,12 @@ function doPost(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
 
+    if (payload && payload.system_action === 'RESEND_DEV_VPE_INTRO' &&
+        payload.verify_token === VERIFY_TOKEN) {
+      return ContentService.createTextOutput(JSON.stringify(resendDevVpeIntro_()))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
     logWhatsAppWebhook_(payload);
     processWhatsAppAutomation_(payload);
 
@@ -498,4 +504,40 @@ function checkMetaPropertyValues() {
     'WA_WABA_ID length: ' +
     wabaId.length
   );
+}
+
+/** Explicit DEV-only resend requested by the VPE; never changes the allowlist. */
+function resendDevVpeIntro_() {
+  if (configValue_('SYSTEM_MODE', '') !== 'DEV' ||
+      configValue_('WA_SEND_MODE', '') !== 'TEST') {
+    throw new Error('Introduction resend is restricted to DEV TEST mode.');
+  }
+  const member = configValue_('VPE_MEMBER_NAME', '');
+  const phone = phoneForMember_(member);
+  if (!member || !phone || !isWhatsAppRecipientAllowed_(phone)) {
+    throw new Error('VPE must be an allowlisted DEV recipient.');
+  }
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const sentAt = Number(props.getProperty('DEV_VPE_INTRO_RESENT_AT') || 0);
+    if (Date.now() - sentAt < 5 * 60 * 1000) return {ok: true, skipped: 'Recently resent'};
+    const active = activeConversation_(phone);
+    if (active && active.kind !== 'DEFAULT_INTRO') {
+      return {ok: false, error: 'Another guided request is active', kind: active.kind};
+    }
+    if (defaultIntro_(member)) return {ok: false, error: 'Default introduction already saved'};
+    const body = introductionPrompt_(member, '', 0);
+    const result = sendAutomatedText_(phone, 'DEFAULT_INTRO_REQUEST', body, [member]);
+    recordWorkflowOutbound_(member, phone, 'DEFAULT_INTRO_REQUEST', body, 0, result,
+      'DEV_INTRO_RESEND|' + Date.now());
+    if (result && result.ok) {
+      setConversation_(phone, {kind: 'DEFAULT_INTRO', meetingNo: 0, related: '', step: 'CHOICE', data: {}});
+      props.setProperty('DEV_VPE_INTRO_RESENT_AT', String(Date.now()));
+    }
+    return result;
+  } finally {
+    lock.releaseLock();
+  }
 }
