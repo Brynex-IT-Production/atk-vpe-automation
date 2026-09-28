@@ -86,6 +86,13 @@ function doPost(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
 
+    if (payload && payload.system_action === 'TEST_DEV_AGENDA_REMINDER' &&
+        payload.verify_token === VERIFY_TOKEN) {
+      const result = testAgendaReminderDev_();
+      return ContentService.createTextOutput(JSON.stringify(result))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
     if (
       payload &&
       payload.system_action === 'TEST_ROLE_TEMPLATE_ONLY' &&
