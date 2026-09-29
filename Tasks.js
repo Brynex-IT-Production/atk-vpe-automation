@@ -30,8 +30,30 @@ function phase1ScheduledTick() {
   processVpeExceptionDigest_();
 }
 
-function installPhase1Triggers() {
-  return installPhase1Triggers_();
+function installEvaluatorEditTrigger() {
+  const handler = 'handlePlannerEvaluatorEdit_';
+
+  ScriptApp.getProjectTriggers().forEach(trigger => {
+    if (trigger.getHandlerFunction() === handler) {
+      ScriptApp.deleteTrigger(trigger);
+    }
+  });
+
+  ScriptApp.newTrigger(handler)
+    .forSpreadsheet(SPREADSHEET_ID)
+    .onEdit()
+    .create();
+
+  logAutomation_(
+    'Evaluation Coordination',
+    '',
+    configValue_('VPE_MEMBER_NAME', 'Riyas AF'),
+    'Installed evaluator assignment edit trigger',
+    'Success',
+    handler
+  );
+
+  return 'Evaluator assignment edit trigger installed ✅';
 }
 
 function installPhase1Triggers_() {
