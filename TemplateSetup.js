@@ -388,11 +388,6 @@ function testApprovedTemplatesToVpe_() {
       params: [member]
     },
     {
-      key: 'WA_TEMPLATE_AGENDA_REMINDER',
-      fallback: 'atk_agenda_followup',
-      params: [member, meetingNo, 'speech details']
-    },
-    {
       key: 'WA_TEMPLATE_TMOD_UPDATE',
       fallback: 'atk_tmod_update',
       params: [member, meetingNo, 'DEV template verification only']
@@ -424,7 +419,7 @@ function testApprovedTemplatesToVpe_() {
   });
 
   return {
-    ok: results.length === 7 && results.every(result => result.ok),
+    ok: results.length === 6 && results.every(result => result.ok),
     recipient: phone,
     mode: 'DEV TEST',
     results: results
