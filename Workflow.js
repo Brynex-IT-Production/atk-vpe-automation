@@ -1164,9 +1164,10 @@ function processThemeRequestReminder_() {
 
     const body =
       'Hi ' + member + ',\n\n' +
-      'Just a reminder to share the theme for ATK Meeting ' + meetingNo +
-      ' today so that all the role players can align with it.\n\n' +
-      'Please reply with your theme.\n\n' +
+      'Just a reminder about the meeting theme for ATK Meeting ' + meetingNo + ' 🎤\n\n' +
+      'We haven’t received the theme yet.\n\n' +
+      'Please share it today so that all the role players can align with it.\n\n' +
+      'Just reply with your theme.\n\n' +
       'Thank you.';
 
     const result = sendAutomatedText_(
