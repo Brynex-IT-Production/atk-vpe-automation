@@ -25,7 +25,6 @@ function phase1ScheduledTick() {
   processThemeRequestReminder_();
   processReadyIntroductionBundles_();
   processReadySpeakerDetailsToTmod_();
-  processAgendaSecondReminders_();
   processMemberIntroOnboarding_();
   processEvaluatorNotifications_();
   processSpeakingSlotTargeting_();
