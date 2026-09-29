@@ -22,3 +22,5 @@ function submitRoleReminderV2_() {
     result.ok ? 'Success' : 'Error', JSON.stringify(result));
   return result;
 }
+
+// Scoped one-time approval submission.
