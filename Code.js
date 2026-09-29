@@ -62,13 +62,6 @@ function doPost(e) {
         .setMimeType(ContentService.MimeType.TEXT);
     }
 
-    if (payload && payload.system_action === 'CREATE_ROLE_REMINDER_V2' &&
-        payload.verify_token === VERIFY_TOKEN) {
-      const result = submitRoleReminderV2_();
-      return ContentService.createTextOutput(JSON.stringify(result))
-        .setMimeType(ContentService.MimeType.JSON);
-    }
-
     if (
       payload &&
       payload.system_action === 'CREATE_WA_TEMPLATES' &&
