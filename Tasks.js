@@ -19,6 +19,7 @@ function phase1ScheduledTick() {
   syncPhase1Tasks_();
   processVacantRoleReminders_();
   processSpeakerDetailPrompts_();
+  processSpeakerDetailReminders_();
   processAssignedRolePrompts_();
   processGrammarAssignmentReminder_();
   processIntroChoiceTimeouts_();
