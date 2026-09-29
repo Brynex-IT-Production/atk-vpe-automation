@@ -147,9 +147,8 @@ function handleSpeechSlotSelection_(member, phone, interaction) {
     if (result.status === 'BOOKED') {
       sendWhatsAppText_(
         phone,
-        'Confirmed ✅\nPrepared Speech Slot ' + result.slot +
-        ' · ATK Meeting ' + interaction.meetingNo +
-        ' · ' + result.dateText + '\n\nThank you, ' + member + '.'
+        'Confirmed ✅\nYour prepared speech is reserved for ' +
+        result.dateText + '.\n\nThank you, ' + member + '.'
       );
 
       logAutomation_(
@@ -515,8 +514,7 @@ function handleSpeechDateMenu_(member, phone) {
         rows: dates.map(meeting => ({
           id: 'SPEAK|' + meeting.meetingNo,
           title: Utilities.formatDate(meeting.date,
-            configValue_('TIMEZONE', 'Asia/Kolkata'), 'EEE, d MMM yyyy'),
-          description: 'ATK Meeting ' + meeting.meetingNo
+            configValue_('TIMEZONE', 'Asia/Kolkata'), 'EEE, d MMM yyyy')
         }))
       }]}
     }
