@@ -102,6 +102,11 @@ function processInboundWhatsAppMessage_(message) {
     return;
   }
 
+  if (interaction.kind === 'INTRO_CHOICE') {
+    handleIntroChoiceReply_(member, phone, interaction, messageId);
+    return;
+  }
+
   if (interaction.kind === 'ADMIN_EXCEPTIONS') {
     const vpeMember = configValue_('VPE_MEMBER_NAME', 'Riyas AF');
     if (member === vpeMember) {
@@ -193,6 +198,16 @@ function parseInteraction_(message) {
           text: String(reply.title || '')
         };
       }
+      if (id.indexOf('INTRO_CHOICE|') === 0) {
+        const parts = id.split('|');
+        return {
+          kind: 'INTRO_CHOICE',
+          meetingNo: Number(parts[1] || 0),
+          related: String(parts[2] || ''),
+          choice: String(parts[3] || ''),
+          text: String(reply.title || '')
+        };
+      }
       if (id === 'ADMIN_EXCEPTIONS') {
         return { kind: 'ADMIN_EXCEPTIONS', text: String(reply.title || '') };
       }
@@ -211,6 +226,16 @@ function parseInteraction_(message) {
         role: String(parts[1] || ''),
         meetingNo: Number(parts[2] || 0),
         answer: String(parts[3] || ''),
+        text: String(message.button.text || '')
+      };
+    }
+    if (payload.indexOf('INTRO_CHOICE|') === 0) {
+      const parts = payload.split('|');
+      return {
+        kind: 'INTRO_CHOICE',
+        meetingNo: Number(parts[1] || 0),
+        related: String(parts[2] || ''),
+        choice: String(parts[3] || ''),
         text: String(message.button.text || '')
       };
     }
