@@ -497,8 +497,7 @@ function processVacantRoleReminders_() {
       if (hasReminderBeenSent_(idempotency)) return;
 
       const roleNames = openRoles.map(r => r.name).join(', ');
-      const revised = configValue_('WA_TEMPLATE_ROLE_REMINDER', '') === 'atk_role_reminder_v2';
-      if (revised && !isApprovedTemplate_('atk_role_reminder_v2')) return;
+      const revised = templateNameForKind_('ROLE_REMINDER') === 'atk_role_reminder_v2';
       const text = revised
         ? 'Hi,\n\nHope you are attending the meeting this week.\n\n' +
           'Please tap below to see the available roles for ATK Meeting No. ' +
