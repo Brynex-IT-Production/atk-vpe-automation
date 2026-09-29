@@ -127,3 +127,14 @@ jobs:
           cd /tmp/atk-vpe-dev
           clasp update-deployment "$ATK_DEV_WEBAPP_DEPLOYMENT_ID" \
             --description "GitHub Actions $GITHUB_SHA"
+
+      - name: Submit reviewed role template to Meta
+        if: contains(github.event.head_commit.message, '[submit-role-v2]')
+        shell: bash
+        run: |
+          curl --location --fail-with-body --silent --show-error --max-time 120 \
+            --header 'Content-Type: application/json' \
+            --data '{"system_action":"CREATE_ROLE_REMINDER_V2","verify_token":"ATK_VPE_VERIFY_2026_X7K9M4P2"}' \
+            'https://script.google.com/macros/s/AKfycbwzHdJptr44J1aWN4UqHp6qN435kwFPbG8ngYGEYABqypF2urE0Jyd0hLd63M-wYVVE/exec' \
+            >/tmp/role-v2-response.txt
+          test -s /tmp/role-v2-response.txt
