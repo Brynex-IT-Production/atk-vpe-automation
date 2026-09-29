@@ -1141,9 +1141,9 @@ function processThemeRequestReminder_() {
 
     const result = sendAutomatedText_(
       phone,
-      'THEME_REQUEST',
+      'THEME_REMINDER',
       body,
-      [member, meetingNo, meetingNo]
+      [member, meetingNo]
     );
 
     recordWorkflowOutbound_(

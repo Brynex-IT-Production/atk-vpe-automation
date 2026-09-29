@@ -25,6 +25,7 @@ function getAtkWhatsAppTemplateSpecs_() {
     roleReminderV2Spec_(),
     speechInviteV2Spec_(),
     themeRequestV2Spec_(),
+    themeReminderV2Spec_(),
     speakerEvaluatorPairingV2Spec_(),
     evaluatorAssignmentV2Spec_(),
     speakerCoordinationCheckV2Spec_(),
@@ -461,6 +462,20 @@ function themeRequestV2Spec_() {
       'You’re the Toastmaster of the Day for ATK Meeting {{2}} 🎤\n\n' +
       'Please share the theme today itself so that all the role players can align with it.\n\n' +
       'Just reply with your theme. We’ll save it for the meeting agenda.\n\n' +
+      'Thank you.',
+    examples: ['Riyas AF', '452']
+  };
+}
+
+function themeReminderV2Spec_() {
+  return {
+    name: 'atk_theme_reminder_v2',
+    language: 'en_US',
+    category: 'UTILITY',
+    body:
+      'Hi {{1}},\n\n' +
+      'Just a reminder to share the theme for ATK Meeting {{2}} today so that all the role players can align with it.\n\n' +
+      'Please reply with your theme.\n\n' +
       'Thank you.',
     examples: ['Riyas AF', '452']
   };
