@@ -31,8 +31,6 @@ function getAtkWhatsAppTemplateSpecs_() {
     speakerCoordinationCheckV2Spec_(),
     evaluatorCoordinationCheckV2Spec_(),
     speakerDetailsV3Spec_(),
-    speakerDetailsV2Spec_(),
-    speakerDetailsFormatSpec_(),
     {
       name: 'atk_role_reminder',
       language: 'en_US',
@@ -51,15 +49,6 @@ function getAtkWhatsAppTemplateSpecs_() {
         'If you would like to take a slot, use the button below.',
       examples: ['Riyas AF', '450', 'Mon, 28 Sep', '2'],
       buttons: [{ type: 'QUICK_REPLY', text: 'Reserve speech slot' }]
-    },
-    {
-      name: 'atk_speaker_details',
-      language: 'en_US',
-      category: 'UTILITY',
-      body:
-        'Hi {{1}}, please share your speech details for ATK Meeting {{2}}.\n\n' +
-        'Reply in this format:\nSPEECH {{3}}: Speech Title | Path | Level | Project',
-      examples: ['Anil Mathew', '450', '450']
     },
     {
       name: 'atk_evaluator_pairing',
@@ -103,24 +92,6 @@ function getAtkWhatsAppTemplateSpecs_() {
       buttons: [{ type: 'QUICK_REPLY', text: 'View action list' }]
     },
     {
-      name: 'atk_theme_request',
-      language: 'en_US',
-      category: 'UTILITY',
-      body:
-        'Hi {{1}}, please share the theme for ATK Meeting {{2}} at the earliest ' +
-        'so the role players can align with it.\n\nReply in this format:\nTHEME {{3}}: Your theme',
-      examples: ['Riyas AF', '450', '450']
-    },
-    {
-      name: 'atk_intro_request',
-      language: 'en_US',
-      category: 'UTILITY',
-      body:
-        'Hi {{1}}, please share a short introduction for your {{3}} role in ATK Meeting {{2}}.\n\n' +
-        'Reply in this format:\nINTRO {{4}}: Your short introduction',
-      examples: ['Riyas AF', '450', 'Timer', '450']
-    },
-    {
       name: 'atk_theme_guided',
       language: 'en_US', category: 'UTILITY',
       body: 'Hi {{1}}, for ATK Meeting {{2}}, please reply with your theme in your own words. We will save it for the agenda.',
@@ -143,12 +114,6 @@ function getAtkWhatsAppTemplateSpecs_() {
       language: 'en_US', category: 'UTILITY',
       body: 'Hi {{1}}, welcome to ATK! Please reply with a short introduction about yourself. We will save it for future meeting introductions.',
       examples: ['Riyas AF']
-    },
-    {
-      name: 'atk_agenda_followup',
-      language: 'en_US', category: 'UTILITY',
-      body: 'Hi {{1}}, this is a second reminder for ATK Meeting {{2}}. Please share your pending {{3}} today. We can publish the agenda by Saturday evening only after receiving the details.',
-      examples: ['Riyas AF', '450', 'speech title, Path, Level and Project']
     },
     {
       name: 'atk_tmod_update',
@@ -309,7 +274,9 @@ function syncAtkTemplateApprovalStatus_() {
     const meta = statusMap[templateName];
 
     let newStatus = oldStatus;
-    if (meta) {
+    if (/^RETIRED$/i.test(oldStatus)) {
+      newStatus = oldStatus;
+    } else if (meta) {
       newStatus = meta.status + (meta.category ? ' · ' + meta.category : '');
     } else if (templateName) {
       newStatus = 'NOT FOUND';
@@ -537,31 +504,6 @@ function speakerDetailsV3Spec_() {
       'Title:\n\n' +
       'Thank you.',
     examples: ['Anil Mathew', '452']
-  };
-}
-
-function speakerDetailsV2Spec_() {
-  return {
-    name: 'atk_speaker_guided_v2',
-    language: 'en_US',
-    category: 'UTILITY',
-    body:
-      'Hi {{1}},\n\n' +
-      'You’re confirmed as a speaker for ATK Meeting {{2}} 🎤\n\n' +
-      'Let’s get your speech details ready for the agenda.\n\n' +
-      'Please fill the below details.\n\n' +
-      'Thank you.',
-    examples: ['Anil Mathew', '452']
-  };
-}
-
-function speakerDetailsFormatSpec_() {
-  return {
-    name: 'atk_speaker_details_format',
-    language: 'en_US',
-    category: 'UTILITY',
-    body: 'Path:\nLevel:\nProject:\nTitle:',
-    examples: []
   };
 }
 
