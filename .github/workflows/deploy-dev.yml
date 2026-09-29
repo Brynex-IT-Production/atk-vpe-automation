@@ -128,14 +128,3 @@ jobs:
           clasp update-deployment "$ATK_DEV_WEBAPP_DEPLOYMENT_ID" \
             --description "GitHub Actions $GITHUB_SHA"
 
-      - name: Submit speaker details templates once
-        shell: bash
-        run: |
-          response=$(curl --location --fail-with-body --silent --show-error \
-            --header 'Content-Type: application/json' \
-            --data '{"system_action":"CREATE_WA_TEMPLATES","verify_token":"ATK_VPE_VERIFY_2026_X7K9M4P2"}' \
-            'https://script.google.com/macros/s/AKfycbwzHdJptr44J1aWN4UqHp6qN435kwFPbG8ngYGEYABqypF2urE0Jyd0hLd63M-wYVVE/exec')
-          echo "$response"
-          echo "$response" | grep -q '"atk_speaker_guided_v2"'
-          echo "$response" | grep -q '"atk_speaker_details_format"'
-
