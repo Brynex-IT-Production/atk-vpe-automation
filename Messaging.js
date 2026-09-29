@@ -48,8 +48,17 @@ function hasOpenWhatsAppServiceWindow_(phone) {
 }
 
 function templateNameForKind_(kind) {
+  const normalizedKind = String(kind || '').toUpperCase();
+
+  if (normalizedKind === 'SPEAKER_DETAILS') {
+    const preferred = String(
+      configValue_('WA_TEMPLATE_SPEAKER_DETAILS_V3', 'atk_speaker_details_v3')
+    ).trim();
+    if (preferred && isApprovedTemplate_(preferred)) return preferred;
+  }
+
   return String(
-    configValue_('WA_TEMPLATE_' + String(kind || '').toUpperCase(), '')
+    configValue_('WA_TEMPLATE_' + normalizedKind, '')
   ).trim();
 }
 
@@ -82,7 +91,7 @@ function sendAutomatedText_(phone, kind, freeformBody, templateParams) {
     };
   }
 
-  if (/^atk_(theme_guided|theme_request_v2|theme_reminder_v3|grammar_guided|intro_guided|speaker_guided|speaker_guided_v2|speaker_details_format|speaker_evaluator_pairing_v2|evaluator_assignment_v2|member_intro|agenda_followup|tmod_update)$/.test(templateName) &&
+  if (/^atk_(theme_guided|theme_request_v2|theme_reminder_v3|grammar_guided|intro_guided|speaker_guided|speaker_guided_v2|speaker_details_v3|speaker_details_format|speaker_evaluator_pairing_v2|evaluator_assignment_v2|member_intro|agenda_followup|tmod_update)$/.test(templateName) &&
       !isApprovedTemplate_(templateName)) {
     return { ok: false, deferred: true, error: 'Template awaiting Meta approval: ' + templateName };
   }
@@ -91,7 +100,7 @@ function sendAutomatedText_(phone, kind, freeformBody, templateParams) {
   const parameterCount = {
     atk_theme_guided: 2, atk_theme_request_v2: 2, atk_theme_reminder_v3: 2, atk_grammar_guided: 2,
     atk_intro_guided: 3, atk_speaker_guided: 2,
-    atk_speaker_guided_v2: 2, atk_speaker_details_format: 0,
+    atk_speaker_guided_v2: 2, atk_speaker_details_v3: 2, atk_speaker_details_format: 0,
     atk_speaker_evaluator_pairing_v2: 3,
     atk_evaluator_assignment_v2: 3,
     atk_member_intro: 1, atk_agenda_followup: 3, atk_tmod_update: 3
