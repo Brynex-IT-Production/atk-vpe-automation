@@ -24,6 +24,68 @@ function parseSpeakerDetailsBlock_(text) {
   };
 }
 
+function parseGrammarDetailsBlock_(text) {
+  if (text && typeof text === 'object') {
+    const word = String(text.word || '').trim();
+    const wordMeaning = String(text.wordMeaning || '').trim();
+    const idiom = String(text.idiom || '').trim();
+    const idiomMeaning = String(text.idiomMeaning || '').trim();
+    return {
+      recognized: [word, wordMeaning, idiom, idiomMeaning].filter(Boolean).length,
+      word: word,
+      wordMeaning: wordMeaning,
+      idiom: idiom,
+      idiomMeaning: idiomMeaning
+    };
+  }
+
+  const raw = String(text || '').trim();
+  const fields = {};
+  let recognized = 0;
+
+  raw.split(/\r?\n/).forEach(line => {
+    const match = String(line || '').match(
+      /^\s*(Word(?: of the Day)?|Word meaning|Meaning of (?:the )?word|Idiom(?: of the Day)?|Idiom meaning|Meaning of (?:the )?idiom)\s*:\s*(.*?)\s*$/i
+    );
+    if (!match) return;
+
+    const label = String(match[1] || '').toLowerCase();
+    const value = String(match[2] || '').trim();
+    let key = '';
+
+    if (/^word(?: of the day)?$/.test(label)) key = 'word';
+    else if (/^(word meaning|meaning of (?:the )?word)$/.test(label)) key = 'wordMeaning';
+    else if (/^idiom(?: of the day)?$/.test(label)) key = 'idiom';
+    else if (/^(idiom meaning|meaning of (?:the )?idiom)$/.test(label)) key = 'idiomMeaning';
+
+    if (!key) return;
+    if (!Object.prototype.hasOwnProperty.call(fields, key)) recognized++;
+    fields[key] = value;
+  });
+
+  if (recognized < 4 && raw.indexOf('|') !== -1) {
+    const parts = raw.split('|').map(v => String(v || '').trim());
+    if (parts.length >= 4 && parts.slice(0, 4).every(Boolean)) {
+      return {
+        recognized: 4,
+        word: parts[0],
+        wordMeaning: parts[1],
+        idiom: parts[2],
+        idiomMeaning: parts[3]
+      };
+    }
+  }
+
+  return {
+    recognized: recognized,
+    word: fields.word || '',
+    wordMeaning: fields.wordMeaning || '',
+    idiom: fields.idiom || '',
+    idiomMeaning: fields.idiomMeaning || ''
+  };
+}
+
+
 function handleStructuredSubmission_(member, phone, rawText, messageId) {
   const text = String(rawText || '').trim();
   if (!text) return false;
@@ -37,6 +99,12 @@ function handleStructuredSubmission_(member, phone, rawText, messageId) {
   const grammarMatch = text.match(/^GRAMMAR(?:\s+(\d+))?\s*:\s*(.+)$/i);
   if (grammarMatch) {
     handleGrammarSubmission_(member, phone, Number(grammarMatch[1] || 0), grammarMatch[2], messageId);
+    return true;
+  }
+
+  const grammarBlock = parseGrammarDetailsBlock_(text);
+  if (grammarBlock.recognized >= 4) {
+    handleGrammarSubmission_(member, phone, 0, grammarBlock, messageId);
     return true;
   }
 
@@ -253,13 +321,20 @@ function handleGrammarSubmission_(member, phone, requestedMeetingNo, body, messa
     return;
   }
 
-  const parts = String(body || '').split('|').map(v => v.trim());
-  if (parts.length < 4 || parts.slice(0, 4).some(v => !v)) {
+  const details = parseGrammarDetailsBlock_(body);
+  if (details.recognized < 4) {
     sendWhatsAppText_(phone,
-      'Please use this format:\nGRAMMAR ' + task.meetingNo +
-      ': Word | Meaning | Idiom | Meaning');
+      'Please send all four details in one message using this format:\n\n' +
+      'Word:\nWord meaning:\nIdiom:\nIdiom meaning:');
     return;
   }
+
+  const parts = [
+    details.word,
+    details.wordMeaning,
+    details.idiom,
+    details.idiomMeaning
+  ];
 
   const assignment = verifyRoleAssignment_(task.meetingNo, 'GRM', member);
   if (!assignment.ok) {
@@ -1069,7 +1144,7 @@ function processAssignedRolePrompts_() {
   const rows = tasks.getRange(2, 1, tasks.getLastRow() - 1, 18).getValues();
   rows.forEach(row => {
     const type = String(row[2] || '');
-    if (['THEME', 'GRAMMAR', 'INTRO'].indexOf(type) < 0 ||
+    if (['THEME', 'INTRO'].indexOf(type) < 0 ||
         String(row[5] || '') !== 'Pending' ||
         !(row[6] instanceof Date) || row[6] > new Date()) return;
     const meetingNo = Number(row[1]);
@@ -1092,6 +1167,101 @@ function processAssignedRolePrompts_() {
     if (result.ok) setConversation_(phone, prompt.state);
   });
 }
+
+function processGrammarAssignmentReminder_() {
+  if (!configBool_('GRAMMARIAN_WORKFLOW_ENABLED')) return;
+
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const tasks = ss.getSheetByName('Automation Tasks');
+  const outbox = ss.getSheetByName('WA Outbox');
+  if (!tasks || !outbox || tasks.getLastRow() < 2 || outbox.getLastRow() < 2) return;
+
+  const now = new Date();
+  const afterHours = Math.max(
+    1,
+    Number(configValue_('GRAMMAR_REMINDER_AFTER_HOURS', '20')) || 20
+  );
+  const successfulStates = new Set(['SENT', 'DELIVERED', 'READ', 'ACCEPTED']);
+  const taskRows = tasks.getRange(2, 1, tasks.getLastRow() - 1, 18).getValues();
+  const outboxRows = outbox.getRange(2, 1, outbox.getLastRow() - 1, 16).getValues();
+
+  taskRows.forEach(row => {
+    if (String(row[2] || '') !== 'GRAMMAR' ||
+        String(row[5] || '') !== 'Pending') return;
+
+    const meetingNo = Number(row[1]);
+    const member = String(row[3] || '').trim();
+    const related = String(row[4] || '').trim();
+    if (!meetingNo || !member) return;
+
+    const assignmentKey = ['ASSIGNMENT_PROMPT', meetingNo, related, member].join('|');
+    const firstSend = outboxRows
+      .filter(r =>
+        String(r[15] || '') === assignmentKey &&
+        successfulStates.has(String(r[6] || '').toUpperCase()) &&
+        r[12] instanceof Date
+      )
+      .map(r => r[12])
+      .sort((a, b) => a.getTime() - b.getTime())[0];
+
+    if (!(firstSend instanceof Date)) return;
+
+    const elapsed = now.getTime() - firstSend.getTime();
+    if (elapsed < afterHours * 3600000) return;
+
+    const reminderKey = ['GRAMMAR_ASSIGNMENT_REMINDER', meetingNo, related, member].join('|');
+    if (hasReminderBeenSent_(reminderKey)) return;
+
+    const phone = phoneForMember_(member);
+    if (!phone || !isWhatsAppRecipientAllowed_(phone)) return;
+
+    // This reminder intentionally has no template fallback. It is sent only
+    // while the member's 24-hour customer-service window remains open.
+    if (!hasOpenWhatsAppServiceWindow_(phone)) {
+      logAutomation_(
+        'Grammarian',
+        meetingNo,
+        member,
+        '20-hour Grammarian reminder skipped',
+        'Deferred',
+        'WhatsApp service window is no longer open'
+      );
+      return;
+    }
+
+    const body =
+      'Hi ' + member + ',\n\n' +
+      'Just a reminder to send your Grammarian details for ATK Meeting ' + meetingNo + '.\n\n' +
+      'Please reply in one message:\n\n' +
+      'Word:\n' +
+      'Word meaning:\n' +
+      'Idiom:\n' +
+      'Idiom meaning:\n\n' +
+      'Thank you.';
+
+    const result = sendWhatsAppText_(phone, body);
+
+    recordWorkflowOutbound_(
+      member,
+      phone,
+      'GRAMMAR_ASSIGNMENT_REMINDER',
+      body,
+      meetingNo,
+      result,
+      reminderKey
+    );
+
+    logAutomation_(
+      'Grammarian',
+      meetingNo,
+      member,
+      'Grammarian reminder within service window',
+      result.ok ? 'Sent' : (result.blocked ? 'Blocked' : 'Error'),
+      'Reminder after ' + afterHours + ' hours'
+    );
+  });
+}
+
 
 function processThemeRequestReminder_() {
   if (!configBool_('TMOD_WORKFLOW_ENABLED')) return;

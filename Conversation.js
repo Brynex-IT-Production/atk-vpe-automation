@@ -68,7 +68,7 @@ function startGuidedRequest_(member, phone, kind, meetingNo, related, role) {
   if (activeConversation_(phone)) return null;
   const state = {
     kind: kind, meetingNo: meetingNo || 0, related: related || '',
-    step: kind === 'GRAMMAR' ? 'WORD' :
+    step: kind === 'GRAMMAR' ? 'DETAILS' :
       kind === 'SPEAKER_DETAILS' ? 'TITLE' :
       kind === 'INTRO' || kind === 'DEFAULT_INTRO' ? 'CHOICE' : 'THEME',
     data: {}
@@ -78,8 +78,15 @@ function startGuidedRequest_(member, phone, kind, meetingNo, related, role) {
     text = 'Hi ' + member + ', please reply with the theme for ATK Meeting ' + meetingNo +
       '. A plain reply is fine; we will save it for the agenda.';
   } else if (kind === 'GRAMMAR') {
-    text = 'Hi ' + member + ', as Grammarian for ATK Meeting ' + meetingNo +
-      ', what is your Word of the Day? Just reply with the word. I will ask for the rest one by one.';
+    text =
+      'Hi ' + member + ',\n\n' +
+      'You’re confirmed as Grammarian for ATK Meeting ' + meetingNo + '.\n\n' +
+      'Please send your Word of the Day and Idiom of the Day in one message using this format:\n\n' +
+      'Word:\n' +
+      'Word meaning:\n' +
+      'Idiom:\n' +
+      'Idiom meaning:\n\n' +
+      'Thank you.';
   } else if (kind === 'SPEAKER_DETAILS') {
     text = 'Hi ' + member + ', we are collecting the agenda details for ATK Meeting ' + meetingNo +
       '. What is your speech title? I will ask for your Path, Level and Project next, then your introduction.';
@@ -117,26 +124,15 @@ function handleGuidedReply_(member, phone, text, messageId) {
   }
 
   if (kind === 'GRAMMAR') {
-    const steps = ['WORD', 'WORD_MEANING', 'IDIOM', 'IDIOM_MEANING'];
-    const prompts = {
-      WORD: 'What does the word mean?',
-      WORD_MEANING: 'Thank you. What is your Idiom of the Day?',
-      IDIOM: 'What does the idiom mean?'
-    };
-    if (answer.length < 2) {
-      sendWhatsAppText_(phone, 'Please send a little more detail.');
+    const details = parseGrammarDetailsBlock_(answer);
+    if (details.recognized < 4) {
+      sendWhatsAppText_(phone,
+        'Please send all four details in one message using this format:\n\n' +
+        'Word:\nWord meaning:\nIdiom:\nIdiom meaning:');
       return true;
     }
-    state.data[state.step] = answer;
-    const index = steps.indexOf(state.step);
-    if (index < 3) {
-      state.step = steps[index + 1];
-      setConversation_(phone, state);
-      sendWhatsAppText_(phone, prompts[steps[index]]);
-    } else {
-      clearConversation_(phone);
-      handleGrammarSubmission_(member, phone, n, steps.map(s => state.data[s]).join(' | '), messageId);
-    }
+    clearConversation_(phone);
+    handleGrammarSubmission_(member, phone, n, details, messageId);
     return true;
   }
 
@@ -227,7 +223,7 @@ function processAgendaSecondReminders_() {
     const days = meetings[meetingNo];
     if (days !== 3 && days !== 2 || String(row[5]) !== 'Pending') return;
     const kind = String(row[2] || '');
-    if (['INTRO', 'GRAMMAR', 'THEME', 'SPEAKER_DETAILS'].indexOf(kind) < 0) return;
+    if (['INTRO', 'THEME', 'SPEAKER_DETAILS'].indexOf(kind) < 0) return;
     const member = String(row[3] || '').trim();
     const phone = phoneForMember_(member);
     if (!member || !phone || !isWhatsAppRecipientAllowed_(phone)) return;
