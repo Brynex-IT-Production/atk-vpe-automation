@@ -60,15 +60,6 @@ function getAtkWhatsAppTemplateSpecs_() {
       examples: ['Anil Mathew', 'Antu Dominic', '450']
     },
     {
-      name: 'atk_evaluator_coord_reminder',
-      language: 'en_US',
-      category: 'UTILITY',
-      body:
-        'Hi {{1}}, reminder for ATK Meeting {{2}}: please connect with {{3}} ' +
-        'and complete your speaker-evaluator coordination before the meeting.',
-      examples: ['Anil Mathew', '450', 'Antu Dominic']
-    },
-    {
       name: 'atk_intro_bundle',
       language: 'en_US',
       category: 'UTILITY',
