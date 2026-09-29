@@ -1101,11 +1101,29 @@ function processThemeRequestReminder_() {
   if (!tasks || tasks.getLastRow() < 2) return;
 
   const now = new Date();
-  const delayDays = Math.max(
+  const timezone = configValue_('TIMEZONE', 'Asia/Kolkata');
+  const localHour = Number(Utilities.formatDate(now, timezone, 'H'));
+
+  const reminderHours = String(
+    configValue_('THEME_REMINDER_HOURS', '7,20')
+  ).split(',')
+    .map(v => Number(String(v).trim()))
+    .filter(v => Number.isFinite(v));
+
+  if (reminderHours.indexOf(localHour) === -1) return;
+
+  const reminderDaysBefore = String(
+    configValue_('THEME_REMINDER_DAYS_BEFORE', '5,4')
+  ).split(',')
+    .map(v => Number(String(v).trim()))
+    .filter(v => Number.isFinite(v));
+
+  const firstRequestDaysBefore = Math.max(
     1,
-    Number(configValue_('THEME_REMINDER_DELAY_DAYS', '1')) || 1
+    Number(configValue_('THEME_DUE_DAYS', '6')) || 6
   );
 
+  const today = startOfDay_(now);
   const rows = tasks.getRange(2, 1, tasks.getLastRow() - 1, 18).getValues();
 
   rows.forEach(row => {
@@ -1116,17 +1134,29 @@ function processThemeRequestReminder_() {
     const meetingNo = Number(row[1]);
     const member = String(row[3] || '').trim();
     const related = String(row[4] || '').trim();
-    const dueAt = row[6];
+    const firstRequestDay = startOfDay_(row[6]);
 
     if (!meetingNo || !member) return;
 
-    const reminderAt = new Date(dueAt.getTime() + delayDays * 86400000);
-    if (now < reminderAt) return;
+    const daysAfterFirstRequest = Math.round(
+      (today.getTime() - firstRequestDay.getTime()) / 86400000
+    );
+    const daysBeforeMeeting = firstRequestDaysBefore - daysAfterFirstRequest;
+
+    if (reminderDaysBefore.indexOf(daysBeforeMeeting) === -1) return;
 
     const firstKey = ['THEME_REQUEST', meetingNo, related, member].join('|');
     if (!hasReminderBeenSent_(firstKey)) return;
 
-    const reminderKey = ['THEME_REQUEST_REMINDER', meetingNo, related, member].join('|');
+    const reminderKey = [
+      'THEME_REQUEST_REMINDER',
+      meetingNo,
+      related,
+      member,
+      'D' + daysBeforeMeeting,
+      'H' + localHour
+    ].join('|');
+
     if (hasReminderBeenSent_(reminderKey)) return;
 
     const phone = phoneForMember_(member);
@@ -1160,13 +1190,13 @@ function processThemeRequestReminder_() {
       'TMOD Theme',
       meetingNo,
       member,
-      'Theme reminder one day after first request',
+      'Theme reminder ' + daysBeforeMeeting + ' days before meeting at ' +
+        (localHour === 20 ? '8 PM' : localHour + ' AM'),
       result.ok ? 'Sent' : (result.blocked ? 'Blocked' : 'Error'),
       'Theme still pending'
     );
   });
 }
-
 
 function sendSpeakerDetailsToTmod_(meetingNo, member, slotRef, parts) {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
