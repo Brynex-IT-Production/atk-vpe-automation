@@ -169,6 +169,245 @@ function recentUnambiguousIntroTask_(member, phone, text) {
   return recentRequest ? { meetingNo: meetingNo } : null;
 }
 
+function introChoiceMessage_(member, meetingNo, isReminder) {
+  if (isReminder) {
+    return (
+      'Hey ' + member + ',\n\n' +
+      'Just a reminder about your introduction for ATK Meeting ' + meetingNo + '.\n\n' +
+      'Anything new to add — a recognition, achievement, update, or something we may not know about you?\n\n' +
+      'If not, we’ll use your saved introduction.\n\n' +
+      'Thank you!'
+    );
+  }
+
+  return (
+    'Hey ' + member + ',\n\n' +
+    'For the upcoming ATK Meeting ' + meetingNo + ', we already have your saved introduction.\n\n' +
+    'But to avoid repeating the same introduction every time, is there anything new with you that we can add?\n\n' +
+    'A new recognition, achievement, update, or simply something about you that we may not know yet.\n\n' +
+    'Anything that comes to your mind will do. 😊\n\n' +
+    'Thank you!'
+  );
+}
+
+function sendIntroChoiceButtons_(member, phone, meetingNo, related, isReminder) {
+  const saved = defaultIntro_(member);
+  if (!saved || !phone) return null;
+
+  const text = introChoiceMessage_(member, meetingNo, Boolean(isReminder));
+  const payload = {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to: phone,
+    type: 'interactive',
+    interactive: {
+      type: 'button',
+      body: { text: text },
+      action: {
+        buttons: [
+          {
+            type: 'reply',
+            reply: {
+              id: ['INTRO_CHOICE', meetingNo, related, 'NEW'].join('|'),
+              title: 'I have something new'
+            }
+          },
+          {
+            type: 'reply',
+            reply: {
+              id: ['INTRO_CHOICE', meetingNo, related, 'DEFAULT'].join('|'),
+              title: 'Use my default'
+            }
+          }
+        ]
+      }
+    }
+  };
+
+  const result = sendWhatsAppPayload_(payload);
+  if (result.ok) {
+    setConversation_(phone, {
+      kind: 'INTRO',
+      meetingNo: Number(meetingNo),
+      related: String(related || ''),
+      step: 'CHOICE',
+      data: {}
+    });
+  }
+
+  return { result: result, text: text };
+}
+
+function handleIntroChoiceReply_(member, phone, interaction, messageId) {
+  if (!configBool_('INTRO_WORKFLOW_ENABLED')) return;
+
+  const meetingNo = Number(interaction.meetingNo || 0);
+  const related = String(interaction.related || '');
+  const choice = String(interaction.choice || '').toUpperCase();
+  const task = findPendingTaskForMember_('INTRO', member, meetingNo, related);
+
+  if (!task) {
+    sendWhatsAppText_(phone, 'Your introduction for this meeting is already settled. Thank you.');
+    return;
+  }
+
+  const saved = defaultIntro_(member);
+  if (!saved) {
+    clearConversation_(phone);
+    const request = startGuidedRequest_(member, phone, 'INTRO', meetingNo, related, 'role player');
+    if (request) {
+      const result = sendWhatsAppText_(phone, request.text);
+      if (result.ok) setConversation_(phone, request.state);
+    }
+    return;
+  }
+
+  if (choice === 'DEFAULT') {
+    const active = activeConversation_(phone);
+    if (active && active.kind === 'INTRO' &&
+        Number(active.meetingNo) === meetingNo &&
+        String(active.related || '') === related) {
+      clearConversation_(phone);
+    }
+    handleIntroSubmission_(member, phone, meetingNo, saved, messageId, related);
+    return;
+  }
+
+  if (choice === 'NEW') {
+    setConversation_(phone, {
+      kind: 'INTRO',
+      meetingNo: meetingNo,
+      related: related,
+      step: 'MEETING_INTRO',
+      data: {}
+    });
+    sendWhatsAppText_(phone, 'Great! Just send it here in your own words. 😊');
+  }
+}
+
+function finalizeIntroWithDefault_(member, phone, meetingNo, related) {
+  const saved = defaultIntro_(member);
+  if (!saved) return false;
+
+  const task = findPendingTaskForMember_('INTRO', member, meetingNo, related);
+  if (!task) return false;
+
+  const assignment = /^S[123]$/.test(related)
+    ? verifySpeakerAssignment_(meetingNo, related, member)
+    : verifyRoleAssignment_(meetingNo, related, member);
+
+  if (!assignment.ok) {
+    syncPhase1Tasks_();
+    return false;
+  }
+
+  const appended = appendSubmission_({
+    meetingNo: meetingNo,
+    member: member,
+    type: 'INTRO',
+    related: related,
+    values: [saved, '', '', ''],
+    sourceMessageId: ''
+  });
+
+  if (!appended) return false;
+
+  const active = activeConversation_(phone);
+  if (active && active.kind === 'INTRO' &&
+      Number(active.meetingNo) === Number(meetingNo) &&
+      String(active.related || '') === String(related || '')) {
+    clearConversation_(phone);
+  }
+
+  syncPhase1Tasks_();
+  logAutomation_(
+    'Introduction',
+    meetingNo,
+    member,
+    'Saved default introduction used automatically after no response',
+    'Success',
+    related
+  );
+  return true;
+}
+
+function processIntroChoiceTimeouts_() {
+  if (!configBool_('INTRO_WORKFLOW_ENABLED')) return;
+
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const tasks = ss.getSheetByName('Automation Tasks');
+  const outbox = ss.getSheetByName('WA Outbox');
+  if (!tasks || !outbox || tasks.getLastRow() < 2 || outbox.getLastRow() < 2) return;
+
+  const reminderAfterHours = Math.max(
+    1,
+    Number(configValue_('INTRO_REMINDER_AFTER_HOURS', '23')) || 23
+  );
+  const defaultAfterHours = Math.max(
+    reminderAfterHours,
+    Number(configValue_('INTRO_DEFAULT_AFTER_HOURS', '24')) || 24
+  );
+
+  const now = new Date();
+  const successfulStates = new Set(['SENT', 'DELIVERED', 'READ', 'ACCEPTED']);
+  const taskRows = tasks.getRange(2, 1, tasks.getLastRow() - 1, 18).getValues();
+  const outboxRows = outbox.getRange(2, 1, outbox.getLastRow() - 1, 16).getValues();
+
+  taskRows.forEach(row => {
+    if (String(row[2] || '') !== 'INTRO' || String(row[5] || '') !== 'Pending') return;
+
+    const meetingNo = Number(row[1]);
+    const member = String(row[3] || '').trim();
+    const related = String(row[4] || '').trim();
+    if (!meetingNo || !member || !related || !defaultIntro_(member)) return;
+
+    const promptKeys = new Set([
+      ['ASSIGNMENT_PROMPT', meetingNo, related, member].join('|'),
+      ['INTRO_PROMPT', meetingNo, related, member].join('|'),
+      ['INTRO_REQUEST', meetingNo, related, member].join('|')
+    ]);
+
+    const promptAt = outboxRows
+      .filter(r =>
+        promptKeys.has(String(r[15] || '')) &&
+        successfulStates.has(String(r[6] || '').toUpperCase()) &&
+        r[12] instanceof Date
+      )
+      .map(r => r[12])
+      .sort((a, b) => a.getTime() - b.getTime())[0];
+
+    if (!(promptAt instanceof Date)) return;
+
+    const elapsedHours = (now.getTime() - promptAt.getTime()) / 3600000;
+    const phone = phoneForMember_(member);
+
+    if (elapsedHours >= defaultAfterHours) {
+      finalizeIntroWithDefault_(member, phone, meetingNo, related);
+      return;
+    }
+
+    if (elapsedHours < reminderAfterHours) return;
+
+    const reminderKey = ['INTRO_CHOICE_REMINDER', meetingNo, related, member].join('|');
+    if (hasReminderBeenSent_(reminderKey)) return;
+    if (!phone || !isWhatsAppRecipientAllowed_(phone) || !hasOpenWhatsAppServiceWindow_(phone)) return;
+
+    const sent = sendIntroChoiceButtons_(member, phone, meetingNo, related, true);
+    if (!sent) return;
+
+    recordWorkflowOutbound_(
+      member,
+      phone,
+      'INTRO_CHOICE_REMINDER',
+      sent.text,
+      meetingNo,
+      sent.result,
+      reminderKey
+    );
+  });
+}
+
+
 function sendImmediateAssignmentPrompts_(meetingNo, roleDef, member, phone) {
   if (roleDef.code === 'TMOD' && !configBool_('TMOD_WORKFLOW_ENABLED')) return;
   if (roleDef.code === 'GRM' && !configBool_('GRAMMARIAN_WORKFLOW_ENABLED')) return;
@@ -176,6 +415,23 @@ function sendImmediateAssignmentPrompts_(meetingNo, roleDef, member, phone) {
       !configBool_('INTRO_WORKFLOW_ENABLED')) return;
   const kind = roleDef.code === 'TMOD' ? 'THEME' :
     roleDef.code === 'GRM' ? 'GRAMMAR' : 'INTRO';
+
+  if (kind === 'INTRO' && defaultIntro_(member)) {
+    const sent = sendIntroChoiceButtons_(
+      member, phone, meetingNo, roleDef.code, false);
+    if (!sent) return;
+    recordWorkflowOutbound_(
+      member,
+      phone,
+      'ASSIGNMENT_PROMPT',
+      sent.text,
+      meetingNo,
+      sent.result,
+      ['ASSIGNMENT_PROMPT', meetingNo, roleDef.code, member].join('|')
+    );
+    return;
+  }
+
   const request = startGuidedRequest_(member, phone, kind, meetingNo, roleDef.code, roleDef.name);
   if (!request) return;
   const result = sendWhatsAppText_(phone, request.text);
