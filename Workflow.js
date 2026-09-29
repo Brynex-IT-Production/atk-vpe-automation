@@ -1758,14 +1758,37 @@ function sendSpeakerDetailsToTmod_(meetingNo, member, slotRef, parts) {
   const tmod = String(planner.getRange(idx + 3, 19).getValue() || '').trim();
   const phone = phoneForMember_(tmod);
   if (!phone || !isWhatsAppRecipientAllowed_(phone)) return;
-  const body = 'Speech details for ' + member + ' · ATK Meeting ' + meetingNo +
-    '\nTitle: ' + parts[0] + '\nPath: ' + parts[1] +
-    '\nLevel: ' + parts[2] + '\nProject: ' + parts[3];
+
+  const slotNumber = Number(String(slotRef || '').replace(/^S/i, ''));
+  const speakerLabel = 'Speaker ' + (slotNumber || String(slotRef || '').replace(/^S/i, '')) +
+    ' — ' + member;
+
+  const body =
+    'ATK Meeting ' + meetingNo + '\n\n' +
+    speakerLabel + '\n' +
+    'Title: ' + parts[0] + '\n' +
+    'Path: ' + parts[1] + '\n' +
+    'Level: ' + parts[2] + '\n' +
+    'Project: ' + parts[3];
+
   const key = ['SPEECH_TO_TMOD', meetingNo, slotRef, member, parts.join('|')].join('|');
   if (hasReminderBeenSent_(key)) return;
-  const result = sendAutomatedText_(phone, 'TMOD_UPDATE', body,
-    [tmod, meetingNo, member + ' — ' + parts[0] + ' | ' + parts[1] +
-      ' | ' + parts[2] + ' | ' + parts[3]]);
+
+  const result = sendAutomatedText_(
+    phone,
+    'TMOD_UPDATE',
+    body,
+    [
+      tmod,
+      meetingNo,
+      speakerLabel + '\n' +
+        'Title: ' + parts[0] + '\n' +
+        'Path: ' + parts[1] + '\n' +
+        'Level: ' + parts[2] + '\n' +
+        'Project: ' + parts[3]
+    ]
+  );
+
   recordWorkflowOutbound_(tmod, phone, 'SPEECH_TO_TMOD', body, meetingNo, result, key);
 }
 
