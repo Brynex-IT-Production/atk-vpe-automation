@@ -412,8 +412,10 @@ function sendConsolidatedIntroductionsIfReady_(meetingNo) {
     ? submissions.getRange(2, 1, submissions.getLastRow() - 1, 14).getValues()
     : [];
 
-  const received = [];
+  const introductions = [];
   const missing = [];
+  let meetingSpecificCount = 0;
+  let defaultCount = 0;
 
   assigned.forEach(item => {
     const matches = submissionRows.filter(r =>
@@ -423,24 +425,29 @@ function sendConsolidatedIntroductionsIfReady_(meetingNo) {
       String(r[4] || '') === item.related
     );
     const latest = matches[matches.length - 1];
+    const meetingSpecific = latest ? String(latest[5] || '').trim() : '';
+    const savedDefault = defaultIntro_(item.member);
+    const intro = meetingSpecific || savedDefault;
 
-    if (!latest || !String(latest[5] || '').trim()) {
+    if (!intro) {
       missing.push(item.role + ' — ' + item.member);
       return;
     }
 
-    received.push(
-      item.role + ' — ' + item.member + '\n' +
-      String(latest[5] || '').trim()
+    if (meetingSpecific) meetingSpecificCount++;
+    else defaultCount++;
+
+    introductions.push(
+      item.role + ' — ' + item.member + '\n' + intro
     );
   });
 
-  let bundle = received.length
-    ? received.join('\n\n')
-    : 'No role-player introductions have been received yet.';
+  let bundle = introductions.length
+    ? introductions.join('\n\n')
+    : 'No introductions are currently available.';
 
   if (missing.length) {
-    bundle += '\n\nPending introductions:\n' + missing.join('\n');
+    bundle += '\n\nNo introduction available for:\n' + missing.join('\n');
   }
 
   const body =
@@ -471,7 +478,9 @@ function sendConsolidatedIntroductionsIfReady_(meetingNo) {
     tmod,
     'Consolidated introduction bundle',
     result.ok ? 'Sent' : (result.blocked ? 'Blocked' : 'Error'),
-    'Received: ' + received.length + ' | Pending: ' + missing.length
+    'Meeting-specific: ' + meetingSpecificCount +
+      ' | Saved default: ' + defaultCount +
+      ' | Missing: ' + missing.length
   );
 
   return Boolean(result && result.ok);
