@@ -393,6 +393,15 @@ function handleRoleSelection_(member, phone, interaction) {
         member,
         phone
       );
+
+      if (roleDef.code !== 'TMOD') {
+        sendMeetingThemeToRole_(
+          interaction.meetingNo,
+          member,
+          roleDef.name,
+          phone
+        );
+      }
       return;
     }
 

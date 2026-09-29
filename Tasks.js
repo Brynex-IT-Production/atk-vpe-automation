@@ -163,7 +163,7 @@ function syncPhase1Tasks_() {
           member,
           related: def.code,
           state: themeDone ? 'Completed' : 'Pending',
-          dueAt: daysBefore_(meetingDate, Number(configValue_('THEME_DUE_DAYS', '7')) || 7),
+          dueAt: daysBefore_(meetingDate, Number(configValue_('THEME_DUE_DAYS', '6')) || 6),
           reference: 'VPE Weekly Planner!D' + (idx + 3),
           payload: JSON.stringify({})
         });

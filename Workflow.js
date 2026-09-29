@@ -117,6 +117,89 @@ function sendImmediateAssignmentPrompts_(meetingNo, roleDef, member, phone) {
     ['ASSIGNMENT_PROMPT', meetingNo, roleDef.code, member].join('|'));
 }
 
+function meetingTheme_(meetingNo) {
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('VPE Weekly Planner');
+  if (!sheet) return '';
+  const lastRow = Math.min(62, sheet.getLastRow());
+  if (lastRow < 3) return '';
+  const ids = sheet.getRange(3, 1, lastRow - 2, 1).getValues().flat();
+  const idx = ids.findIndex(v => Number(v) === Number(meetingNo));
+  if (idx < 0) return '';
+  return String(sheet.getRange(idx + 3, 4).getValue() || '').trim();
+}
+
+function sendMeetingThemeToRole_(meetingNo, member, roleName, phone) {
+  const theme = meetingTheme_(meetingNo);
+  const destination = phone || phoneForMember_(member);
+  if (!theme || !member || !destination || !isWhatsAppRecipientAllowed_(destination)) return false;
+
+  const key = ['THEME_TO_ROLE', meetingNo, member, roleName || 'Role', theme].join('|');
+  if (hasReminderBeenSent_(key)) return false;
+
+  const body =
+    'Hi ' + member + ',\n\n' +
+    'The theme for ATK Meeting ' + meetingNo + ' is:\n\n' +
+    theme + '\n\n' +
+    'Please keep the theme in mind while preparing for your ' + (roleName || 'role') + ' role.';
+
+  const result = sendAutomatedText_(
+    destination,
+    'TMOD_UPDATE',
+    body,
+    [member, meetingNo, 'Theme: ' + theme]
+  );
+
+  recordWorkflowOutbound_(
+    member,
+    destination,
+    'THEME_TO_ROLE',
+    body,
+    meetingNo,
+    result,
+    key
+  );
+
+  logAutomation_(
+    'TMOD Theme',
+    meetingNo,
+    member,
+    'Theme shared with role player',
+    result.ok ? 'Sent' : (result.blocked ? 'Blocked' : 'Error'),
+    (roleName || 'Role') + ' | ' + theme
+  );
+
+  return Boolean(result && result.ok);
+}
+
+function sendMeetingThemeToAssignedRoles_(meetingNo) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = ss.getSheetByName('VPE Weekly Planner');
+  if (!sheet) return false;
+
+  const lastRow = Math.min(62, sheet.getLastRow());
+  if (lastRow < 3) return false;
+  const ids = sheet.getRange(3, 1, lastRow - 2, 1).getValues().flat();
+  const idx = ids.findIndex(v => Number(v) === Number(meetingNo));
+  if (idx < 0) return false;
+
+  const row = sheet.getRange(idx + 3, 1, 1, 28).getValues()[0];
+  let sent = false;
+  const seen = {};
+
+  ROLE_DEFS_.forEach(def => {
+    if (def.code === 'TMOD') return;
+    const assigned = String(row[def.column - 1] || '').trim();
+    if (!assigned || seen[assigned]) return;
+    seen[assigned] = true;
+    if (sendMeetingThemeToRole_(meetingNo, assigned, def.name, phoneForMember_(assigned))) {
+      sent = true;
+    }
+  });
+
+  return sent;
+}
+
+
 function handleThemeSubmission_(member, phone, requestedMeetingNo, theme, messageId) {
   if (!configBool_('TMOD_WORKFLOW_ENABLED')) {
     sendWhatsAppText_(phone, 'Theme collection is not active yet.');
@@ -155,6 +238,7 @@ function handleThemeSubmission_(member, phone, requestedMeetingNo, theme, messag
   syncPhase1Tasks_();
   sendWhatsAppText_(phone, 'Theme received ✅\nMeeting ' + task.meetingNo + ': ' + cleanTheme);
   logAutomation_('TMOD Theme', task.meetingNo, member, 'Theme received', 'Success', cleanTheme);
+  sendMeetingThemeToAssignedRoles_(task.meetingNo);
 }
 
 function handleGrammarSubmission_(member, phone, requestedMeetingNo, body, messageId) {
