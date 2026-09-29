@@ -128,20 +128,8 @@ jobs:
           clasp update-deployment "$ATK_DEV_WEBAPP_DEPLOYMENT_ID" \
             --description "GitHub Actions $GITHUB_SHA"
 
-      - name: Submit evaluator pairing template and install trigger once
+      - name: Install evaluator edit trigger once
         shell: bash
         run: |
-          create_response=$(curl --location --fail-with-body --silent --show-error \
-            --header 'Content-Type: application/json' \
-            --data '{"system_action":"CREATE_WA_TEMPLATES","verify_token":"ATK_VPE_VERIFY_2026_X7K9M4P2"}' \
-            'https://script.google.com/macros/s/AKfycbwzHdJptr44J1aWN4UqHp6qN435kwFPbG8ngYGEYABqypF2urE0Jyd0hLd63M-wYVVE/exec')
-          echo "$create_response"
-          echo "$create_response" | grep -q '"atk_speaker_evaluator_pairing_v2"'
-
-          trigger_response=$(curl --location --fail-with-body --silent --show-error \
-            --header 'Content-Type: application/json' \
-            --data '{"system_action":"INSTALL_PHASE1_TRIGGERS","verify_token":"ATK_VPE_VERIFY_2026_X7K9M4P2"}' \
-            'https://script.google.com/macros/s/AKfycbwzHdJptr44J1aWN4UqHp6qN435kwFPbG8ngYGEYABqypF2urE0Jyd0hLd63M-wYVVE/exec')
-          echo "$trigger_response"
-          echo "$trigger_response" | grep -q 'evaluator-assignment edit trigger'
-
+          cd /tmp/atk-vpe-dev
+          clasp run installPhase1Triggers --dev
