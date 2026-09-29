@@ -1012,8 +1012,7 @@ function processSpeakerDetailPrompts_() {
   if (!tasks || tasks.getLastRow() < 2) return;
 
   const activeTemplate = templateNameForKind_('SPEAKER_DETAILS');
-  const blockFlow = ['atk_speaker_guided_v2', 'atk_speaker_details_v3']
-    .indexOf(activeTemplate) !== -1;
+  const blockFlow = activeTemplate === 'atk_speaker_details_v3';
   const rows = tasks.getRange(2, 1, tasks.getLastRow() - 1, 18).getValues();
 
   rows.forEach(row => {
@@ -1070,24 +1069,6 @@ function processSpeakerDetailPrompts_() {
 
       if (!introSent) return;
 
-      // The all-in-one v3 template already includes the four fill-in fields.
-      if (activeTemplate === 'atk_speaker_details_v3') return;
-
-      const formatKey = ['SPEAKER_DETAILS_FORMAT', meetingNo, related, member].join('|');
-      if (hasReminderBeenSent_(formatKey)) return;
-
-      const formatBody = 'Path:\nLevel:\nProject:\nTitle:';
-      const formatResult = sendAutomatedText_(
-        phone,
-        'SPEAKER_DETAILS_FORMAT',
-        formatBody,
-        []
-      );
-
-      recordWorkflowOutbound_(
-        member, phone, 'SPEAKER_DETAILS_FORMAT',
-        formatBody, meetingNo, formatResult, formatKey
-      );
       return;
     }
 
