@@ -9,8 +9,21 @@ const ROLE_DEFS_ = [
   { code: 'TTM', name: 'Table Topics Master', column: 21 },
   { code: 'Timer', name: 'Timer', column: 22 },
   { code: 'Ah', name: 'Ah-Counter', column: 23 },
-  { code: 'GRM', name: 'Grammarian', column: 24 }
+  { code: 'GRM', name: 'Grammarian', column: 24 },
+  { code: 'EV1', name: 'Evaluator 1', column: 26, evaluatorSlot: 1 },
+  { code: 'EV2', name: 'Evaluator 2', column: 27, evaluatorSlot: 2 },
+  { code: 'EV3', name: 'Evaluator 3', column: 28, evaluatorSlot: 3 }
 ];
+
+function availableRoleDefs_(row) {
+  return ROLE_DEFS_.filter(def => {
+    if (String(row[def.column - 1] || '').trim()) return false;
+    return !def.evaluatorSlot ||
+      Boolean(String(row[[6, 10, 14][def.evaluatorSlot - 1]] || '').trim());
+  }).map(def => def.evaluatorSlot ? Object.assign({}, def, {
+    speakerName: String(row[[6, 10, 14][def.evaluatorSlot - 1]] || '').trim()
+  }) : def);
+}
 
 function processWhatsAppAutomation_(payload) {
   const entries = payload.entry || [];
@@ -260,7 +273,7 @@ function findNextRoleSelectionMeeting_(member) {
       }
     }
 
-    const available = ROLE_DEFS_.filter(def => !String(row[def.column - 1] || '').trim());
+    const available = availableRoleDefs_(row);
     if (available.length) {
       return { meetingNo, meetingDate, available, rowNumber: i + 3, reason: 'AVAILABLE' };
     }
@@ -273,7 +286,7 @@ function sendRoleList_(phone, member, meeting) {
   const rows = meeting.available.map(def => ({
     id: 'ROLE|' + meeting.meetingNo + '|' + def.code,
     title: def.name,
-    description: 'Meeting ' + meeting.meetingNo
+    description: def.speakerName ? 'For ' + def.speakerName : 'Meeting ' + meeting.meetingNo
   }));
 
   const dateText = Utilities.formatDate(meeting.meetingDate, configValue_('TIMEZONE', 'Asia/Kolkata'), 'EEE, d MMM');
@@ -326,7 +339,8 @@ function handleRoleSelection_(member, phone, interaction) {
 
     if (result.status === 'BOOKED') {
       sendWhatsAppText_(phone,
-        'Confirmed ✅\n' + roleDef.name + ' · ATK Meeting ' + interaction.meetingNo +
+        'Confirmed ✅\n' + roleDef.name + (result.speakerName ? ' for ' + result.speakerName : '') +
+        ' · ATK Meeting ' + interaction.meetingNo +
         ' · ' + result.dateText + '\n\nThank you, ' + member + '.');
 
       logAutomation_('Role Selection', interaction.meetingNo, member,
@@ -335,6 +349,7 @@ function handleRoleSelection_(member, phone, interaction) {
       if (configBool_('TASK_ENGINE_ENABLED')) {
         syncPhase1Tasks_();
       }
+      if (roleDef.evaluatorSlot) processEvaluatorNotificationsForMeeting_(interaction.meetingNo);
 
       sendImmediateAssignmentPrompts_(
         interaction.meetingNo,
@@ -356,6 +371,13 @@ function handleRoleSelection_(member, phone, interaction) {
       sendWhatsAppText_(phone,
         'You are already listed as a speaker for Meeting ' + interaction.meetingNo +
         ', so I have not added a role for the same meeting.');
+      return;
+    }
+
+    if (result.status === 'NO_SPEAKER') {
+      sendWhatsAppText_(phone, 'That evaluator slot no longer has a speaker. I will show the roles still available.');
+      const meeting = findMeetingForRoleList_(interaction.meetingNo, member);
+      if (meeting && meeting.available.length) sendRoleList_(phone, member, meeting);
       return;
     }
 
@@ -389,6 +411,9 @@ function reserveRole_(meetingNo, roleDef, member) {
 
   const speakers = [row[6], row[10], row[14]].map(v => String(v || '').trim());
   if (speakers.indexOf(member) !== -1) return { status: 'SPEAKER' };
+  if (roleDef.evaluatorSlot && !speakers[roleDef.evaluatorSlot - 1]) {
+    return { status: 'NO_SPEAKER' };
+  }
 
   for (let i = 0; i < ROLE_DEFS_.length; i++) {
     const assigned = String(row[ROLE_DEFS_[i].column - 1] || '').trim();
@@ -408,7 +433,8 @@ function reserveRole_(meetingNo, roleDef, member) {
     ? Utilities.formatDate(row[1], configValue_('TIMEZONE', 'Asia/Kolkata'), 'EEE, d MMM')
     : String(row[1] || '');
 
-  return { status: 'BOOKED', rowNumber, dateText };
+  return { status: 'BOOKED', rowNumber, dateText,
+    speakerName: roleDef.evaluatorSlot ? speakers[roleDef.evaluatorSlot - 1] : '' };
 }
 
 function findMeetingForRoleList_(meetingNo, member) {
@@ -430,7 +456,7 @@ function findMeetingForRoleList_(meetingNo, member) {
       meetingNo: Number(row[0]),
       meetingDate: row[1],
       rowNumber: i + 3,
-      available: ROLE_DEFS_.filter(def => !String(row[def.column - 1] || '').trim())
+      available: availableRoleDefs_(row)
     };
   }
   return null;
