@@ -469,13 +469,15 @@ function themeRequestV2Spec_() {
 
 function themeReminderV2Spec_() {
   return {
-    name: 'atk_theme_reminder_v2',
+    name: 'atk_theme_reminder_v3',
     language: 'en_US',
     category: 'UTILITY',
     body:
       'Hi {{1}},\n\n' +
-      'Just a reminder to share the theme for ATK Meeting {{2}} today so that all the role players can align with it.\n\n' +
-      'Please reply with your theme.\n\n' +
+      'Just a reminder about the meeting theme for ATK Meeting {{2}} 🎤\n\n' +
+      'We haven’t received the theme yet.\n\n' +
+      'Please share it today so that all the role players can align with it.\n\n' +
+      'Just reply with your theme.\n\n' +
       'Thank you.',
     examples: ['Riyas AF', '452']
   };

@@ -82,14 +82,14 @@ function sendAutomatedText_(phone, kind, freeformBody, templateParams) {
     };
   }
 
-  if (/^atk_(theme_guided|theme_request_v2|theme_reminder_v2|grammar_guided|intro_guided|speaker_guided|speaker_guided_v2|speaker_details_format|speaker_evaluator_pairing_v2|evaluator_assignment_v2|member_intro|agenda_followup|tmod_update)$/.test(templateName) &&
+  if (/^atk_(theme_guided|theme_request_v2|theme_reminder_v3|grammar_guided|intro_guided|speaker_guided|speaker_guided_v2|speaker_details_format|speaker_evaluator_pairing_v2|evaluator_assignment_v2|member_intro|agenda_followup|tmod_update)$/.test(templateName) &&
       !isApprovedTemplate_(templateName)) {
     return { ok: false, deferred: true, error: 'Template awaiting Meta approval: ' + templateName };
   }
 
   const params = templateParams || [];
   const parameterCount = {
-    atk_theme_guided: 2, atk_theme_request_v2: 2, atk_theme_reminder_v2: 2, atk_grammar_guided: 2,
+    atk_theme_guided: 2, atk_theme_request_v2: 2, atk_theme_reminder_v3: 2, atk_grammar_guided: 2,
     atk_intro_guided: 3, atk_speaker_guided: 2,
     atk_speaker_guided_v2: 2, atk_speaker_details_format: 0,
     atk_speaker_evaluator_pairing_v2: 3,
