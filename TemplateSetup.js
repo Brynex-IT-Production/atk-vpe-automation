@@ -112,15 +112,6 @@ function getAtkWhatsAppTemplateSpecs_() {
       examples: ['Riyas AF', '450', '450']
     },
     {
-      name: 'atk_grammar_request',
-      language: 'en_US',
-      category: 'UTILITY',
-      body:
-        'Hi {{1}}, please share the Word of the Day and Idiom of the Day for ATK Meeting {{2}}.\n\n' +
-        'Reply in this format:\nGRAMMAR {{3}}: Word | Meaning | Idiom | Meaning',
-      examples: ['Riyas AF', '450', '450']
-    },
-    {
       name: 'atk_intro_request',
       language: 'en_US',
       category: 'UTILITY',
@@ -133,12 +124,6 @@ function getAtkWhatsAppTemplateSpecs_() {
       name: 'atk_theme_guided',
       language: 'en_US', category: 'UTILITY',
       body: 'Hi {{1}}, for ATK Meeting {{2}}, please reply with your theme in your own words. We will save it for the agenda.',
-      examples: ['Riyas AF', '450']
-    },
-    {
-      name: 'atk_grammar_guided',
-      language: 'en_US', category: 'UTILITY',
-      body: 'Hi {{1}}, as Grammarian for ATK Meeting {{2}}, please reply with your Word of the Day. We will ask for its meaning and your idiom one by one.',
       examples: ['Riyas AF', '450']
     },
     {
@@ -374,11 +359,6 @@ function testApprovedTemplatesToVpe_() {
       params: [member, meetingNo]
     },
     {
-      key: 'WA_TEMPLATE_GRAMMAR_REQUEST',
-      fallback: 'atk_grammar_guided',
-      params: [member, meetingNo]
-    },
-    {
       key: 'WA_TEMPLATE_INTRO_REQUEST',
       fallback: 'atk_intro_guided',
       params: [member, meetingNo, 'Timer']
@@ -420,7 +400,7 @@ function testApprovedTemplatesToVpe_() {
   });
 
   return {
-    ok: results.length === 6 && results.every(result => result.ok),
+    ok: results.length === 5 && results.every(result => result.ok),
     recipient: phone,
     mode: 'DEV TEST',
     results: results
