@@ -680,18 +680,15 @@ function processEvaluatorCoordinationForMeeting_(meetingNo, daysLeft, reminderDa
     if (speakerPhone && isWhatsAppRecipientAllowed_(speakerPhone) && !hasReminderBeenSent_(initialSpeakerKey)) {
       const text =
         'Hi ' + sp.member + ',\n\n' +
-        sp.evaluator + ' is your evaluator for ATK Meeting ' + meetingNo + '.\n\n' +
-        'Please connect with your evaluator directly and share the following at the earliest:\n' +
-        '• Speech title\n' +
-        '• Path, Level & Project\n' +
-        '• Project / evaluation sheet\n' +
-        '• Your project objective and any specific area where you would like feedback\n\n' +
-        'Direct communication between you and your evaluator is important before the meeting.\n\n' +
+        'you will be evaluated by ' + sp.evaluator +
+        ' for ATK Meeting ' + meetingNo + '. Please connect directly and coordinate the project and evaluation requirements before the meeting.\n\n' +
+        'Please ensure you send:\n' +
+        'Your full Project and evaluation form.\n\n' +
         'Thank you.';
 
       const result = sendAutomatedText_(
         speakerPhone,
-        'EVALUATOR_PAIRING',
+        'EVALUATOR_PAIRING_SPEAKER',
         text,
         [sp.member, sp.evaluator, meetingNo]
       );
@@ -772,6 +769,45 @@ function processEvaluatorCoordinationForMeeting_(meetingNo, daysLeft, reminderDa
   });
 
   return true;
+}
+
+
+function handlePlannerEvaluatorEdit_(e) {
+  try {
+    if (!e || !e.range) return;
+
+    const range = e.range;
+    const sheet = range.getSheet();
+    if (!sheet || sheet.getName() !== 'VPE Weekly Planner') return;
+
+    const firstRow = range.getRow();
+    const lastRow = range.getLastRow();
+    const firstCol = range.getColumn();
+    const lastCol = range.getLastColumn();
+
+    if (lastRow < 3 || lastCol < 26 || firstCol > 28) return;
+
+    const startRow = Math.max(3, firstRow);
+    for (let rowNo = startRow; rowNo <= lastRow; rowNo++) {
+      const evaluatorValues = sheet.getRange(rowNo, 26, 1, 3).getValues()[0];
+      if (!evaluatorValues.some(v => String(v || '').trim())) continue;
+
+      const meetingNo = Number(sheet.getRange(rowNo, 1).getValue());
+      if (!meetingNo) continue;
+
+      processEvaluatorNotificationsForMeeting_(meetingNo);
+    }
+  } catch (error) {
+    logAutomation_(
+      'Evaluation Coordination',
+      '',
+      '',
+      'Evaluator edit trigger failed',
+      'Error',
+      String(error)
+    );
+    console.error(error);
+  }
 }
 
 

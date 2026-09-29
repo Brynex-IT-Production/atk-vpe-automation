@@ -24,6 +24,7 @@ function getAtkWhatsAppTemplateSpecs_() {
   return [
     roleReminderV2Spec_(),
     speechInviteV2Spec_(),
+    speakerEvaluatorPairingV2Spec_(),
     speakerDetailsV2Spec_(),
     speakerDetailsFormatSpec_(),
     {
@@ -445,6 +446,21 @@ function testRoleReminderTemplateToVpe_() {
   };
 }
 
+
+function speakerEvaluatorPairingV2Spec_() {
+  return {
+    name: 'atk_speaker_evaluator_pairing_v2',
+    language: 'en_US',
+    category: 'UTILITY',
+    body:
+      'Hi {{1}},\n\n' +
+      'you will be evaluated by {{2}} for ATK Meeting {{3}}. Please connect directly and coordinate the project and evaluation requirements before the meeting.\n\n' +
+      'Please ensure you send:\n' +
+      'Your full Project and evaluation form.\n\n' +
+      'Thank you.',
+    examples: ['Anil Mathew', 'Antu Dominic', '452']
+  };
+}
 
 function speakerDetailsV2Spec_() {
   return {

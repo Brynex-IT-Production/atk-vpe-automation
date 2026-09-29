@@ -31,24 +31,37 @@ function phase1ScheduledTick() {
 }
 
 function installPhase1Triggers_() {
-  const handler = 'phase1ScheduledTick';
+  const hourlyHandler = 'phase1ScheduledTick';
+  const evaluatorEditHandler = 'handlePlannerEvaluatorEdit_';
   const triggers = ScriptApp.getProjectTriggers();
 
   triggers.forEach(trigger => {
-    if (trigger.getHandlerFunction() === handler) {
+    const handler = trigger.getHandlerFunction();
+    if (handler === hourlyHandler || handler === evaluatorEditHandler) {
       ScriptApp.deleteTrigger(trigger);
     }
   });
 
-  ScriptApp.newTrigger(handler)
+  ScriptApp.newTrigger(hourlyHandler)
     .timeBased()
     .everyHours(1)
     .create();
 
-  logAutomation_('Task Engine', '', configValue_('VPE_MEMBER_NAME', 'Riyas AF'),
-    'Installed hourly Phase 1 trigger', 'Success', handler);
+  ScriptApp.newTrigger(evaluatorEditHandler)
+    .forSpreadsheet(SPREADSHEET_ID)
+    .onEdit()
+    .create();
 
-  return 'ATK Phase 1 setup is complete ✅\nThe automation engine will now check once every hour. Only enabled modules will send messages.';
+  logAutomation_(
+    'Task Engine',
+    '',
+    configValue_('VPE_MEMBER_NAME', 'Riyas AF'),
+    'Installed hourly scheduler + evaluator edit trigger',
+    'Success',
+    hourlyHandler + ' | ' + evaluatorEditHandler
+  );
+
+  return 'ATK Phase 1 setup is complete ✅\nHourly scheduler and evaluator-assignment edit trigger are active.';
 }
 
 function syncPhase1Tasks_() {
