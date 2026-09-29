@@ -22,6 +22,7 @@ function createAtkWhatsAppTemplates_() {
 
 function getAtkWhatsAppTemplateSpecs_() {
   return [
+    roleReminderV2Spec_(),
     {
       name: 'atk_role_reminder',
       language: 'en_US',
