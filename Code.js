@@ -76,18 +76,6 @@ function doPost(e) {
 
     if (
       payload &&
-      payload.system_action === 'INSTALL_PHASE1_TRIGGERS' &&
-      payload.verify_token === VERIFY_TOKEN
-    ) {
-      const result = installPhase1Triggers_();
-
-      return ContentService
-        .createTextOutput(result)
-        .setMimeType(ContentService.MimeType.TEXT);
-    }
-
-    if (
-      payload &&
       payload.system_action === 'TEST_APPROVED_WA_TEMPLATES' &&
       payload.verify_token === VERIFY_TOKEN
     ) {
