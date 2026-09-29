@@ -707,18 +707,13 @@ function processEvaluatorCoordinationForMeeting_(meetingNo, daysLeft, reminderDa
     if (evaluatorPhone && isWhatsAppRecipientAllowed_(evaluatorPhone) && !hasReminderBeenSent_(initialEvaluatorKey)) {
       const text =
         'Hi ' + sp.evaluator + ',\n\n' +
-        'You are the evaluator for ' + sp.member + ' in ATK Meeting ' + meetingNo + '.\n\n' +
-        'Please connect with the speaker directly before the meeting and ensure you receive:\n' +
-        '• Speech title\n' +
-        '• Path, Level & Project\n' +
-        '• Project / evaluation sheet\n' +
-        '• Project objective and any specific feedback request from the speaker\n\n' +
-        'Please use the direct conversation to understand the project before the meeting.\n\n' +
+        'You will be evaluating ' + sp.member + ' for ATK Meeting ' + meetingNo + '.\n\n' +
+        'Please connect directly with the speaker before the meeting and ensure you receive their complete project and evaluation form.\n\n' +
         'Thank you.';
 
       const result = sendAutomatedText_(
         evaluatorPhone,
-        'EVALUATOR_PAIRING',
+        'EVALUATOR_ASSIGNMENT',
         text,
         [sp.evaluator, sp.member, meetingNo]
       );

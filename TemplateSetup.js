@@ -25,6 +25,7 @@ function getAtkWhatsAppTemplateSpecs_() {
     roleReminderV2Spec_(),
     speechInviteV2Spec_(),
     speakerEvaluatorPairingV2Spec_(),
+    evaluatorAssignmentV2Spec_(),
     speakerDetailsV2Spec_(),
     speakerDetailsFormatSpec_(),
     {
@@ -459,6 +460,20 @@ function speakerEvaluatorPairingV2Spec_() {
       'Your full Project and evaluation form.\n\n' +
       'Thank you.',
     examples: ['Anil Mathew', 'Antu Dominic', '452']
+  };
+}
+
+function evaluatorAssignmentV2Spec_() {
+  return {
+    name: 'atk_evaluator_assignment_v2',
+    language: 'en_US',
+    category: 'UTILITY',
+    body:
+      'Hi {{1}},\n\n' +
+      'You will be evaluating {{2}} for ATK Meeting {{3}}.\n\n' +
+      'Please connect directly with the speaker before the meeting and ensure you receive their complete project and evaluation form.\n\n' +
+      'Thank you.',
+    examples: ['Antu Dominic', 'Anil Mathew', '452']
   };
 }
 
