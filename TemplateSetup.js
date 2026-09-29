@@ -454,14 +454,3 @@ function speechInviteV2Spec_() {
   };
 }
 
-function submitSpeechInviteV2Once_() {
-  const props = PropertiesService.getScriptProperties();
-  if (props.getProperty('SPEECH_INVITE_V2_SUBMITTED') === 'TRUE') return;
-  const token = props.getProperty('META_ACCESS_TOKEN');
-  const wabaId = props.getProperty('WA_WABA_ID');
-  if (!token || !wabaId) return;
-  const result = createOrReadTemplate_(token, wabaId, speechInviteV2Spec_());
-  logAutomation_('WhatsApp Templates', '', '', 'Submit atk_speech_invite_v2',
-    result.ok ? 'Success' : 'Error', JSON.stringify(result));
-  if (result.ok) props.setProperty('SPEECH_INVITE_V2_SUBMITTED', 'TRUE');
-}

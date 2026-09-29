@@ -11,7 +11,6 @@ function phase1ScheduledTick() {
   if (!configBool_('TASK_ENGINE_ENABLED')) return;
 
   try {
-    submitSpeechInviteV2Once_();
     syncAtkTemplateApprovalStatus_();
   } catch (error) {
     logAutomation_('WhatsApp Templates', '', '', 'Approval status sync', 'Error', String(error));
