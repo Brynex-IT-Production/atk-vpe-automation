@@ -30,6 +30,7 @@ function getAtkWhatsAppTemplateSpecs_() {
     evaluatorAssignmentV2Spec_(),
     speakerCoordinationCheckV2Spec_(),
     evaluatorCoordinationCheckV2Spec_(),
+    speakerDetailsV3Spec_(),
     speakerDetailsV2Spec_(),
     speakerDetailsFormatSpec_(),
     {
@@ -538,6 +539,24 @@ function evaluatorCoordinationCheckV2Spec_() {
       {type: 'QUICK_REPLY', text: 'Yes'},
       {type: 'QUICK_REPLY', text: 'No'}
     ]
+  };
+}
+
+function speakerDetailsV3Spec_() {
+  return {
+    name: 'atk_speaker_details_v3',
+    language: 'en_US',
+    category: 'UTILITY',
+    body:
+      'Hi {{1}},\n\n' +
+      'You’re confirmed as a speaker for ATK Meeting {{2}} 🎤\n\n' +
+      'Please send your speech details in one message using this format:\n\n' +
+      'Path:\n' +
+      'Level:\n' +
+      'Project:\n' +
+      'Title:\n\n' +
+      'Thank you.',
+    examples: ['Anil Mathew', '452']
   };
 }
 
