@@ -1012,7 +1012,8 @@ function processSpeakerDetailPrompts_() {
   if (!tasks || tasks.getLastRow() < 2) return;
 
   const activeTemplate = templateNameForKind_('SPEAKER_DETAILS');
-  const blockFlow = activeTemplate === 'atk_speaker_guided_v2';
+  const blockFlow = ['atk_speaker_guided_v2', 'atk_speaker_details_v3']
+    .indexOf(activeTemplate) !== -1;
   const rows = tasks.getRange(2, 1, tasks.getLastRow() - 1, 18).getValues();
 
   rows.forEach(row => {
@@ -1032,12 +1033,24 @@ function processSpeakerDetailPrompts_() {
       let introSent = hasReminderBeenSent_(key);
 
       if (!introSent) {
-        const body =
-          'Hi ' + member + ',\n\n' +
-          'You’re confirmed as a speaker for ATK Meeting ' + meetingNo + ' 🎤\n\n' +
-          'Let’s get your speech details ready for the agenda.\n\n' +
-          'Please fill the below details.\n\n' +
-          'Thank you.';
+        const body = activeTemplate === 'atk_speaker_details_v3'
+          ? (
+              'Hi ' + member + ',\n\n' +
+              'You’re confirmed as a speaker for ATK Meeting ' + meetingNo + ' 🎤\n\n' +
+              'Please send your speech details in one message using this format:\n\n' +
+              'Path:\n' +
+              'Level:\n' +
+              'Project:\n' +
+              'Title:\n\n' +
+              'Thank you.'
+            )
+          : (
+              'Hi ' + member + ',\n\n' +
+              'You’re confirmed as a speaker for ATK Meeting ' + meetingNo + ' 🎤\n\n' +
+              'Let’s get your speech details ready for the agenda.\n\n' +
+              'Please fill the below details.\n\n' +
+              'Thank you.'
+            );
 
         const result = sendAutomatedText_(
           phone,
@@ -1056,6 +1069,9 @@ function processSpeakerDetailPrompts_() {
       }
 
       if (!introSent) return;
+
+      // The all-in-one v3 template already includes the four fill-in fields.
+      if (activeTemplate === 'atk_speaker_details_v3') return;
 
       const formatKey = ['SPEAKER_DETAILS_FORMAT', meetingNo, related, member].join('|');
       if (hasReminderBeenSent_(formatKey)) return;
