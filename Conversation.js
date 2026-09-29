@@ -228,58 +228,6 @@ function promptSpeakerIntro_(member, phone, meetingNo, slotRef) {
     prompt.text, meetingNo, result, key);
 }
 
-function processAgendaSecondReminders_() {
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  const planner = ss.getSheetByName('VPE Weekly Planner');
-  const tasks = ss.getSheetByName('Automation Tasks');
-  if (!planner || !tasks || tasks.getLastRow() < 2) return;
-  const meetings = {};
-  const rows = planner.getRange(3, 1, Math.max(0, Math.min(60, planner.getLastRow() - 2)), 28).getValues();
-  rows.forEach(row => {
-    const date = row[1];
-    if (!(date instanceof Date) || String(row[2]) === 'Cancelled' || String(row[2]) === 'Completed') return;
-    if (Utilities.formatDate(date, configValue_('TIMEZONE', 'Asia/Kolkata'), 'EEE') !== 'Mon') return;
-    meetings[Number(row[0])] = Math.round((startOfDay_(date) - startOfDay_(new Date())) / 86400000);
-  });
-  const pending = tasks.getRange(2, 1, tasks.getLastRow() - 1, 18).getValues();
-  pending.forEach(row => {
-    const meetingNo = Number(row[1]);
-    const days = meetings[meetingNo];
-    if (days !== 3 && days !== 2 || String(row[5]) !== 'Pending') return;
-    const kind = String(row[2] || '');
-    if (['INTRO', 'THEME', 'SPEAKER_DETAILS'].indexOf(kind) < 0) return;
-    const member = String(row[3] || '').trim();
-    const phone = phoneForMember_(member);
-    if (!member || !phone || !isWhatsAppRecipientAllowed_(phone)) return;
-    const key = ['AGENDA_SECOND', meetingNo, kind, row[4], member].join('|');
-    if (hasReminderBeenSent_(key)) return;
-    const active = activeConversation_(phone);
-    if (active && (active.kind !== kind ||
-        Number(active.meetingNo) !== meetingNo ||
-        String(active.related || '') !== String(row[4] || ''))) return;
-    const firstKind = kind === 'INTRO' ? 'INTRO_REQUEST' :
-      kind === 'GRAMMAR' ? 'GRAMMAR_REQUEST' :
-      kind === 'THEME' ? 'THEME_REQUEST' : 'SPEAKER_DETAILS_PROMPT';
-    const firstKey = [firstKind, meetingNo, row[4], member].join('|');
-    const assignmentKey = ['ASSIGNMENT_PROMPT', meetingNo, row[4], member].join('|');
-    if (!hasReminderBeenSent_(firstKey) && !hasReminderBeenSent_(assignmentKey)) return;
-    const item = kind === 'SPEAKER_DETAILS' ? 'speech title, Path, Level and Project' :
-      kind === 'INTRO' ? 'introduction' :
-      kind === 'GRAMMAR' ? 'Word and Idiom details' : 'meeting theme';
-    const body = 'Hi ' + member + ', this is a second reminder for ATK Meeting ' +
-      meetingNo + '. Please send your ' + item +
-      ' today. We can publish the agenda by Saturday evening only after receiving the pending details. Thank you.';
-    const result = sendAutomatedText_(phone, 'AGENDA_REMINDER', body, [member, meetingNo, item]);
-    recordWorkflowOutbound_(member, phone, 'AGENDA_SECOND', body, meetingNo, result, key);
-    if (result.ok && !active) {
-      const role = ROLE_DEFS_.find(def => def.code === String(row[4] || ''));
-      const request = startGuidedRequest_(member, phone, kind, meetingNo,
-        String(row[4] || ''), role ? role.name : 'speaker');
-      if (request) setConversation_(phone, request.state);
-    }
-  });
-}
-
 function processMemberIntroOnboarding_() {
   if (!configBool_('INTRO_WORKFLOW_ENABLED')) return;
   const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('Member Master');
