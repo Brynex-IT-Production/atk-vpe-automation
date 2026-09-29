@@ -59,8 +59,13 @@ function introductionPrompt_(member, role, meetingNo) {
     ? 'For ATK Meeting ' + meetingNo + ' as ' + role + ','
     : 'For your ATK member profile,';
   return saved
-    ? context + ' would you like us to use your saved introduction?\n\n' +
-      'Reply 1 to use it, 2 to update your standard introduction, or 3 to share a recent achievement or something ATK may not know about you for this meeting.\n\nSaved introduction: ' + saved
+    ? 'Hey ' + member + ',\n\n' +
+      'For the upcoming ATK Meeting ' + meetingNo + ', we already have your saved introduction.\n\n' +
+      'But to avoid repeating the same introduction every time, is there anything new with you that we can add?\n\n' +
+      'A new recognition, achievement, update, or simply something about you that we may not know yet.\n\n' +
+      'Anything that comes to your mind will do. 😊\n\n' +
+      'Reply “I have something new” or “Use my default”.\n\n' +
+      'Thank you!'
     : context + ' please reply with a short introduction about yourself. We will save it for future meetings, so you need not write it each time.';
 }
 
@@ -167,19 +172,24 @@ function handleGuidedReply_(member, phone, text, messageId) {
         else sendWhatsAppText_(phone, 'Your saved introduction is ready ✅');
         return true;
       }
+      if (/^(i\s+have\s+something\s+new|something\s+new)$/i.test(answer) || answer === '3') {
+        state.step = 'MEETING_INTRO';
+        setConversation_(phone, state);
+        sendWhatsAppText_(phone, 'Great! Just send it here in your own words. 😊');
+        return true;
+      }
       if (answer === '2') {
         state.step = 'UPDATE_DEFAULT';
         setConversation_(phone, state);
         sendWhatsAppText_(phone, 'Please reply with your new standard introduction. We will save it for future meetings.');
         return true;
       }
-      if (answer === '3') {
-        state.step = 'MEETING_INTRO';
-        setConversation_(phone, state);
-        sendWhatsAppText_(phone, 'Please share your recent achievement or something you would like ATK to know. We will use it for this meeting.');
+      if (answer.length >= 10) {
+        clearConversation_(phone);
+        if (kind === 'INTRO') handleIntroSubmission_(member, phone, n, answer, messageId, state.related);
         return true;
       }
-      sendWhatsAppText_(phone, 'Please reply 1, 2 or 3 so I know which introduction to use.');
+      sendWhatsAppText_(phone, 'Please choose “I have something new” or “Use my default”.');
       return true;
     }
     if (answer.length < 10) {
@@ -198,10 +208,24 @@ function handleGuidedReply_(member, phone, text, messageId) {
 function promptSpeakerIntro_(member, phone, meetingNo, slotRef) {
   const task = findPendingTaskForMember_('INTRO', member, meetingNo, slotRef);
   if (!task || task.related !== slotRef || activeConversation_(phone)) return;
+
+  const key = ['INTRO_PROMPT', meetingNo, slotRef, member].join('|');
+  if (hasReminderBeenSent_(key)) return;
+
+  if (defaultIntro_(member)) {
+    const sent = sendIntroChoiceButtons_(member, phone, meetingNo, slotRef, false);
+    if (!sent) return;
+    recordWorkflowOutbound_(member, phone, 'INTRO_PROMPT',
+      sent.text, meetingNo, sent.result, key);
+    return;
+  }
+
   const prompt = startGuidedRequest_(member, phone, 'INTRO', meetingNo, slotRef, 'speaker');
   if (!prompt) return;
   const result = sendWhatsAppText_(phone, prompt.text);
   if (result.ok) setConversation_(phone, prompt.state);
+  recordWorkflowOutbound_(member, phone, 'INTRO_PROMPT',
+    prompt.text, meetingNo, result, key);
 }
 
 function processAgendaSecondReminders_() {
