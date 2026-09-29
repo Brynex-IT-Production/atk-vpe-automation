@@ -1096,6 +1096,109 @@ function processSpeakerDetailPrompts_() {
   });
 }
 
+
+function processSpeakerDetailReminders_() {
+  if (!configBool_('SPEAKER_DETAILS_WORKFLOW_ENABLED')) return;
+
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const tasks = ss.getSheetByName('Automation Tasks');
+  const outbox = ss.getSheetByName('WA Outbox');
+  if (!tasks || !outbox || tasks.getLastRow() < 2 || outbox.getLastRow() < 2) return;
+
+  const timezone = configValue_('TIMEZONE', 'Asia/Kolkata');
+  const now = new Date();
+  const localHour = Number(Utilities.formatDate(now, timezone, 'H'));
+  const reminderHours = String(
+    configValue_('SPEAKER_DETAILS_REMINDER_HOURS', '7,20')
+  ).split(',')
+    .map(v => Number(String(v).trim()))
+    .filter(v => Number.isFinite(v));
+
+  if (reminderHours.indexOf(localHour) === -1) return;
+
+  const successfulStates = new Set(['SENT', 'DELIVERED', 'READ', 'ACCEPTED']);
+  const taskRows = tasks.getRange(2, 1, tasks.getLastRow() - 1, 18).getValues();
+  const outboxRows = outbox.getRange(2, 1, outbox.getLastRow() - 1, 16).getValues();
+
+  taskRows.forEach(row => {
+    if (String(row[2] || '') !== 'SPEAKER_DETAILS' ||
+        String(row[5] || '') !== 'Pending') return;
+
+    const meetingNo = Number(row[1]);
+    const member = String(row[3] || '').trim();
+    const related = String(row[4] || '').trim();
+    if (!meetingNo || !member || !related) return;
+
+    const firstKey = ['SPEAKER_DETAILS_PROMPT', meetingNo, related, member].join('|');
+    const firstPromptAt = outboxRows
+      .filter(r =>
+        String(r[15] || '') === firstKey &&
+        successfulStates.has(String(r[6] || '').toUpperCase()) &&
+        r[12] instanceof Date
+      )
+      .map(r => r[12])
+      .sort((a, b) => a.getTime() - b.getTime())[0];
+
+    if (!(firstPromptAt instanceof Date)) return;
+
+    // Avoid sending the first reminder immediately after the initial request
+    // if both happen to land in the same configured reminder hour.
+    if ((now.getTime() - firstPromptAt.getTime()) < 60 * 60 * 1000) return;
+
+    const phone = phoneForMember_(member);
+    if (!phone || !isWhatsAppRecipientAllowed_(phone)) return;
+
+    const slotDate = Utilities.formatDate(now, timezone, 'yyyyMMdd');
+    const reminderKey = [
+      'SPEAKER_DETAILS_REMINDER',
+      meetingNo,
+      related,
+      member,
+      slotDate,
+      'H' + localHour
+    ].join('|');
+
+    if (hasReminderBeenSent_(reminderKey)) return;
+
+    const body =
+      'Hi ' + member + ',\n\n' +
+      'Just a reminder about your speech details for ATK Meeting ' + meetingNo + '.\n\n' +
+      'We’re still waiting for:\n\n' +
+      'Path:\n' +
+      'Level:\n' +
+      'Project:\n' +
+      'Title:\n\n' +
+      'Please send the pending details when you can.\n\n' +
+      'Thank you.';
+
+    const result = sendAutomatedText_(
+      phone,
+      'SPEAKER_DETAILS',
+      body,
+      [member, meetingNo]
+    );
+
+    recordWorkflowOutbound_(
+      member,
+      phone,
+      'SPEAKER_DETAILS_REMINDER',
+      body,
+      meetingNo,
+      result,
+      reminderKey
+    );
+
+    logAutomation_(
+      'Speaker Details',
+      meetingNo,
+      member,
+      'Speaker details reminder at ' + (localHour === 20 ? '8 PM' : localHour + ' AM'),
+      result.ok ? 'Sent' : (result.deferred ? 'Deferred' : 'Error'),
+      related
+    );
+  });
+}
+
 function processEvaluatorNotifications_() {
   if (!configBool_('EVALUATION_WORKFLOW_ENABLED')) return;
 
