@@ -572,7 +572,7 @@ function processReadyIntroductionBundles_() {
   const today = startOfDay_(new Date());
   const dueDays = Math.max(
     0,
-    Number(configValue_('INTRO_BUNDLE_DUE_DAYS', '1')) || 1
+    Number(configValue_('INTRO_BUNDLE_DUE_DAYS', '2')) || 2
   );
 
   const rows = planner.getRange(
