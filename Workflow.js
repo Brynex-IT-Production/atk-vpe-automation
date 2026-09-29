@@ -1527,8 +1527,7 @@ function processAssignedRolePrompts_() {
     const related = String(row[4] || '').trim();
     const phone = phoneForMember_(member);
     if (!phone || !isWhatsAppRecipientAllowed_(phone) || activeConversation_(phone)) return;
-    const kind = type === 'THEME' ? 'THEME_REQUEST' :
-      type === 'GRAMMAR' ? 'GRAMMAR_REQUEST' : 'INTRO_REQUEST';
+    const kind = type === 'THEME' ? 'THEME_REQUEST' : 'INTRO_REQUEST';
     const key = [kind, meetingNo, related, member].join('|');
     if (hasReminderBeenSent_(key)) return;
     const role = ROLE_DEFS_.find(def => def.code === related);
