@@ -23,6 +23,7 @@ function createAtkWhatsAppTemplates_() {
 function getAtkWhatsAppTemplateSpecs_() {
   return [
     roleReminderV2Spec_(),
+    speechInviteV2Spec_(),
     {
       name: 'atk_role_reminder',
       language: 'en_US',
@@ -435,4 +436,32 @@ function testRoleReminderTemplateToVpe_() {
     ok: Boolean(result && result.ok),
     result: result
   };
+}
+
+
+function speechInviteV2Spec_() {
+  return {
+    name: 'atk_speech_invite_v2',
+    language: 'en_US',
+    category: 'MARKETING',
+    body:
+      'Hi {{1}},\n\n' +
+      'Want to give a speech?\n\n' +
+      'Select a slot before it’s gone! 🎤\n\n' +
+      'If you’d like to take a speaking slot, choose a convenient meeting date using the button below.',
+    examples: ['Riyas AF'],
+    buttons: [{type: 'QUICK_REPLY', text: 'Reserve speech slot'}]
+  };
+}
+
+function submitSpeechInviteV2Once_() {
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty('SPEECH_INVITE_V2_SUBMITTED') === 'TRUE') return;
+  const token = props.getProperty('META_ACCESS_TOKEN');
+  const wabaId = props.getProperty('WA_WABA_ID');
+  if (!token || !wabaId) return;
+  const result = createOrReadTemplate_(token, wabaId, speechInviteV2Spec_());
+  logAutomation_('WhatsApp Templates', '', '', 'Submit atk_speech_invite_v2',
+    result.ok ? 'Success' : 'Error', JSON.stringify(result));
+  if (result.ok) props.setProperty('SPEECH_INVITE_V2_SUBMITTED', 'TRUE');
 }

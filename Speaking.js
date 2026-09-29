@@ -5,6 +5,10 @@
 
 function processSpeakingSlotTargeting_() {
   if (!configBool_('SPEAKING_SLOT_WORKFLOW_ENABLED')) return;
+  if (configValue_('WA_TEMPLATE_SPEECH_INVITE', '') === 'atk_speech_invite_v2') {
+    if (isApprovedTemplate_('atk_speech_invite_v2')) processSpeechDateInvites_();
+    return;
+  }
 
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const planner = ss.getSheetByName('VPE Weekly Planner');
@@ -200,7 +204,10 @@ function reserveSpeechSlot_(meetingNo, member) {
   const rowNumber = idx + 3;
   const row = sheet.getRange(rowNumber, 1, 1, 28).getValues()[0];
   const status = String(row[2] || '');
-  if (status === 'Completed' || status === 'Cancelled') return { status: 'NOT_AVAILABLE' };
+  if (status === 'Completed' || status === 'Cancelled' ||
+      !(row[1] instanceof Date) || startOfDay_(row[1]) < startOfDay_(new Date())) {
+    return { status: 'NOT_AVAILABLE' };
+  }
 
   const speakerColumns = [7, 11, 15];
   const statusColumns = [9, 13, 17];
@@ -421,4 +428,99 @@ function countSuccessfulOutboxByPrefix_(prefix) {
   });
 
   return count;
+}
+
+
+/** Invite once for the nearest open meeting; show up to four dates at tap time. */
+function processSpeechDateInvites_() {
+  const meetings = availableSpeechMeetings_();
+  if (!meetings.length) return;
+  const first = meetings[0];
+  const daysLeft = Math.round((startOfDay_(first.date) - startOfDay_(new Date())) / 86400000);
+  const windowDays = Math.max(1, Number(configValue_('SPEECH_TARGETING_WINDOW_DAYS', '14')) || 14);
+  if (daysLeft > windowDays) return;
+  const broadenDays = Math.max(0, Number(configValue_('SPEECH_BROADEN_DAYS', '7')) || 7);
+  const stage = daysLeft <= broadenDays ? 'BROAD' : 'PRIORITY';
+  const candidates = getSpeechPriorityCandidates_(first.meetingNo, stage);
+  const batchSize = Math.max(1, Number(configValue_('SPEECH_INVITE_BATCH_SIZE', '5')) || 5);
+  const prefix = ['SPEECH_DATES_INVITE', first.meetingNo, stage].join('|') + '|';
+  let remaining = Math.max(0, Math.max(batchSize, first.openCount * 2) -
+    countSuccessfulOutboxByPrefix_(prefix));
+  candidates.forEach(candidate => {
+    if (!remaining || !isWhatsAppRecipientAllowed_(candidate.phone)) return;
+    const key = prefix + candidate.name;
+    if (hasReminderBeenSent_(key)) return;
+    const body = speechDateInviteBody_(candidate.name);
+    const payload = {
+      messaging_product: 'whatsapp', recipient_type: 'individual',
+      to: candidate.phone, type: 'interactive',
+      interactive: {
+        type: 'button', body: {text: body},
+        action: {buttons: [{type: 'reply',
+          reply: {id: 'SPEECH_DATES', title: 'Reserve speech slot'}}]}
+      }
+    };
+    const result = sendAutomatedQuickReply_(candidate.phone, 'SPEECH_INVITE',
+      payload, [candidate.name], 'SPEECH_DATES');
+    recordWorkflowOutbound_(candidate.name, candidate.phone,
+      'SPEECH_INVITE', body, first.meetingNo, result, key);
+    if (result.ok) remaining--;
+  });
+}
+
+function speechDateInviteBody_(name) {
+  return 'Hi ' + name + ',\n\nWant to give a speech?\n\n' +
+    'Select a slot before it’s gone! 🎤\n\n' +
+    'If you’d like to take a speaking slot, choose a convenient meeting date using the button below.';
+}
+
+function availableSpeechMeetings_() {
+  const planner = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('VPE Weekly Planner');
+  if (!planner || planner.getLastRow() < 3) return [];
+  const rows = planner.getRange(3, 1,
+    Math.min(60, planner.getLastRow() - 2), 28).getValues();
+  const today = startOfDay_(new Date());
+  return rows.filter(row => Number(row[0]) && row[1] instanceof Date &&
+      startOfDay_(row[1]) >= today &&
+      !['Completed', 'Cancelled'].includes(String(row[2] || '')) &&
+      getOpenSpeechSlotsFromRow_(row).length)
+    .map(row => ({meetingNo: Number(row[0]), date: row[1],
+      openCount: getOpenSpeechSlotsFromRow_(row).length, row: row}))
+    .sort((a, b) => a.date - b.date || a.meetingNo - b.meetingNo);
+}
+
+function handleSpeechDateMenu_(member, phone) {
+  if (!configBool_('SPEAKING_SLOT_WORKFLOW_ENABLED') ||
+      configValue_('WA_TEMPLATE_SPEECH_INVITE', '') !== 'atk_speech_invite_v2') {
+    sendWhatsAppText_(phone, 'Speech booking is not available right now.');
+    return;
+  }
+  const dates = availableSpeechMeetings_().filter(meeting => {
+    const row = meeting.row;
+    return ![row[6], row[10], row[14]].some(v => String(v || '').trim() === member) &&
+      !ROLE_DEFS_.some(def => String(row[def.column - 1] || '').trim() === member);
+  }).slice(0, 4);
+  if (!dates.length) {
+    sendWhatsAppText_(phone, 'There are no available meeting dates for you right now.');
+    return;
+  }
+  const result = sendWhatsAppPayload_({
+    messaging_product: 'whatsapp', recipient_type: 'individual', to: phone,
+    type: 'interactive',
+    interactive: {
+      type: 'list',
+      body: {text: 'Choose a convenient date for your prepared speech:'},
+      action: {button: 'View dates', sections: [{
+        title: 'Upcoming meetings',
+        rows: dates.map(meeting => ({
+          id: 'SPEAK|' + meeting.meetingNo,
+          title: Utilities.formatDate(meeting.date,
+            configValue_('TIMEZONE', 'Asia/Kolkata'), 'EEE, d MMM yyyy'),
+          description: 'ATK Meeting ' + meeting.meetingNo
+        }))
+      }]}
+    }
+  });
+  logAutomation_('Speaking Slot', '', member, 'Show speech meeting dates',
+    result.ok ? 'Sent' : 'Error', result.error || '');
 }

@@ -82,6 +82,11 @@ function processInboundWhatsAppMessage_(message) {
     return;
   }
 
+  if (interaction.kind === 'SPEECH_DATE_MENU') {
+    handleSpeechDateMenu_(member, phone);
+    return;
+  }
+
   if (interaction.kind === 'SPEECH_SLOT_ACCEPT') {
     handleSpeechSlotSelection_(member, phone, interaction);
     return;
@@ -162,6 +167,9 @@ function parseInteraction_(message) {
           text: String(reply.title || '')
         };
       }
+      if (id === 'SPEECH_DATES') {
+        return {kind: 'SPEECH_DATE_MENU', text: String(reply.title || '')};
+      }
       if (id.indexOf('SPEAK|') === 0) {
         const parts = id.split('|');
         return {
@@ -186,6 +194,9 @@ function parseInteraction_(message) {
         kind: 'ADMIN_EXCEPTIONS',
         text: String(message.button.text || '')
       };
+    }
+    if (payload === 'SPEECH_DATES') {
+      return {kind: 'SPEECH_DATE_MENU', text: String(message.button.text || '')};
     }
     if (payload.indexOf('SPEAK|') === 0) {
       const parts = payload.split('|');

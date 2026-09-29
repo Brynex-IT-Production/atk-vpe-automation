@@ -132,6 +132,10 @@ function sendAutomatedQuickReply_(phone, kind, freeformPayload, templateParams, 
     };
   }
 
+  if (templateName === 'atk_speech_invite_v2' && !isApprovedTemplate_(templateName)) {
+    return {ok: false, deferred: true, error: 'Template awaiting Meta approval: ' + templateName};
+  }
+
   const result = sendWhatsAppTemplate_(
     destination,
     templateName,
