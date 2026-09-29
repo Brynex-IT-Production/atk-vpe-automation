@@ -132,4 +132,4 @@ jobs:
         shell: bash
         run: |
           cd /tmp/atk-vpe-dev
-          clasp run installPhase1Triggers --dev
+          clasp run installPhase1Triggers
