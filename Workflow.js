@@ -1093,6 +1093,81 @@ function processAssignedRolePrompts_() {
   });
 }
 
+function processThemeRequestReminder_() {
+  if (!configBool_('TMOD_WORKFLOW_ENABLED')) return;
+
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const tasks = ss.getSheetByName('Automation Tasks');
+  if (!tasks || tasks.getLastRow() < 2) return;
+
+  const now = new Date();
+  const delayDays = Math.max(
+    1,
+    Number(configValue_('THEME_REMINDER_DELAY_DAYS', '1')) || 1
+  );
+
+  const rows = tasks.getRange(2, 1, tasks.getLastRow() - 1, 18).getValues();
+
+  rows.forEach(row => {
+    if (String(row[2] || '') !== 'THEME' ||
+        String(row[5] || '') !== 'Pending' ||
+        !(row[6] instanceof Date)) return;
+
+    const meetingNo = Number(row[1]);
+    const member = String(row[3] || '').trim();
+    const related = String(row[4] || '').trim();
+    const dueAt = row[6];
+
+    if (!meetingNo || !member) return;
+
+    const reminderAt = new Date(dueAt.getTime() + delayDays * 86400000);
+    if (now < reminderAt) return;
+
+    const firstKey = ['THEME_REQUEST', meetingNo, related, member].join('|');
+    if (!hasReminderBeenSent_(firstKey)) return;
+
+    const reminderKey = ['THEME_REQUEST_REMINDER', meetingNo, related, member].join('|');
+    if (hasReminderBeenSent_(reminderKey)) return;
+
+    const phone = phoneForMember_(member);
+    if (!phone || !isWhatsAppRecipientAllowed_(phone)) return;
+
+    const body =
+      'Hi ' + member + ',\n\n' +
+      'Just a reminder to share the theme for ATK Meeting ' + meetingNo +
+      ' today so that all the role players can align with it.\n\n' +
+      'Please reply with your theme.\n\n' +
+      'Thank you.';
+
+    const result = sendAutomatedText_(
+      phone,
+      'THEME_REQUEST',
+      body,
+      [member, meetingNo, meetingNo]
+    );
+
+    recordWorkflowOutbound_(
+      member,
+      phone,
+      'THEME_REQUEST_REMINDER',
+      body,
+      meetingNo,
+      result,
+      reminderKey
+    );
+
+    logAutomation_(
+      'TMOD Theme',
+      meetingNo,
+      member,
+      'Theme reminder one day after first request',
+      result.ok ? 'Sent' : (result.blocked ? 'Blocked' : 'Error'),
+      'Theme still pending'
+    );
+  });
+}
+
+
 function sendSpeakerDetailsToTmod_(meetingNo, member, slotRef, parts) {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const planner = ss.getSheetByName('VPE Weekly Planner');
