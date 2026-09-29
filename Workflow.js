@@ -621,7 +621,7 @@ function processEvaluatorNotifications_() {
   if (!planner) return;
 
   const today = startOfDay_(new Date());
-  const reminderDays = String(configValue_('EVALUATOR_COORDINATION_REMINDER_DAYS', '5,2'))
+  const reminderDays = String(configValue_('EVALUATOR_COORDINATION_REMINDER_DAYS', 'OFF'))
     .split(',')
     .map(v => Number(String(v).trim()))
     .filter(v => Number.isFinite(v) && v >= 0);
