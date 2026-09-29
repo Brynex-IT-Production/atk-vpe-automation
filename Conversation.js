@@ -95,6 +95,9 @@ function handleGuidedReply_(member, phone, text, messageId) {
   const answer = String(text || '').trim();
   if (!answer || /^(ROLE|ROLES|ADMIN STATUS|ADMIN SETUP|ADMIN EXCEPTIONS)$/i.test(answer)) return false;
 
+  const speakerBlock = parseSpeakerDetailsBlock_(answer);
+  if (speakerBlock && speakerBlock.recognized >= 2) return false;
+
   // Existing approved templates may still show the earlier structured syntax
   // until Meta approves the new ones. Let the legacy parser handle that reply.
   if (/^(THEME|GRAMMAR|INTRO|SPEECH)(?:\\s+\\d+)?\\s*:/i.test(answer)) {

@@ -182,7 +182,7 @@ function syncPhase1Tasks_() {
         member: sp.member,
         related: slotRef,
         state: detailsDone ? 'Completed' : 'Pending',
-        dueAt: daysBefore_(meetingDate, Number(configValue_('SPEAKER_DETAILS_DUE_DAYS', '7')) || 7),
+        dueAt: daysBefore_(meetingDate, Number(configValue_('SPEAKER_DETAILS_DUE_DAYS', '6')) || 6),
         reference: 'Speaker slot ' + sp.slot,
         payload: JSON.stringify({ slot: sp.slot })
       });

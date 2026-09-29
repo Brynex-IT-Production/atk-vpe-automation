@@ -161,7 +161,6 @@ function handleSpeechSlotSelection_(member, phone, interaction) {
       );
 
       if (configBool_('TASK_ENGINE_ENABLED')) syncPhase1Tasks_();
-      sendSpeakerDetailsPrompt_(interaction.meetingNo, result.slot, member, phone);
       return;
     }
 

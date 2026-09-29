@@ -3,6 +3,27 @@
  * These flows use explicit reply prefixes so submissions are unambiguous.
  */
 
+function parseSpeakerDetailsBlock_(text) {
+  const fields = {};
+  let recognized = 0;
+
+  String(text || '').split(/\r?\n/).forEach(line => {
+    const match = String(line || '').match(/^\s*(Path|Level|Project|Title)\s*:\s*(.*?)\s*$/i);
+    if (!match) return;
+    const key = match[1].toLowerCase();
+    if (!Object.prototype.hasOwnProperty.call(fields, key)) recognized++;
+    fields[key] = String(match[2] || '').trim();
+  });
+
+  return {
+    recognized: recognized,
+    path: fields.path || '',
+    level: fields.level || '',
+    project: fields.project || '',
+    title: fields.title || ''
+  };
+}
+
 function handleStructuredSubmission_(member, phone, rawText, messageId) {
   const text = String(rawText || '').trim();
   if (!text) return false;
@@ -29,6 +50,12 @@ function handleStructuredSubmission_(member, phone, rawText, messageId) {
   const speechMatch = text.match(/^SPEECH(?:\s+(\d+))?\s*:\s*(.+)$/i);
   if (speechMatch) {
     handleSpeakerDetailsSubmission_(member, phone, Number(speechMatch[1] || 0), speechMatch[2], messageId);
+    return true;
+  }
+
+  const speechBlock = parseSpeakerDetailsBlock_(text);
+  if (speechBlock.recognized >= 2) {
+    handleSpeakerDetailsSubmission_(member, phone, 0, speechBlock, messageId);
     return true;
   }
 
@@ -403,12 +430,32 @@ function handleSpeakerDetailsSubmission_(member, phone, requestedMeetingNo, body
     return;
   }
 
-  const parts = String(body || '').split('|').map(v => v.trim());
-  if (parts.length < 4 || parts.slice(0, 4).some(v => !v)) {
-    sendWhatsAppText_(phone,
-      'Please use this format:\nSPEECH ' + task.meetingNo +
-      ': Speech Title | Path | Level | Project');
-    return;
+  let parts = [];
+  if (body && typeof body === 'object' && Number(body.recognized || 0) > 0) {
+    const missing = ['path', 'level', 'project', 'title']
+      .filter(key => !String(body[key] || '').trim());
+
+    if (missing.length) {
+      sendWhatsAppText_(phone,
+        'Please add the missing detail' + (missing.length > 1 ? 's' : '') +
+        ': ' + missing.map(key => key.charAt(0).toUpperCase() + key.slice(1)).join(', ') +
+        '\n\nPath:\nLevel:\nProject:\nTitle:');
+      return;
+    }
+
+    parts = [
+      String(body.title || '').trim(),
+      String(body.path || '').trim(),
+      String(body.level || '').trim(),
+      String(body.project || '').trim()
+    ];
+  } else {
+    parts = String(body || '').split('|').map(v => v.trim());
+    if (parts.length < 4 || parts.slice(0, 4).some(v => !v)) {
+      sendWhatsAppText_(phone,
+        'Please use this format:\n\nPath:\nLevel:\nProject:\nTitle:');
+      return;
+    }
   }
 
   const assignment = verifySpeakerAssignment_(task.meetingNo, task.related, member);
@@ -431,12 +478,15 @@ function handleSpeakerDetailsSubmission_(member, phone, requestedMeetingNo, body
 
   syncPhase1Tasks_();
 
+  const active = activeConversation_(phone);
+  if (active && active.kind === 'SPEAKER_DETAILS') clearConversation_(phone);
+
   sendWhatsAppText_(phone,
     'Speech details received ✅\n' +
-    'Title: ' + parts[0] + '\n' +
     'Path: ' + parts[1] + '\n' +
     'Level: ' + parts[2] + '\n' +
-    'Project: ' + parts[3]);
+    'Project: ' + parts[3] + '\n' +
+    'Title: ' + parts[0]);
 
   logAutomation_(
     'Speaker Details',
@@ -473,25 +523,92 @@ function verifySpeakerAssignment_(meetingNo, slotRef, member) {
 
 function processSpeakerDetailPrompts_() {
   if (!configBool_('SPEAKER_DETAILS_WORKFLOW_ENABLED')) return;
+
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const tasks = ss.getSheetByName('Automation Tasks');
   if (!tasks || tasks.getLastRow() < 2) return;
+
+  const activeTemplate = templateNameForKind_('SPEAKER_DETAILS');
+  const blockFlow = activeTemplate === 'atk_speaker_guided_v2';
   const rows = tasks.getRange(2, 1, tasks.getLastRow() - 1, 18).getValues();
+
   rows.forEach(row => {
     const meetingNo = Number(row[1]);
     const member = String(row[3] || '').trim();
     const related = String(row[4] || '').trim();
+
     if (String(row[2]) !== 'SPEAKER_DETAILS' || String(row[5]) !== 'Pending' ||
         !(row[6] instanceof Date) || row[6] > new Date()) return;
+
     const phone = phoneForMember_(member);
-    if (!phone || !isWhatsAppRecipientAllowed_(phone) || activeConversation_(phone)) return;
+    if (!phone || !isWhatsAppRecipientAllowed_(phone)) return;
+
     const key = ['SPEAKER_DETAILS_PROMPT', meetingNo, related, member].join('|');
-    if (hasReminderBeenSent_(key)) return;
-    const prompt = startGuidedRequest_(member, phone, 'SPEAKER_DETAILS', meetingNo, related, 'speaker');
-    const result = sendAutomatedText_(phone, 'SPEAKER_DETAILS',
-      prompt.text, [member, meetingNo, meetingNo]);
-    recordWorkflowOutbound_(member, phone, 'SPEAKER_DETAILS_PROMPT',
-      prompt.text, meetingNo, result, key);
+
+    if (blockFlow) {
+      let introSent = hasReminderBeenSent_(key);
+
+      if (!introSent) {
+        const body =
+          'Hi ' + member + ',\n\n' +
+          'You’re confirmed as a speaker for ATK Meeting ' + meetingNo + ' 🎤\n\n' +
+          'Let’s get your speech details ready for the agenda.\n\n' +
+          'Please fill the below details.\n\n' +
+          'Thank you.';
+
+        const result = sendAutomatedText_(
+          phone,
+          'SPEAKER_DETAILS',
+          body,
+          [member, meetingNo]
+        );
+
+        recordWorkflowOutbound_(
+          member, phone, 'SPEAKER_DETAILS_PROMPT',
+          body, meetingNo, result, key
+        );
+
+        if (!result.ok) return;
+        introSent = true;
+      }
+
+      if (!introSent) return;
+
+      const formatKey = ['SPEAKER_DETAILS_FORMAT', meetingNo, related, member].join('|');
+      if (hasReminderBeenSent_(formatKey)) return;
+
+      const formatBody = 'Path:\nLevel:\nProject:\nTitle:';
+      const formatResult = sendAutomatedText_(
+        phone,
+        'SPEAKER_DETAILS_FORMAT',
+        formatBody,
+        []
+      );
+
+      recordWorkflowOutbound_(
+        member, phone, 'SPEAKER_DETAILS_FORMAT',
+        formatBody, meetingNo, formatResult, formatKey
+      );
+      return;
+    }
+
+    if (activeConversation_(phone) || hasReminderBeenSent_(key)) return;
+
+    const prompt = startGuidedRequest_(
+      member, phone, 'SPEAKER_DETAILS', meetingNo, related, 'speaker'
+    );
+    const result = sendAutomatedText_(
+      phone,
+      'SPEAKER_DETAILS',
+      prompt.text,
+      [member, meetingNo, meetingNo]
+    );
+
+    recordWorkflowOutbound_(
+      member, phone, 'SPEAKER_DETAILS_PROMPT',
+      prompt.text, meetingNo, result, key
+    );
+
     if (result.ok) setConversation_(phone, prompt.state);
   });
 }

@@ -24,6 +24,8 @@ function getAtkWhatsAppTemplateSpecs_() {
   return [
     roleReminderV2Spec_(),
     speechInviteV2Spec_(),
+    speakerDetailsV2Spec_(),
+    speakerDetailsFormatSpec_(),
     {
       name: 'atk_role_reminder',
       language: 'en_US',
@@ -197,13 +199,18 @@ function createOrReadTemplate_(token, wabaId, spec) {
     }
   }
 
-  const components = [{
+  const bodyComponent = {
     type: 'BODY',
-    text: spec.body,
-    example: {
+    text: spec.body
+  };
+
+  if (spec.examples && spec.examples.length) {
+    bodyComponent.example = {
       body_text: [spec.examples]
-    }
-  }];
+    };
+  }
+
+  const components = [bodyComponent];
 
   if (spec.buttons && spec.buttons.length) {
     components.push({
@@ -438,6 +445,31 @@ function testRoleReminderTemplateToVpe_() {
   };
 }
 
+
+function speakerDetailsV2Spec_() {
+  return {
+    name: 'atk_speaker_guided_v2',
+    language: 'en_US',
+    category: 'UTILITY',
+    body:
+      'Hi {{1}},\n\n' +
+      'You’re confirmed as a speaker for ATK Meeting {{2}} 🎤\n\n' +
+      'Let’s get your speech details ready for the agenda.\n\n' +
+      'Please fill the below details.\n\n' +
+      'Thank you.',
+    examples: ['Anil Mathew', '452']
+  };
+}
+
+function speakerDetailsFormatSpec_() {
+  return {
+    name: 'atk_speaker_details_format',
+    language: 'en_US',
+    category: 'UTILITY',
+    body: 'Path:\nLevel:\nProject:\nTitle:',
+    examples: []
+  };
+}
 
 function speechInviteV2Spec_() {
   return {
