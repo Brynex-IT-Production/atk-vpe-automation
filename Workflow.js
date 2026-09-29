@@ -1177,10 +1177,17 @@ function processGrammarAssignmentReminder_() {
   if (!tasks || !outbox || tasks.getLastRow() < 2 || outbox.getLastRow() < 2) return;
 
   const now = new Date();
-  const afterHours = Math.max(
-    1,
-    Number(configValue_('GRAMMAR_REMINDER_AFTER_HOURS', '20')) || 20
-  );
+  const timezone = configValue_('TIMEZONE', 'Asia/Kolkata');
+  const localHour = Number(Utilities.formatDate(now, timezone, 'H'));
+
+  const reminderHours = String(
+    configValue_('GRAMMAR_REMINDER_HOURS', '7,20')
+  ).split(',')
+    .map(v => Number(String(v).trim()))
+    .filter(v => Number.isFinite(v));
+
+  if (reminderHours.indexOf(localHour) === -1) return;
+
   const successfulStates = new Set(['SENT', 'DELIVERED', 'READ', 'ACCEPTED']);
   const taskRows = tasks.getRange(2, 1, tasks.getLastRow() - 1, 18).getValues();
   const outboxRows = outbox.getRange(2, 1, outbox.getLastRow() - 1, 16).getValues();
@@ -1204,34 +1211,32 @@ function processGrammarAssignmentReminder_() {
       .map(r => r[12])
       .sort((a, b) => a.getTime() - b.getTime())[0];
 
-    if (!(firstSend instanceof Date)) return;
-
-    const elapsed = now.getTime() - firstSend.getTime();
-    if (elapsed < afterHours * 3600000) return;
-
-    const reminderKey = ['GRAMMAR_ASSIGNMENT_REMINDER', meetingNo, related, member].join('|');
-    if (hasReminderBeenSent_(reminderKey)) return;
+    if (!(firstSend instanceof Date) || now <= firstSend) return;
 
     const phone = phoneForMember_(member);
     if (!phone || !isWhatsAppRecipientAllowed_(phone)) return;
 
-    // This reminder intentionally has no template fallback. It is sent only
-    // while the member's 24-hour customer-service window remains open.
-    if (!hasOpenWhatsAppServiceWindow_(phone)) {
-      logAutomation_(
-        'Grammarian',
-        meetingNo,
-        member,
-        '20-hour Grammarian reminder skipped',
-        'Deferred',
-        'WhatsApp service window is no longer open'
-      );
-      return;
-    }
+    // No reminder template is used here. Reminders are allowed only while
+    // WhatsApp's customer-service window remains open from the member's inbound
+    // role-selection interaction (or any later inbound reply).
+    if (!hasOpenWhatsAppServiceWindow_(phone)) return;
+
+    const slotDate = Utilities.formatDate(now, timezone, 'yyyyMMdd');
+    const reminderKey = [
+      'GRAMMAR_ASSIGNMENT_REMINDER',
+      meetingNo,
+      related,
+      member,
+      slotDate,
+      'H' + localHour
+    ].join('|');
+
+    if (hasReminderBeenSent_(reminderKey)) return;
 
     const body =
       'Hi ' + member + ',\n\n' +
-      'Just a reminder to send your Grammarian details for ATK Meeting ' + meetingNo + '.\n\n' +
+      'Just a reminder about the Grammarian details for ATK Meeting ' + meetingNo + '.\n\n' +
+      'We haven’t received them yet.\n\n' +
       'Please reply in one message:\n\n' +
       'Word:\n' +
       'Word meaning:\n' +
@@ -1255,13 +1260,12 @@ function processGrammarAssignmentReminder_() {
       'Grammarian',
       meetingNo,
       member,
-      'Grammarian reminder within service window',
+      'Grammarian reminder at ' + (localHour === 20 ? '8 PM' : localHour + ' AM'),
       result.ok ? 'Sent' : (result.blocked ? 'Blocked' : 'Error'),
-      'Reminder after ' + afterHours + ' hours'
+      'Pending; service window open'
     );
   });
 }
-
 
 function processThemeRequestReminder_() {
   if (!configBool_('TMOD_WORKFLOW_ENABLED')) return;
