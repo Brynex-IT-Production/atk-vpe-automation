@@ -50,11 +50,32 @@ function hasOpenWhatsAppServiceWindow_(phone) {
 function templateNameForKind_(kind) {
   const normalizedKind = String(kind || '').toUpperCase();
 
-  if (normalizedKind === 'SPEAKER_DETAILS') {
-    const preferred = String(
-      configValue_('WA_TEMPLATE_SPEAKER_DETAILS_V3', 'atk_speaker_details_v3')
+  const preferredConfig = {
+    ROLE_REMINDER: ['WA_TEMPLATE_ROLE_REMINDER_V2', 'atk_role_reminder_v2'],
+    SPEECH_INVITE: ['WA_TEMPLATE_SPEECH_INVITE_V2', 'atk_speech_invite_v2'],
+    THEME_REQUEST: ['WA_TEMPLATE_THEME_REQUEST_V2', 'atk_theme_request_v2'],
+    SPEAKER_DETAILS: ['WA_TEMPLATE_SPEAKER_DETAILS_V3', 'atk_speaker_details_v3']
+  };
+
+  const preferred = preferredConfig[normalizedKind];
+  if (preferred) {
+    const preferredName = String(configValue_(preferred[0], preferred[1])).trim();
+    if (preferredName && isApprovedTemplate_(preferredName)) return preferredName;
+  }
+
+  if (normalizedKind === 'EVALUATOR_PAIRING_SPEAKER' ||
+      normalizedKind === 'EVALUATOR_ASSIGNMENT') {
+    const current = String(
+      configValue_('WA_TEMPLATE_' + normalizedKind, '')
     ).trim();
-    if (preferred && isApprovedTemplate_(preferred)) return preferred;
+    if (current && isApprovedTemplate_(current)) return current;
+
+    const fallback = String(
+      configValue_('WA_TEMPLATE_EVALUATOR_PAIRING', 'atk_evaluator_pairing')
+    ).trim();
+    if (fallback && isApprovedTemplate_(fallback)) return fallback;
+
+    return current;
   }
 
   return String(
@@ -98,6 +119,7 @@ function sendAutomatedText_(phone, kind, freeformBody, templateParams) {
 
   const params = templateParams || [];
   const parameterCount = {
+    atk_role_reminder_v2: 1, atk_speech_invite_v2: 1,
     atk_theme_guided: 2, atk_theme_request_v2: 2, atk_theme_reminder_v3: 2,
     atk_intro_guided: 3, atk_speaker_guided: 2,
     atk_speaker_details_v3: 2,
