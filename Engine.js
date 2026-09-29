@@ -97,6 +97,11 @@ function processInboundWhatsAppMessage_(message) {
     return;
   }
 
+  if (interaction.kind === 'EVALUATOR_COORD_CHECK') {
+    handleEvaluatorCoordinationCheckReply_(member, phone, interaction);
+    return;
+  }
+
   if (interaction.kind === 'ADMIN_EXCEPTIONS') {
     const vpeMember = configValue_('VPE_MEMBER_NAME', 'Riyas AF');
     if (member === vpeMember) {
@@ -178,6 +183,16 @@ function parseInteraction_(message) {
           text: String(reply.title || '')
         };
       }
+      if (id.indexOf('EVAL_COORD|') === 0) {
+        const parts = id.split('|');
+        return {
+          kind: 'EVALUATOR_COORD_CHECK',
+          role: String(parts[1] || ''),
+          meetingNo: Number(parts[2] || 0),
+          answer: String(parts[3] || ''),
+          text: String(reply.title || '')
+        };
+      }
       if (id === 'ADMIN_EXCEPTIONS') {
         return { kind: 'ADMIN_EXCEPTIONS', text: String(reply.title || '') };
       }
@@ -189,6 +204,16 @@ function parseInteraction_(message) {
 
   if (message.type === 'button' && message.button) {
     const payload = String(message.button.payload || '');
+    if (payload.indexOf('EVAL_COORD|') === 0) {
+      const parts = payload.split('|');
+      return {
+        kind: 'EVALUATOR_COORD_CHECK',
+        role: String(parts[1] || ''),
+        meetingNo: Number(parts[2] || 0),
+        answer: String(parts[3] || ''),
+        text: String(message.button.text || '')
+      };
+    }
     if (payload === 'ADMIN_EXCEPTIONS') {
       return {
         kind: 'ADMIN_EXCEPTIONS',

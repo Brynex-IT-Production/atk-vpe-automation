@@ -621,7 +621,7 @@ function processEvaluatorNotifications_() {
   if (!planner) return;
 
   const today = startOfDay_(new Date());
-  const reminderDays = String(configValue_('EVALUATOR_COORDINATION_REMINDER_DAYS', 'OFF'))
+  const reminderDays = String(configValue_('EVALUATOR_COORDINATION_REMINDER_DAYS', '2'))
     .split(',')
     .map(v => Number(String(v).trim()))
     .filter(v => Number.isFinite(v) && v >= 0);
@@ -732,38 +732,142 @@ function processEvaluatorCoordinationForMeeting_(meetingNo, daysLeft, reminderDa
 
     const reminderSuffix = 'D' + daysLeft;
 
-    const speakerReminderKey = ['EVALUATOR_COORD_REMINDER_SPEAKER', meetingNo, sp.slotRef, reminderSuffix, sp.member].join('|');
+    const speakerReminderKey = ['EVALUATOR_COORD_CHECK_SPEAKER', meetingNo, sp.slotRef, reminderSuffix, sp.member].join('|');
     if (speakerPhone && isWhatsAppRecipientAllowed_(speakerPhone) && !hasReminderBeenSent_(speakerReminderKey)) {
       const text =
         'Hi ' + sp.member + ',\n\n' +
-        'A quick reminder for ATK Meeting ' + meetingNo + ': please connect directly with ' +
-        sp.evaluator + ' and make sure you have shared your speech title, Path, Level, Project, project/evaluation sheet, and any specific feedback area.\n\nThank you.';
-      const result = sendAutomatedText_(
+        'Hope you have coordinated with your evaluator, ' + sp.evaluator +
+        ', for ATK Meeting ' + meetingNo + '.\n\n' +
+        'Have you coordinated?';
+
+      const payload = {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: speakerPhone,
+        type: 'interactive',
+        interactive: {
+          type: 'button',
+          body: {text: text},
+          action: {
+            buttons: [
+              {type: 'reply', reply: {id: 'EVAL_COORD|SPEAKER|' + meetingNo + '|YES', title: 'Yes'}},
+              {type: 'reply', reply: {id: 'EVAL_COORD|SPEAKER|' + meetingNo + '|NO', title: 'No'}}
+            ]
+          }
+        }
+      };
+
+      const result = sendAutomatedQuickReply_(
         speakerPhone,
-        'EVALUATOR_COORD_REMINDER',
-        text,
-        [sp.member, meetingNo, sp.evaluator]
+        'EVALUATOR_COORD_CHECK_SPEAKER',
+        payload,
+        [sp.member, sp.evaluator, meetingNo],
+        [
+          'EVAL_COORD|SPEAKER|' + meetingNo + '|YES',
+          'EVAL_COORD|SPEAKER|' + meetingNo + '|NO'
+        ]
       );
-      recordWorkflowOutbound_(sp.member, speakerPhone, 'EVALUATOR_COORD_REMINDER', text, meetingNo, result, speakerReminderKey);
+
+      recordWorkflowOutbound_(
+        sp.member, speakerPhone, 'EVALUATOR_COORD_CHECK_SPEAKER',
+        text, meetingNo, result, speakerReminderKey
+      );
     }
 
-    const evaluatorReminderKey = ['EVALUATOR_COORD_REMINDER_EVALUATOR', meetingNo, sp.slotRef, reminderSuffix, sp.evaluator].join('|');
+    const evaluatorReminderKey = ['EVALUATOR_COORD_CHECK_EVALUATOR', meetingNo, sp.slotRef, reminderSuffix, sp.evaluator].join('|');
     if (evaluatorPhone && isWhatsAppRecipientAllowed_(evaluatorPhone) && !hasReminderBeenSent_(evaluatorReminderKey)) {
       const text =
         'Hi ' + sp.evaluator + ',\n\n' +
-        'A quick reminder for ATK Meeting ' + meetingNo + ': please connect directly with ' +
-        sp.member + ' and confirm you have the speech title, Path, Level, Project, project/evaluation sheet, and the speaker\'s specific feedback expectations.\n\nThank you.';
-      const result = sendAutomatedText_(
+        'Hope you have coordinated with your speaker, ' + sp.member +
+        ', for ATK Meeting ' + meetingNo + '.\n\n' +
+        'Have you coordinated?';
+
+      const payload = {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: evaluatorPhone,
+        type: 'interactive',
+        interactive: {
+          type: 'button',
+          body: {text: text},
+          action: {
+            buttons: [
+              {type: 'reply', reply: {id: 'EVAL_COORD|EVALUATOR|' + meetingNo + '|YES', title: 'Yes'}},
+              {type: 'reply', reply: {id: 'EVAL_COORD|EVALUATOR|' + meetingNo + '|NO', title: 'No'}}
+            ]
+          }
+        }
+      };
+
+      const result = sendAutomatedQuickReply_(
         evaluatorPhone,
-        'EVALUATOR_COORD_REMINDER',
-        text,
-        [sp.evaluator, meetingNo, sp.member]
+        'EVALUATOR_COORD_CHECK_EVALUATOR',
+        payload,
+        [sp.evaluator, sp.member, meetingNo],
+        [
+          'EVAL_COORD|EVALUATOR|' + meetingNo + '|YES',
+          'EVAL_COORD|EVALUATOR|' + meetingNo + '|NO'
+        ]
       );
-      recordWorkflowOutbound_(sp.evaluator, evaluatorPhone, 'EVALUATOR_COORD_REMINDER', text, meetingNo, result, evaluatorReminderKey);
+
+      recordWorkflowOutbound_(
+        sp.evaluator, evaluatorPhone, 'EVALUATOR_COORD_CHECK_EVALUATOR',
+        text, meetingNo, result, evaluatorReminderKey
+      );
     }
   });
 
   return true;
+}
+
+function handleEvaluatorCoordinationCheckReply_(member, phone, interaction) {
+  const meetingNo = Number(interaction.meetingNo || 0);
+  const role = String(interaction.role || '').toUpperCase();
+  const answer = String(interaction.answer || '').toUpperCase();
+
+  if (!meetingNo || ['SPEAKER', 'EVALUATOR'].indexOf(role) === -1 ||
+      ['YES', 'NO'].indexOf(answer) === -1) {
+    sendWhatsAppText_(phone, 'I could not understand that response.');
+    return;
+  }
+
+  let counterpart = '';
+  const planner = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('VPE Weekly Planner');
+  if (planner) {
+    const ids = planner.getRange(3, 1, Math.max(0, Math.min(60, planner.getLastRow() - 2)), 1)
+      .getValues().flat();
+    const idx = ids.findIndex(v => Number(v) === meetingNo);
+    if (idx >= 0) {
+      const row = planner.getRange(idx + 3, 1, 1, 28).getValues()[0];
+      const pairs = [
+        {speaker: String(row[6] || '').trim(), evaluator: String(row[25] || '').trim()},
+        {speaker: String(row[10] || '').trim(), evaluator: String(row[26] || '').trim()},
+        {speaker: String(row[14] || '').trim(), evaluator: String(row[27] || '').trim()}
+      ];
+      const pair = pairs.find(p => role === 'SPEAKER' ? p.speaker === member : p.evaluator === member);
+      if (pair) counterpart = role === 'SPEAKER' ? pair.evaluator : pair.speaker;
+    }
+  }
+
+  if (answer === 'YES') {
+    sendWhatsAppText_(phone, 'Great, thank you ✅');
+  } else {
+    sendWhatsAppText_(
+      phone,
+      counterpart
+        ? 'Please connect with ' + counterpart + ' today and complete the coordination before the meeting. Thank you.'
+        : 'Please complete the speaker-evaluator coordination today. Thank you.'
+    );
+  }
+
+  logAutomation_(
+    'Evaluation Coordination',
+    meetingNo,
+    member,
+    role + ' coordination check',
+    answer === 'YES' ? 'Confirmed' : 'Not yet',
+    counterpart
+  );
 }
 
 

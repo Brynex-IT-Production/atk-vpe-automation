@@ -135,7 +135,7 @@ function sendAutomatedQuickReply_(phone, kind, freeformPayload, templateParams, 
     };
   }
 
-  if (templateName === 'atk_speech_invite_v2' && !isApprovedTemplate_(templateName)) {
+  if (!isApprovedTemplate_(templateName)) {
     return {ok: false, deferred: true, error: 'Template awaiting Meta approval: ' + templateName};
   }
 
@@ -164,14 +164,20 @@ function sendWhatsAppTemplate_(phone, templateName, bodyParams, quickReplyPayloa
   }
 
   if (quickReplyPayload) {
-    components.push({
-      type: 'button',
-      sub_type: 'quick_reply',
-      index: '0',
-      parameters: [{
-        type: 'payload',
-        payload: String(quickReplyPayload)
-      }]
+    const payloads = Array.isArray(quickReplyPayload)
+      ? quickReplyPayload
+      : [quickReplyPayload];
+
+    payloads.forEach((payload, index) => {
+      components.push({
+        type: 'button',
+        sub_type: 'quick_reply',
+        index: String(index),
+        parameters: [{
+          type: 'payload',
+          payload: String(payload)
+        }]
+      });
     });
   }
 

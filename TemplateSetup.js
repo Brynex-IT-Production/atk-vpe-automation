@@ -26,6 +26,8 @@ function getAtkWhatsAppTemplateSpecs_() {
     speechInviteV2Spec_(),
     speakerEvaluatorPairingV2Spec_(),
     evaluatorAssignmentV2Spec_(),
+    speakerCoordinationCheckV2Spec_(),
+    evaluatorCoordinationCheckV2Spec_(),
     speakerDetailsV2Spec_(),
     speakerDetailsFormatSpec_(),
     {
@@ -474,6 +476,40 @@ function evaluatorAssignmentV2Spec_() {
       'Please connect directly with the speaker before the meeting and ensure you receive their complete project and evaluation form.\n\n' +
       'Thank you.',
     examples: ['Antu Dominic', 'Anil Mathew', '452']
+  };
+}
+
+function speakerCoordinationCheckV2Spec_() {
+  return {
+    name: 'atk_speaker_coord_check_v2',
+    language: 'en_US',
+    category: 'UTILITY',
+    body:
+      'Hi {{1}},\n\n' +
+      'Hope you have coordinated with your evaluator, {{2}}, for ATK Meeting {{3}}.\n\n' +
+      'Have you coordinated?',
+    examples: ['Anil Mathew', 'Antu Dominic', '452'],
+    buttons: [
+      {type: 'QUICK_REPLY', text: 'Yes'},
+      {type: 'QUICK_REPLY', text: 'No'}
+    ]
+  };
+}
+
+function evaluatorCoordinationCheckV2Spec_() {
+  return {
+    name: 'atk_evaluator_coord_check_v2',
+    language: 'en_US',
+    category: 'UTILITY',
+    body:
+      'Hi {{1}},\n\n' +
+      'Hope you have coordinated with your speaker, {{2}}, for ATK Meeting {{3}}.\n\n' +
+      'Have you coordinated?',
+    examples: ['Antu Dominic', 'Anil Mathew', '452'],
+    buttons: [
+      {type: 'QUICK_REPLY', text: 'Yes'},
+      {type: 'QUICK_REPLY', text: 'No'}
+    ]
   };
 }
 
