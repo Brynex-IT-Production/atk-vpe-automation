@@ -239,8 +239,6 @@ function handleIntroSubmission_(member, phone, requestedMeetingNo, intro, messag
   syncPhase1Tasks_();
   sendWhatsAppText_(phone, 'Introduction received ✅ for Meeting ' + task.meetingNo + '.');
   logAutomation_('Introduction', task.meetingNo, member, 'Role-player introduction received', 'Success', task.related);
-
-  sendConsolidatedIntroductionsIfReady_(task.meetingNo);
 }
 
 function findPendingTaskForMember_(type, member, meetingNo, related) {
@@ -381,41 +379,102 @@ function sendConsolidatedIntroductionsIfReady_(meetingNo) {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const planner = ss.getSheetByName('VPE Weekly Planner');
   const submissions = ss.getSheetByName('WA Submissions');
-  if (!planner || !submissions || submissions.getLastRow() < 2) return false;
-  const ids = planner.getRange(3, 1, Math.max(0, Math.min(60, planner.getLastRow() - 2)), 1)
-    .getValues().flat();
+  if (!planner || !submissions) return false;
+
+  const ids = planner.getRange(
+    3, 1, Math.max(0, Math.min(60, planner.getLastRow() - 2)), 1
+  ).getValues().flat();
   const index = ids.findIndex(v => Number(v) === Number(meetingNo));
   if (index < 0) return false;
+
   const row = planner.getRange(index + 3, 1, 1, 28).getValues()[0];
   const tmod = String(row[18] || '').trim();
   const phone = phoneForMember_(tmod);
-  if (!phone || !isWhatsAppRecipientAllowed_(phone)) return false;
+  if (!tmod || !phone || !isWhatsAppRecipientAllowed_(phone)) return false;
+
+  const key = ['INTRO_BUNDLE', meetingNo, tmod].join('|');
+  if (hasReminderBeenSent_(key)) return false;
+
   const assigned = ROLE_DEFS_.filter(def => def.code !== 'TMOD')
-    .map(def => ({ member: String(row[def.column - 1] || '').trim(),
-      related: def.code, role: def.name }))
+    .map(def => ({
+      member: String(row[def.column - 1] || '').trim(),
+      related: def.code,
+      role: def.name
+    }))
     .concat([1, 2, 3].map(slot => ({
       member: String(row[slot === 1 ? 6 : slot === 2 ? 10 : 14] || '').trim(),
-      related: 'S' + slot, role: 'Speaker'
-    }))).filter(x => x.member);
-  const rows = submissions.getRange(2, 1, submissions.getLastRow() - 1, 14).getValues();
-  let sent = false;
+      related: 'S' + slot,
+      role: 'Speaker ' + slot
+    })))
+    .filter(item => item.member);
+
+  const submissionRows = submissions.getLastRow() >= 2
+    ? submissions.getRange(2, 1, submissions.getLastRow() - 1, 14).getValues()
+    : [];
+
+  const received = [];
+  const missing = [];
+
   assigned.forEach(item => {
-    const matches = rows.filter(r => Number(r[1]) === Number(meetingNo) &&
+    const matches = submissionRows.filter(r =>
+      Number(r[1]) === Number(meetingNo) &&
       String(r[2] || '').trim() === item.member &&
-      String(r[3] || '') === 'INTRO' && String(r[4] || '') === item.related);
+      String(r[3] || '') === 'INTRO' &&
+      String(r[4] || '') === item.related
+    );
     const latest = matches[matches.length - 1];
-    if (!latest) return;
-    const body = 'This is the introduction of the ' + item.role + ', ' +
-      item.member + ':\n\n' + String(latest[5] || '').trim();
-    const key = ['INTRO_TO_TMOD', meetingNo, item.related, item.member,
-      String(latest[0] || '')].join('|');
-    if (hasReminderBeenSent_(key)) return;
-    const result = sendAutomatedText_(phone, 'INTRO_BUNDLE',
-      body, [tmod, meetingNo, item.role + ' — ' + item.member + '\n' + String(latest[5] || '')]);
-    recordWorkflowOutbound_(tmod, phone, 'INTRO_TO_TMOD', body, meetingNo, result, key);
-    if (result.ok) sent = true;
+
+    if (!latest || !String(latest[5] || '').trim()) {
+      missing.push(item.role + ' — ' + item.member);
+      return;
+    }
+
+    received.push(
+      item.role + ' — ' + item.member + '\n' +
+      String(latest[5] || '').trim()
+    );
   });
-  return sent;
+
+  let bundle = received.length
+    ? received.join('\n\n')
+    : 'No role-player introductions have been received yet.';
+
+  if (missing.length) {
+    bundle += '\n\nPending introductions:\n' + missing.join('\n');
+  }
+
+  const body =
+    'Hi ' + tmod + ', here are the role-player introductions received for ATK Meeting ' +
+    meetingNo + ':\n\n' + bundle +
+    '\n\nPlease use these while introducing the role players.';
+
+  const result = sendAutomatedText_(
+    phone,
+    'INTRO_BUNDLE',
+    body,
+    [tmod, meetingNo, bundle]
+  );
+
+  recordWorkflowOutbound_(
+    tmod,
+    phone,
+    'INTRO_BUNDLE',
+    body,
+    meetingNo,
+    result,
+    key
+  );
+
+  logAutomation_(
+    'Introduction',
+    meetingNo,
+    tmod,
+    'Consolidated introduction bundle',
+    result.ok ? 'Sent' : (result.blocked ? 'Blocked' : 'Error'),
+    'Received: ' + received.length + ' | Pending: ' + missing.length
+  );
+
+  return Boolean(result && result.ok);
 }
 
 function handleSpeakerDetailsSubmission_(member, phone, requestedMeetingNo, body, messageId) {

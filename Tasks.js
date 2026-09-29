@@ -570,6 +570,11 @@ function processReadyIntroductionBundles_() {
   if (!planner) return;
 
   const today = startOfDay_(new Date());
+  const dueDays = Math.max(
+    0,
+    Number(configValue_('INTRO_BUNDLE_DUE_DAYS', '1')) || 1
+  );
+
   const rows = planner.getRange(
     3,
     1,
@@ -583,8 +588,12 @@ function processReadyIntroductionBundles_() {
     const status = String(row[2] || '');
 
     if (!meetingNo || !(meetingDate instanceof Date)) return;
-    if (startOfDay_(meetingDate) < today) return;
     if (status === 'Completed' || status === 'Cancelled') return;
+
+    const daysLeft = Math.round(
+      (startOfDay_(meetingDate) - today) / 86400000
+    );
+    if (daysLeft !== dueDays) return;
 
     sendConsolidatedIntroductionsIfReady_(meetingNo);
   });
