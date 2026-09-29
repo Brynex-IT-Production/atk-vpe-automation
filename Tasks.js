@@ -77,8 +77,8 @@ function syncPhase1Tasks_() {
     const meetingDay = startOfDay_(meetingDate);
     if (meetingDay < today || meetingDay > scanEnd) return;
 
-    // Generic vacancy tasks for the six core roles.
-    ROLE_DEFS_.forEach(def => {
+    // Evaluator slots are tracked by speaker-specific assignment tasks below.
+    ROLE_DEFS_.filter(def => !def.evaluatorSlot).forEach(def => {
       const member = String(row[def.column - 1] || '').trim();
       const key = taskId_(meetingNo, 'VACANT_ROLE', def.code, '');
 
@@ -215,6 +215,21 @@ function syncPhase1Tasks_() {
       });
 
       if (sp.evaluator) {
+        const evaluatorRole = 'EV' + sp.slot;
+        const evaluatorIntroKey = taskId_(meetingNo, 'INTRO', evaluatorRole, sp.evaluator);
+        const evaluatorIntroDone = submissions.has(
+          submissionKey_(meetingNo, sp.evaluator, 'INTRO', evaluatorRole));
+        generated[evaluatorIntroKey] = buildTask_(existing[evaluatorIntroKey], {
+          taskId: evaluatorIntroKey,
+          meetingNo,
+          taskType: 'INTRO',
+          member: sp.evaluator,
+          related: evaluatorRole,
+          state: evaluatorIntroDone ? 'Completed' : 'Pending',
+          dueAt: daysBefore_(meetingDate, Number(configValue_('INTRO_DUE_DAYS', '7')) || 7),
+          reference: 'Evaluator for ' + sp.member,
+          payload: JSON.stringify({roleCode: evaluatorRole, roleName: 'Evaluator ' + sp.slot})
+        });
         const coordinationKey = taskId_(meetingNo, 'EVALUATOR_COORDINATION', slotRef, sp.member);
         const speakerPairKey = ['EVALUATOR_PAIR_SPEAKER', meetingNo, slotRef, sp.member, sp.evaluator].join('|');
         const evaluatorPairKey = ['EVALUATOR_PAIR_EVALUATOR', meetingNo, slotRef, sp.evaluator, sp.member].join('|');
@@ -419,7 +434,7 @@ function processVacantRoleReminders_() {
     const daysLeft = Math.round((startOfDay_(meetingDate) - today) / 86400000);
     if (configuredDays.indexOf(daysLeft) === -1) return;
 
-    const openRoles = ROLE_DEFS_.filter(def => !String(row[def.column - 1] || '').trim());
+    const openRoles = availableRoleDefs_(row);
     if (!openRoles.length) return;
 
     const speakers = new Set([row[6], row[10], row[14]].map(v => String(v || '').trim()).filter(Boolean));
