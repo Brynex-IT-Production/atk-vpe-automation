@@ -5,8 +5,8 @@
 
 function processSpeakingSlotTargeting_() {
   if (!configBool_('SPEAKING_SLOT_WORKFLOW_ENABLED')) return;
-  if (configValue_('WA_TEMPLATE_SPEECH_INVITE', '') === 'atk_speech_invite_v2') {
-    if (isApprovedTemplate_('atk_speech_invite_v2')) processSpeechDateInvites_();
+  if (templateNameForKind_('SPEECH_INVITE') === 'atk_speech_invite_v2') {
+    processSpeechDateInvites_();
     return;
   }
 
@@ -489,7 +489,7 @@ function availableSpeechMeetings_() {
 
 function handleSpeechDateMenu_(member, phone) {
   if (!configBool_('SPEAKING_SLOT_WORKFLOW_ENABLED') ||
-      configValue_('WA_TEMPLATE_SPEECH_INVITE', '') !== 'atk_speech_invite_v2') {
+      templateNameForKind_('SPEECH_INVITE') !== 'atk_speech_invite_v2') {
     sendWhatsAppText_(phone, 'Speech booking is not available right now.');
     return;
   }
