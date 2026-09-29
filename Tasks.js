@@ -30,6 +30,10 @@ function phase1ScheduledTick() {
   processVpeExceptionDigest_();
 }
 
+function installPhase1Triggers() {
+  return installPhase1Triggers_();
+}
+
 function installPhase1Triggers_() {
   const hourlyHandler = 'phase1ScheduledTick';
   const evaluatorEditHandler = 'handlePlannerEvaluatorEdit_';
