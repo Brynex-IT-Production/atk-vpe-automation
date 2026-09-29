@@ -1,15 +1,15 @@
-name: ATK Phase 1 Hourly Scheduler
+name: ATK Phase 1 Half-Hourly Scheduler
 
 on:
   schedule:
-    - cron: '12 * * * *'
+    - cron: '12,42 * * * *'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: atk-phase1-hourly
+  group: atk-phase1-half-hourly
   cancel-in-progress: false
 
 jobs:
