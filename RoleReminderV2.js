@@ -8,7 +8,15 @@ function submitRoleReminderV2_() {
   const token = props.getProperty('META_ACCESS_TOKEN');
   const wabaId = props.getProperty('WA_WABA_ID');
   if (!token || !wabaId) throw new Error('Meta template credentials are missing.');
-  const spec = {
+  const spec = roleReminderV2Spec_();
+  const result = createOrReadTemplate_(token, wabaId, spec);
+  logAutomation_('WhatsApp Templates', '', '', 'Role reminder v2 submission',
+    result.ok ? 'Success' : 'Error', JSON.stringify(result));
+  return result;
+}
+
+function roleReminderV2Spec_() {
+  return {
     name: 'atk_role_reminder_v2',
     language: 'en_US',
     category: 'UTILITY',
@@ -17,10 +25,4 @@ function submitRoleReminderV2_() {
     examples: ['451'],
     buttons: [{type: 'QUICK_REPLY', text: 'View roles'}]
   };
-  const result = createOrReadTemplate_(token, wabaId, spec);
-  logAutomation_('WhatsApp Templates', '', '', 'Role reminder v2 submission',
-    result.ok ? 'Success' : 'Error', JSON.stringify(result));
-  return result;
 }
-
-// Scoped one-time approval submission.
