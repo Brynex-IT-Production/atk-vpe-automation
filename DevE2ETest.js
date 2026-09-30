@@ -11,7 +11,7 @@ function maybeRunDevE2eTest_() {
   if (configValue_('SYSTEM_MODE', '') !== 'DEV' ||
       configValue_('WA_SEND_MODE', '') !== 'TEST') return false;
 
-  const runToken = 'ATK_E2E_20260930_01';
+  const runToken = 'ATK_E2E_20260930_02';
   const props = PropertiesService.getScriptProperties();
   if (props.getProperty('DEV_E2E_LAST_RUN') === runToken) return false;
 
@@ -127,11 +127,27 @@ function runDevE2eTest_(runToken) {
       }
     ];
 
+    let previousResult = {};
+    try {
+      previousResult = JSON.parse(
+        PropertiesService.getScriptProperties().getProperty('DEV_E2E_LAST_RESULT') || '{}'
+      );
+    } catch (_) {}
+    const previousTemplates = previousResult.templates || [];
+
     templateCases.forEach(function(test, index) {
       const templateName = templateNameForKind_(test.kind);
       const approved = Boolean(templateName && isApprovedTemplate_(templateName));
+      const previous = previousTemplates.find(function(t) {
+        return t.kind === test.kind && t.template === templateName && t.ok;
+      });
       let send = {ok: false, error: 'Not approved'};
-      if (approved) {
+      let reused = false;
+
+      if (approved && previous) {
+        send = {ok: true};
+        reused = true;
+      } else if (approved) {
         if (index) Utilities.sleep(450);
         send = sendWhatsAppTemplate_(
           phone,
@@ -140,12 +156,14 @@ function runDevE2eTest_(runToken) {
           test.buttons || null
         );
       }
+
       templates.push({
         label: test.label,
         kind: test.kind,
         template: templateName,
         approved: approved,
         ok: Boolean(send && send.ok),
+        reusedPreviousPass: reused,
         error: send && send.error ? String(send.error) : ''
       });
     });
@@ -211,8 +229,7 @@ function runDevE2eTest_(runToken) {
 
     // 3) Six-day theme request -> inbound theme -> planner + distribution.
     devE2ePrepareMeeting_(planner, rowNo, 9902, 6);
-    planner.getRange(rowNo, 19).setValue(member); // TMOD
-    planner.getRange(rowNo, 22).setValue(member); // Timer recipient for distribution
+    planner.getRange(rowNo, 19).setValue(member); // TMOD only while request starts
     SpreadsheetApp.flush();
     syncPhase1Tasks_();
     clearConversation_(phone);
@@ -223,6 +240,11 @@ function runDevE2eTest_(runToken) {
       devE2eHasOutboxPrefix_('THEME_REQUEST|9902|TMOD|' + member),
       'Theme request outbox'
     );
+
+    // Add a role recipient only after the theme conversation is active, so the
+    // same DEV member does not trigger the earlier 7-day intro workflow first.
+    planner.getRange(rowNo, 22).setValue(member);
+    SpreadsheetApp.flush();
 
     devE2eInjectText_(phone, 'The Power of Small Wins');
     check(
@@ -662,6 +684,15 @@ function devE2eCleanupArtifacts_() {
     for (let i = nums.length - 1; i >= 0; i--) {
       const n = Number(nums[i]);
       if (n >= 9900 && n <= 9999) outbox.deleteRow(i + 2);
+    }
+  }
+
+  const automation = ss.getSheetByName('Automation Log');
+  if (automation && automation.getLastRow() >= 2) {
+    const nums = automation.getRange(2, 3, automation.getLastRow() - 1, 1).getValues().flat();
+    for (let i = nums.length - 1; i >= 0; i--) {
+      const n = Number(nums[i]);
+      if (n >= 9900 && n <= 9999) automation.deleteRow(i + 2);
     }
   }
 
