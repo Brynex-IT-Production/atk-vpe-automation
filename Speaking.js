@@ -222,9 +222,11 @@ function reserveSpeechSlot_(meetingNo, member) {
     }
   }
 
-  const openIndex = existingSpeakers.findIndex(v => !v);
-  if (openIndex < 0) return { status: 'FULL' };
+  const openSlots = getOpenSpeechSlotsFromRow_(row);
+  if (!openSlots.length) return { status: 'FULL' };
 
+  const slot = openSlots[0];
+  const openIndex = slot - 1;
   const speakerCol = speakerColumns[openIndex];
   const statusCol = statusColumns[openIndex];
 
@@ -262,12 +264,16 @@ function sendSpeakerDetailsPrompt_(meetingNo, slot, member, phone) {
 }
 
 function getOpenSpeechSlotsFromRow_(row) {
+  const meetingNo = Number(row[0] || 0);
   const cols = [
     {slot: 1, index: 6},
     {slot: 2, index: 10},
     {slot: 3, index: 14}
   ];
-  return cols.filter(x => !String(row[x.index] || '').trim()).map(x => x.slot);
+  return cols.filter(x =>
+    !String(row[x.index] || '').trim() &&
+    (!meetingNo || isProgrammeSlotBookable_(meetingNo, x.slot))
+  ).map(x => x.slot);
 }
 
 function getSpeechPriorityCandidates_(targetMeetingNo, stage) {
@@ -435,8 +441,7 @@ function processSpeechDateInvites_() {
   if (!meetings.length) return;
   const first = meetings[0];
   const daysLeft = Math.round((startOfDay_(first.date) - startOfDay_(new Date())) / 86400000);
-  const windowDays = Math.max(1, Number(configValue_('SPEECH_TARGETING_WINDOW_DAYS', '14')) || 14);
-  if (daysLeft > windowDays) return;
+  if (first.date > speechBookingWindowEnd_(new Date())) return;
   const broadenDays = Math.max(0, Number(configValue_('SPEECH_BROADEN_DAYS', '7')) || 7);
   const stage = daysLeft <= broadenDays ? 'BROAD' : 'PRIORITY';
   const candidates = getSpeechPriorityCandidates_(first.meetingNo, stage);
@@ -478,8 +483,10 @@ function availableSpeechMeetings_() {
   const rows = planner.getRange(3, 1,
     Math.min(60, planner.getLastRow() - 2), 28).getValues();
   const today = startOfDay_(new Date());
+  const bookingEnd = speechBookingWindowEnd_(today);
   return rows.filter(row => Number(row[0]) && row[1] instanceof Date &&
       startOfDay_(row[1]) >= today &&
+      startOfDay_(row[1]) <= bookingEnd &&
       !['Completed', 'Cancelled'].includes(String(row[2] || '')) &&
       getOpenSpeechSlotsFromRow_(row).length)
     .map(row => ({meetingNo: Number(row[0]), date: row[1],
@@ -497,7 +504,7 @@ function handleSpeechDateMenu_(member, phone) {
     const row = meeting.row;
     return ![row[6], row[10], row[14]].some(v => String(v || '').trim() === member) &&
       !ROLE_DEFS_.some(def => String(row[def.column - 1] || '').trim() === member);
-  }).slice(0, 4);
+  }).slice(0, 10);
   if (!dates.length) {
     sendWhatsAppText_(phone, 'There are no available meeting dates for you right now.');
     return;
