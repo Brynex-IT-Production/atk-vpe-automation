@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    :root { font-family: Arial, sans-serif; color: #202124; }
+    body { margin: 0; background: #f6f7f9; }
+    .wrap { max-width: 980px; margin: 0 auto; padding: 20px; }
+    .hero { background: #fff; padding: 18px 20px; border-radius: 14px; margin-bottom: 16px; }
+    h1 { margin: 0 0 6px; font-size: 24px; }
+    .muted { color: #5f6368; font-size: 14px; }
+    .meeting { background:#fff; border-radius:14px; margin:14px 0; overflow:hidden; }
+    .meeting-head { padding:14px 16px; border-bottom:1px solid #eceff1; font-weight:700; }
+    .slot { display:grid; grid-template-columns: 90px 1.4fr 1fr; gap:12px; padding:14px 16px; border-bottom:1px solid #f0f1f2; align-items:start; }
+    .slot:last-child { border-bottom:0; }
+    .badge { display:inline-block; padding:5px 8px; border-radius:999px; background:#eef1f4; font-size:12px; font-weight:700; }
+    .name { font-weight:700; margin-bottom:4px; }
+    select,input { width:100%; box-sizing:border-box; padding:9px 10px; margin-top:7px; border:1px solid #d8dce1; border-radius:8px; background:#fff; }
+    .details { margin-top:8px; display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+    .details .wide { grid-column:1 / -1; }
+    .actions { position:sticky; bottom:0; background:rgba(246,247,249,.96); padding:12px 0 4px; }
+    button { width:100%; padding:13px 16px; border:0; border-radius:10px; background:#202124; color:#fff; font-weight:700; font-size:15px; }
+    button:disabled { opacity:.55; }
+    #status { margin:10px 0; font-size:14px; }
+    .ok { color:#137333; } .err { color:#b3261e; }
+    @media (max-width: 720px) {
+      .wrap { padding:12px; }
+      .slot { grid-template-columns:1fr; }
+      .details { grid-template-columns:1fr; }
+      .details .wide { grid-column:auto; }
+    }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hero">
+    <h1>ATK Programme Planner</h1>
+    <div class="muted">Review the next two months. Confirmed speakers stay protected until they accept another date. Holds never auto-release.</div>
+  </div>
+  <div id="content">Loading…</div>
+  <div class="actions">
+    <div id="status"></div>
+    <button id="save" onclick="saveReview()" disabled>Save review</button>
+  </div>
+</div>
+
+<script>
+const TOKEN = <?!= JSON.stringify(token) ?>;
+let DATA = null;
+
+function esc(v) {
+  return String(v == null ? '' : v)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#039;');
+}
+
+function stateLabel(slot) {
+  if (slot.state === 'SPEAKER_CONFIRMED') return 'Speaker confirmed';
+  if (slot.state === 'MOVE_REQUESTED') return 'Move requested';
+  if (slot.state === 'VPE_HOLD') return 'VPE hold';
+  if (slot.state === 'SESSION_CONFIRMED') return 'Session confirmed';
+  return 'Open';
+}
+
+function actionOptions(slot) {
+  if (slot.state === 'OPEN') {
+    return '<option value="KEEP">Keep open</option><option value="HOLD">Hold for session</option>';
+  }
+  if (slot.state === 'SPEAKER_CONFIRMED') {
+    return '<option value="KEEP">Keep speaker</option><option value="REQUEST_MOVE">Request speaker move</option>';
+  }
+  if (slot.state === 'MOVE_REQUESTED') {
+    return '<option value="KEEP">Await speaker response</option>';
+  }
+  if (slot.state === 'VPE_HOLD') {
+    return '<option value="KEEP">Keep hold</option><option value="CONFIRM_SESSION">Confirm session</option><option value="RELEASE">Release slot</option>';
+  }
+  if (slot.state === 'SESSION_CONFIRMED') {
+    return '<option value="KEEP">Keep session</option><option value="CONFIRM_SESSION">Update session</option><option value="RELEASE">Release slot</option>';
+  }
+  return '<option value="KEEP">Keep</option>';
+}
+
+function slotDetails(slot, id) {
+  const show = slot.state === 'VPE_HOLD' || slot.state === 'SESSION_CONFIRMED';
+  return '<div class="details" id="details-'+id+'" style="'+(show?'':'display:none')+'">' +
+    '<input data-field="sessionType" placeholder="Session type" value="'+esc(slot.sessionType)+'">' +
+    '<input data-field="presenter" placeholder="Presenter name" value="'+esc(slot.presenter)+'">' +
+    '<input class="wide" data-field="sessionTitle" placeholder="Session title / topic" value="'+esc(slot.sessionTitle)+'">' +
+    '<input data-field="minutes" type="number" min="1" placeholder="Time allotted (minutes)" value="'+esc(slot.minutes || '')+'">' +
+    '</div>';
+}
+
+function render(data) {
+  DATA = data;
+  const html = data.meetings.map(m => {
+    const slots = m.slots.map(s => {
+      const id = m.meetingNo+'-'+s.slot;
+      let primary = s.speaker || s.presenter || 'Available';
+      let secondary = '';
+      if (s.state === 'SESSION_CONFIRMED') secondary = (s.sessionTitle || '') + (s.minutes ? ' · '+s.minutes+' min' : '');
+      if (s.state === 'MOVE_REQUESTED') secondary = 'Current slot remains protected';
+      if (s.state === 'VPE_HOLD') secondary = 'Awaiting VPE confirmation';
+      return '<div class="slot" data-meeting="'+m.meetingNo+'" data-slot="'+s.slot+'">' +
+        '<div><div class="badge">Slot '+s.slot+'</div></div>' +
+        '<div><div class="name">'+esc(primary)+'</div><div class="muted">'+esc(stateLabel(s))+(secondary?' · '+esc(secondary):'')+'</div>'+slotDetails(s,id)+'</div>' +
+        '<div><select data-action onchange="toggleDetails(this,''+id+'')">'+actionOptions(s)+'</select></div>' +
+      '</div>';
+    }).join('');
+    return '<div class="meeting"><div class="meeting-head">Meeting '+m.meetingNo+' · '+esc(m.dateText)+'</div>'+slots+'</div>';
+  }).join('');
+  document.getElementById('content').innerHTML = html || '<div class="hero">No meetings found in this review window.</div>';
+  document.getElementById('save').disabled = false;
+}
+
+function toggleDetails(sel,id) {
+  const box = document.getElementById('details-'+id);
+  if (!box) return;
+  const slot = sel.closest('.slot');
+  const meetingNo = Number(slot.dataset.meeting);
+  const slotNo = Number(slot.dataset.slot);
+  const original = DATA.meetings.find(m=>m.meetingNo===meetingNo).slots.find(s=>s.slot===slotNo);
+  const shouldShow = sel.value === 'CONFIRM_SESSION' || original.state === 'SESSION_CONFIRMED' || original.state === 'VPE_HOLD';
+  box.style.display = shouldShow ? '' : 'none';
+}
+
+function collect() {
+  return Array.from(document.querySelectorAll('.slot')).map(el => {
+    const obj = {
+      meetingNo:Number(el.dataset.meeting),
+      slot:Number(el.dataset.slot),
+      action:el.querySelector('[data-action]').value
+    };
+    el.querySelectorAll('[data-field]').forEach(input => obj[input.dataset.field] = input.value);
+    return obj;
+  });
+}
+
+function saveReview() {
+  const btn = document.getElementById('save');
+  const status = document.getElementById('status');
+  btn.disabled = true;
+  status.className = '';
+  status.textContent = 'Saving…';
+  google.script.run
+    .withSuccessHandler(res => {
+      status.className = 'ok';
+      status.textContent = res.messages && res.messages.length
+        ? 'Saved. ' + res.messages.join(' ')
+        : 'Review saved. No slot changes made.';
+      btn.disabled = false;
+      google.script.run.withSuccessHandler(render).withFailureHandler(showError).getProgrammeReviewData(TOKEN);
+    })
+    .withFailureHandler(err => {
+      btn.disabled = false;
+      showError(err);
+    })
+    .saveProgrammeReview(TOKEN, collect());
+}
+
+function showError(err) {
+  const status = document.getElementById('status');
+  status.className = 'err';
+  status.textContent = (err && err.message) ? err.message : String(err || 'Something went wrong.');
+}
+
+google.script.run.withSuccessHandler(render).withFailureHandler(showError).getProgrammeReviewData(TOKEN);
+</script>
+</body>
+</html>
