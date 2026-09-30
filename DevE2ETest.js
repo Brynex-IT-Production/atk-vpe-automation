@@ -11,7 +11,7 @@ function maybeRunDevE2eTest_() {
   if (configValue_('SYSTEM_MODE', '') !== 'DEV' ||
       configValue_('WA_SEND_MODE', '') !== 'TEST') return false;
 
-  const runToken = 'ATK_E2E_20260930_02';
+  const runToken = 'ATK_E2E_20260930_03';
   const props = PropertiesService.getScriptProperties();
   if (props.getProperty('DEV_E2E_LAST_RUN') === runToken) return false;
 
