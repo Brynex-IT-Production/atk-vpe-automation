@@ -9,6 +9,10 @@ const VERIFY_TOKEN = 'ATK_VPE_VERIFY_2026_X7K9M4P2';
  */
 function doGet(e) {
 
+  if (e && e.parameter && e.parameter.view === 'programme' && e.parameter.token) {
+    return renderProgrammeReviewPage_(String(e.parameter.token || ''));
+  }
+
   const mode = e.parameter['hub.mode'];
   const token = e.parameter['hub.verify_token'];
   const challenge = e.parameter['hub.challenge'];
