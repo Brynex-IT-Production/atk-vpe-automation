@@ -576,16 +576,6 @@ function sendWhatsAppPayload_(payload) {
     }
   }
 
-  if (typeof DEV_E2E_SUPPRESS_OUTBOUND_ !== 'undefined' &&
-      DEV_E2E_SUPPRESS_OUTBOUND_) {
-    return {
-      ok: true,
-      status: 200,
-      messageId: 'DEV_E2E_' + Utilities.getUuid(),
-      body: 'DEV E2E outbound suppressed after template smoke test'
-    };
-  }
-
   const props = PropertiesService.getScriptProperties();
   const token = props.getProperty('META_ACCESS_TOKEN');
   const phoneNumberId = props.getProperty('WA_PHONE_NUMBER_ID');
