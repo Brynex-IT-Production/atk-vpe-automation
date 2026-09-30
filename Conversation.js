@@ -230,6 +230,7 @@ function promptSpeakerIntro_(member, phone, meetingNo, slotRef) {
 
 function processMemberIntroOnboarding_() {
   if (!configBool_('INTRO_WORKFLOW_ENABLED')) return;
+  if (String(configValue_('MEMBER_INTRO_ONBOARDING_ENABLED', 'TRUE')).toUpperCase() === 'FALSE') return;
   const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('Member Master');
   if (!sheet || sheet.getLastRow() < 2) return;
   const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 6).getValues();
