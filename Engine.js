@@ -77,6 +77,21 @@ function processInboundWhatsAppMessage_(message) {
 
   const interaction = parseInteraction_(message);
 
+  if (interaction.kind === 'VPE_PROGRAMME_REVIEW') {
+    handleVpeProgrammeReviewAction_(member, phone, interaction);
+    return;
+  }
+
+  if (interaction.kind === 'SPEAKER_MOVE_DATE_MENU') {
+    handleSpeakerMoveDateMenu_(member, phone, interaction);
+    return;
+  }
+
+  if (interaction.kind === 'SPEAKER_MOVE_SELECTION') {
+    handleSpeakerMoveSelection_(member, phone, interaction);
+    return;
+  }
+
   if (interaction.kind === 'ROLE_SELECTION') {
     handleRoleSelection_(member, phone, interaction);
     return;
@@ -168,6 +183,34 @@ function parseInteraction_(message) {
 
     if (reply) {
       const id = String(reply.id || '');
+      if (id.indexOf('VPE_PLAN|') === 0) {
+        const parts = id.split('|');
+        return {
+          kind: 'VPE_PROGRAMME_REVIEW',
+          action: String(parts[1] || ''),
+          periodKey: String(parts[2] || ''),
+          text: String(reply.title || '')
+        };
+      }
+      if (id.indexOf('MOVE_SPEECH_DATES|') === 0) {
+        const parts = id.split('|');
+        return {
+          kind: 'SPEAKER_MOVE_DATE_MENU',
+          meetingNo: Number(parts[1] || 0),
+          slotRef: String(parts[2] || ''),
+          text: String(reply.title || '')
+        };
+      }
+      if (id.indexOf('MOVE_SPEECH|') === 0) {
+        const parts = id.split('|');
+        return {
+          kind: 'SPEAKER_MOVE_SELECTION',
+          oldMeetingNo: Number(parts[1] || 0),
+          slotRef: String(parts[2] || ''),
+          newMeetingNo: Number(parts[3] || 0),
+          text: String(reply.title || '')
+        };
+      }
       if (id.indexOf('ROLE|') === 0) {
         const parts = id.split('|');
         return {
@@ -219,6 +262,34 @@ function parseInteraction_(message) {
 
   if (message.type === 'button' && message.button) {
     const payload = String(message.button.payload || '');
+    if (payload.indexOf('VPE_PLAN|') === 0) {
+      const parts = payload.split('|');
+      return {
+        kind: 'VPE_PROGRAMME_REVIEW',
+        action: String(parts[1] || ''),
+        periodKey: String(parts[2] || ''),
+        text: String(message.button.text || '')
+      };
+    }
+    if (payload.indexOf('MOVE_SPEECH_DATES|') === 0) {
+      const parts = payload.split('|');
+      return {
+        kind: 'SPEAKER_MOVE_DATE_MENU',
+        meetingNo: Number(parts[1] || 0),
+        slotRef: String(parts[2] || ''),
+        text: String(message.button.text || '')
+      };
+    }
+    if (payload.indexOf('MOVE_SPEECH|') === 0) {
+      const parts = payload.split('|');
+      return {
+        kind: 'SPEAKER_MOVE_SELECTION',
+        oldMeetingNo: Number(parts[1] || 0),
+        slotRef: String(parts[2] || ''),
+        newMeetingNo: Number(parts[3] || 0),
+        text: String(message.button.text || '')
+      };
+    }
     if (payload.indexOf('EVAL_COORD|') === 0) {
       const parts = payload.split('|');
       return {
