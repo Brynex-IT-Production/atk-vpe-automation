@@ -31,6 +31,8 @@ function getAtkWhatsAppTemplateSpecs_() {
     speakerCoordinationCheckV2Spec_(),
     evaluatorCoordinationCheckV2Spec_(),
     speakerDetailsV3Spec_(),
+    vpeProgrammeReviewSpec_(),
+    speakerMoveRequestSpec_(),
     {
       name: 'atk_role_reminder',
       language: 'en_US',
@@ -519,3 +521,38 @@ function speechInviteV2Spec_() {
   };
 }
 
+
+
+function vpeProgrammeReviewSpec_() {
+  return {
+    name: 'atk_vpe_programme_review_v1',
+    language: 'en_US',
+    category: 'UTILITY',
+    body:
+      'Hi {{1}},\n\n' +
+      'Time to review ATK speech slots for {{2}} and {{3}}.\n\n' +
+      'Do you want to hold any slots for an Education Session or Special Meeting?\n\n' +
+      'Confirmed speakers stay protected unless they agree to move.',
+    examples: ['Riyas AF', 'October 2026', 'November 2026'],
+    buttons: [
+      {type: 'QUICK_REPLY', text: 'No hold'},
+      {type: 'QUICK_REPLY', text: 'Review slots'}
+    ]
+  };
+}
+
+function speakerMoveRequestSpec_() {
+  return {
+    name: 'atk_speaker_move_request_v1',
+    language: 'en_US',
+    category: 'UTILITY',
+    body:
+      'Hi {{1}},\n\n' +
+      'ATK is planning a programme adjustment for Meeting {{2}} on {{3}}.\n\n' +
+      'Would you be comfortable moving your prepared speech to another available meeting? ' +
+      'Your current slot remains confirmed until you choose another date.\n\n' +
+      'Tap below to see the next available dates.',
+    examples: ['Priyesh', '456', 'Mon, 9 Nov 2026'],
+    buttons: [{type: 'QUICK_REPLY', text: 'View dates'}]
+  };
+}
