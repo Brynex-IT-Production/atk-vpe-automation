@@ -182,7 +182,7 @@ function sendAutomatedQuickReply_(phone, kind, freeformPayload, templateParams, 
 
 function sanitizeWhatsAppTemplateParam_(value) {
   return String(value === null || value === undefined ? '' : value)
-    .replace(/[\\r\\n\\t]+/g, ' | ')
+    .replace(/[\r\n\t]+/g, ' | ')
     .replace(/ {5,}/g, '    ')
     .trim();
 }
