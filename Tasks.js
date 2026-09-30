@@ -11,6 +11,14 @@ function phase1ScheduledTick() {
   if (!configBool_('TASK_ENGINE_ENABLED')) return;
 
   try {
+    ensureProgrammePlanningSetup_();
+    syncProgrammeSlots_();
+    ensureProgrammePlanningTemplates_();
+  } catch (error) {
+    logAutomation_('Programme Planning', '', '', 'Programme bootstrap', 'Error', String(error));
+  }
+
+  try {
     syncAtkTemplateApprovalStatus_();
   } catch (error) {
     logAutomation_('WhatsApp Templates', '', '', 'Approval status sync', 'Error', String(error));
@@ -35,6 +43,7 @@ function phase1ScheduledTick() {
   processReadySpeakerDetailsToTmod_();
   processMemberIntroOnboarding_();
   processEvaluatorNotifications_();
+  processMonthlyProgrammePlanning_();
   processSpeakingSlotTargeting_();
   updateControlCenterReadiness_();
   processVpeExceptionDigest_();
@@ -205,6 +214,9 @@ function syncPhase1Tasks_() {
 
     speakers.forEach(sp => {
       const slotRef = 'S' + sp.slot;
+      const programmeState = programmeSlotState_(meetingNo, sp.slot);
+      const programmeBlocked =
+        programmeState === 'VPE_HOLD' || programmeState === 'SESSION_CONFIRMED';
 
       const openKey = taskId_(meetingNo, 'SPEAKING_SLOT_OPEN', slotRef, '');
       generated[openKey] = buildTask_(existing[openKey], {
@@ -213,10 +225,10 @@ function syncPhase1Tasks_() {
         taskType: 'SPEAKING_SLOT_OPEN',
         member: sp.member,
         related: slotRef,
-        state: sp.member ? 'Completed' : 'Pending',
+        state: (sp.member || programmeBlocked) ? 'Completed' : 'Pending',
         dueAt: daysBefore_(meetingDate, Number(configValue_('SPEAKING_SLOT_DUE_DAYS', '10')) || 10),
         reference: 'Speaker slot ' + sp.slot,
-        payload: JSON.stringify({ slot: sp.slot })
+        payload: JSON.stringify({ slot: sp.slot, programmeState: programmeState })
       });
 
       if (!sp.member) return;
