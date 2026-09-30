@@ -180,11 +180,18 @@ function sendAutomatedQuickReply_(phone, kind, freeformPayload, templateParams, 
   return result;
 }
 
+function sanitizeWhatsAppTemplateParam_(value) {
+  return String(value === null || value === undefined ? '' : value)
+    .replace(/[\\r\\n\\t]+/g, ' | ')
+    .replace(/ {5,}/g, '    ')
+    .trim();
+}
+
 function sendWhatsAppTemplate_(phone, templateName, bodyParams, quickReplyPayload) {
   const components = [];
   const params = (bodyParams || []).map(value => ({
     type: 'text',
-    text: String(value === null || value === undefined ? '' : value)
+    text: sanitizeWhatsAppTemplateParam_(value)
   }));
 
   if (params.length) {
