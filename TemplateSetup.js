@@ -262,9 +262,15 @@ function syncAtkTemplateApprovalStatus_() {
     const key = String(row[0] || '');
     const templateName = String(row[1] || '');
     const oldStatus = String(row[3] || '');
-    const meta = statusMap[templateName];
 
+    if (!/^WA_TEMPLATE_/.test(key)) {
+      updates.push([oldStatus]);
+      return;
+    }
+
+    const meta = statusMap[templateName];
     let newStatus = oldStatus;
+
     if (/^RETIRED$/i.test(oldStatus)) {
       newStatus = oldStatus;
     } else if (meta) {
