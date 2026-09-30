@@ -16,6 +16,13 @@ function phase1ScheduledTick() {
     logAutomation_('WhatsApp Templates', '', '', 'Approval status sync', 'Error', String(error));
   }
 
+  try {
+    sendApprovedRoleReminderV2DevTestOnce_();
+  } catch (error) {
+    logAutomation_('WhatsApp Templates', '', '', 'Role reminder v2 DEV test',
+      'Error', String(error));
+  }
+
   syncPhase1Tasks_();
   processVacantRoleReminders_();
   processSpeakerDetailPrompts_();
@@ -599,4 +606,50 @@ function processReadyIntroductionBundles_() {
 
     sendConsolidatedIntroductionsIfReady_(meetingNo);
   });
+}
+
+/**
+ * One controlled test of the approved View roles template. Runs through the
+ * DEV scheduler, never through the member reminder pilot.
+ */
+function sendApprovedRoleReminderV2DevTestOnce_() {
+  if (configValue_('SYSTEM_MODE', '') !== 'DEV' ||
+      configValue_('WA_SEND_MODE', '') !== 'TEST' ||
+      configBool_('VACANT_ROLE_REMINDERS_ENABLED')) return;
+
+  const templateName = 'atk_role_reminder_v2';
+  const testKey = 'DEV_ROLE_V2_TEST|945075534849918';
+  const props = PropertiesService.getScriptProperties();
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    if (props.getProperty(testKey) || hasReminderBeenSent_(testKey)) return;
+    if (!isApprovedTemplate_(templateName)) return;
+
+    const member = configValue_('VPE_MEMBER_NAME', 'Riyas AF');
+    const phone = normalizePhone_(phoneForMember_(member));
+    const allowlist = String(configValue_('WA_TEST_RECIPIENTS', ''))
+      .split(',').map(normalizePhone_).filter(Boolean);
+    if (member !== 'Riyas AF' || allowlist.length !== 1 ||
+        allowlist[0] !== phone || !isWhatsAppRecipientAllowed_(phone)) {
+      throw new Error('DEV role test requires Riyas as the sole allowlisted recipient.');
+    }
+
+    const meetingNo = 451;
+    const result = sendWhatsAppTemplate_(
+      phone, templateName, [meetingNo], 'ROLE_MENU');
+    const body = 'View roles DEV test for ATK Meeting No. ' + meetingNo;
+    if (result && result.ok) {
+      // Write the guard before logging so a later logging error cannot resend.
+      props.setProperty(testKey, result.messageId || 'META_ACCEPTED');
+    }
+    recordReminderSend_(testKey, {name: member, phone: phone},
+      meetingNo, result || {ok: false, error: 'No Meta response'}, body);
+    logAutomation_('WhatsApp Templates', meetingNo, member,
+      'Role reminder v2 DEV test',
+      result && result.ok ? 'Sent' : 'Error',
+      result && (result.messageId || result.error) || 'No Meta response');
+  } finally {
+    lock.releaseLock();
+  }
 }
