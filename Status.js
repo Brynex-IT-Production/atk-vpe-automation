@@ -52,6 +52,14 @@ function buildReadinessRow_(row, taskRows) {
   const roles = ROLE_DEFS_.filter(def => String(row[def.column - 1] || '').trim());
   const speakers = [row[6], row[10], row[14]].map(v => String(v || '').trim()).filter(Boolean);
   const evaluators = [row[25], row[26], row[27]].map(v => String(v || '').trim()).filter(Boolean);
+  const programmeItems = [1,2,3].map(slot =>
+    readProgrammeSlots_()[programmeSlotKey_(meetingNo, slot)] || {state:'OPEN'}
+  );
+  const confirmedSessions = programmeItems.filter(item => item.state === 'SESSION_CONFIRMED').length;
+  const pendingProgrammeHolds = programmeItems.filter(item =>
+    item.state === 'VPE_HOLD' || item.state === 'MOVE_REQUESTED'
+  ).length;
+  const programmeFilled = speakers.length + confirmedSessions;
 
   const meetingTasks = taskRows.filter(r => Number(r[1]) === meetingNo);
   const countCompleted = type => meetingTasks.filter(r =>
@@ -71,8 +79,10 @@ function buildReadinessRow_(row, taskRows) {
   const coordinationCompleted = countCompleted('EVALUATOR_COORDINATION');
 
   const fullyReady =
-    roles.length === 6 &&
-    speakers.length === 3 &&
+    ROLE_DEFS_.filter(def => !def.evaluatorSlot)
+      .every(def => String(row[def.column - 1] || '').trim()) &&
+    programmeFilled === 3 &&
+    pendingProgrammeHolds === 0 &&
     themeStatus === 'Received' &&
     grammarStatus === 'Received' &&
     introCompleted >= introAssigned &&
@@ -83,7 +93,7 @@ function buildReadinessRow_(row, taskRows) {
   return [
     meetingNo,
     roles.length + ' of 6',
-    speakers.length + ' of 3',
+    programmeFilled + ' of 3',
     themeStatus,
     grammarStatus,
     introCompleted + ' of ' + introAssigned,
@@ -127,7 +137,11 @@ function buildVpeExceptionDigest_() {
 
     const issues = [];
     const openRoles = ROLE_DEFS_
-      .filter(def => !String(row[def.column - 1] || '').trim())
+      .filter(def => {
+        if (String(row[def.column - 1] || '').trim()) return false;
+        if (!def.evaluatorSlot) return true;
+        return Boolean(String(row[[6,10,14][def.evaluatorSlot - 1]] || '').trim());
+      })
       .map(def => def.name);
 
     if (openRoles.length) {
@@ -135,8 +149,10 @@ function buildVpeExceptionDigest_() {
     }
 
     const speakers = [row[6], row[10], row[14]].map(v => String(v || '').trim());
-    const openSpeechCount = speakers.filter(v => !v).length;
+    const openSpeechCount = getOpenSpeechSlotsFromRow_(row).length;
     if (openSpeechCount) issues.push(openSpeechCount + ' prepared-speech slot' + (openSpeechCount === 1 ? '' : 's') + ' open');
+
+    programmeSlotIssuesForMeeting_(meetingNo).forEach(issue => issues.push(issue));
 
     const tmod = String(row[18] || '').trim();
     if (tmod && !String(row[3] || '').trim()) issues.push('Theme pending from ' + tmod);
