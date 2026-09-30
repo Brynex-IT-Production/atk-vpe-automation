@@ -10,10 +10,6 @@ const SUBMISSION_SHEET_ = 'WA Submissions';
 function phase1ScheduledTick() {
   if (!configBool_('TASK_ENGINE_ENABLED')) return;
 
-  if (typeof maybeRunDevE2eTest_ === 'function' && maybeRunDevE2eTest_()) {
-    return;
-  }
-
   try {
     syncAtkTemplateApprovalStatus_();
   } catch (error) {
