@@ -73,7 +73,7 @@ function startGuidedRequest_(member, phone, kind, meetingNo, related, role) {
   if (activeConversation_(phone)) return null;
   const state = {
     kind: kind, meetingNo: meetingNo || 0, related: related || '',
-    step: kind === 'GRAMMAR' ? 'DETAILS' :
+    step: kind === 'GRAMMAR' ? 'WORD' :
       kind === 'SPEAKER_DETAILS' ? 'TITLE' :
       kind === 'INTRO' || kind === 'DEFAULT_INTRO' ? 'CHOICE' : 'THEME',
     data: {}
@@ -83,15 +83,8 @@ function startGuidedRequest_(member, phone, kind, meetingNo, related, role) {
     text = 'Hi ' + member + ', please reply with the theme for ATK Meeting ' + meetingNo +
       '. A plain reply is fine; we will save it for the agenda.';
   } else if (kind === 'GRAMMAR') {
-    text =
-      'Hi ' + member + ',\n\n' +
-      'You’re confirmed as Grammarian for ATK Meeting ' + meetingNo + '.\n\n' +
-      'Please send your Word of the Day and Idiom of the Day in one message using this format:\n\n' +
-      'Word:\n' +
-      'Word meaning:\n' +
-      'Idiom:\n' +
-      'Idiom meaning:\n\n' +
-      'Thank you.';
+    text = grammarStageIntroMessage_(member, meetingNo, 'WORD') +
+      '\n\n' + grammarStageCopyMessage_('WORD');
   } else if (kind === 'SPEAKER_DETAILS') {
     text = 'Hi ' + member + ', we are collecting the agenda details for ATK Meeting ' + meetingNo +
       '. What is your speech title? I will ask for your Path, Level and Project next, then your introduction.';
@@ -129,15 +122,23 @@ function handleGuidedReply_(member, phone, text, messageId) {
   }
 
   if (kind === 'GRAMMAR') {
-    const details = parseGrammarDetailsBlock_(answer);
-    if (details.recognized < 4) {
-      sendWhatsAppText_(phone,
-        'Please send all four details in one message using this format:\n\n' +
-        'Word:\nWord meaning:\nIdiom:\nIdiom meaning:');
+    const stage = String(state.step || grammarStageForMember_(n, member)).toUpperCase();
+    if (stage !== 'WORD' && stage !== 'IDIOM') {
+      clearConversation_(phone);
+      return false;
+    }
+
+    const details = parseGrammarStageBlock_(answer, stage);
+    if (details.recognized < 3) {
+      sendWhatsAppText_(
+        phone,
+        'Please send all three details together.\n\n' +
+        grammarStageCopyMessage_(stage)
+      );
       return true;
     }
-    clearConversation_(phone);
-    handleGrammarSubmission_(member, phone, n, details, messageId);
+
+    handleGrammarStageSubmission_(member, phone, n, stage, details, messageId);
     return true;
   }
 
