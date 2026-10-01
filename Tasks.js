@@ -195,7 +195,13 @@ function syncPhase1Tasks_() {
 
       if (member && def.code === 'GRM') {
         const grammarKey = taskId_(meetingNo, 'GRAMMAR', def.code, member);
-        const grammarDone = submissions.has(submissionKey_(meetingNo, member, 'GRAMMAR', def.code));
+        const legacyGrammarDone =
+          submissions.has(submissionKey_(meetingNo, member, 'GRAMMAR', def.code));
+        const grammarWordDone =
+          submissions.has(submissionKey_(meetingNo, member, 'GRAMMAR_WORD', def.code));
+        const grammarIdiomDone =
+          submissions.has(submissionKey_(meetingNo, member, 'GRAMMAR_IDIOM', def.code));
+        const grammarDone = legacyGrammarDone || (grammarWordDone && grammarIdiomDone);
 
         generated[grammarKey] = buildTask_(existing[grammarKey], {
           taskId: grammarKey,
@@ -205,8 +211,12 @@ function syncPhase1Tasks_() {
           related: def.code,
           state: grammarDone ? 'Completed' : 'Pending',
           dueAt: daysBefore_(meetingDate, Number(configValue_('GRAMMARIAN_DUE_DAYS', '3')) || 3),
-          reference: 'Word + Idiom',
-          payload: JSON.stringify({})
+          reference: 'Word + Meaning + Usage / Idiom + Meaning + Usage',
+          payload: JSON.stringify({
+            flow: legacyGrammarDone ? 'LEGACY_COMPLETE' : 'SPLIT_WORD_IDIOM',
+            wordDone: grammarWordDone,
+            idiomDone: grammarIdiomDone
+          })
         });
       }
     });
