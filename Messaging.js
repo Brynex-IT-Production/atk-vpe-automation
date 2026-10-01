@@ -112,7 +112,7 @@ function sendAutomatedText_(phone, kind, freeformBody, templateParams) {
     };
   }
 
-  if (/^atk_(theme_guided|theme_request_v2|theme_reminder_v3|intro_guided|speaker_guided|speaker_details_v3|speaker_evaluator_pairing_v2|evaluator_assignment_v2|member_intro|tmod_update)$/.test(templateName) &&
+  if (/^atk_(theme_guided|theme_request_v2|theme_reminder_v3|grammar_request|intro_guided|speaker_guided|speaker_details_v3|speaker_evaluator_pairing_v2|evaluator_assignment_v2|member_intro|tmod_update)$/.test(templateName) &&
       !isApprovedTemplate_(templateName)) {
     return { ok: false, deferred: true, error: 'Template awaiting Meta approval: ' + templateName };
   }
@@ -121,6 +121,7 @@ function sendAutomatedText_(phone, kind, freeformBody, templateParams) {
   const parameterCount = {
     atk_role_reminder_v2: 1, atk_speech_invite_v2: 1,
     atk_theme_guided: 2, atk_theme_request_v2: 2, atk_theme_reminder_v3: 2,
+    atk_grammar_request: 3,
     atk_intro_guided: 3, atk_speaker_guided: 2,
     atk_speaker_details_v3: 2,
     atk_speaker_evaluator_pairing_v2: 3,
