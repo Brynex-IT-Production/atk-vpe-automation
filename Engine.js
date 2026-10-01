@@ -75,6 +75,11 @@ function processInboundWhatsAppMessage_(message) {
     syncPhase1Tasks_();
   }
 
+  if (message.type === 'image') {
+    handleGrammarImage_(member, phone, message);
+    return;
+  }
+
   const interaction = parseInteraction_(message);
 
   if (interaction.kind === 'VPE_PROGRAMME_REVIEW') {

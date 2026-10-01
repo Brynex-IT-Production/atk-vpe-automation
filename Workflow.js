@@ -346,6 +346,101 @@ function sendGrammarStagePrompt_(member, phone, meetingNo, stage, sourceKind) {
   return true;
 }
 
+/**
+ * Preserve an optional Grammarian image in the configured DEV Drive folder.
+ * Each image is a separate submission linked to its meeting, member and stage;
+ * it does not complete the Word or Idiom text task.
+ */
+function handleGrammarImage_(member, phone, message) {
+  const active = activeConversation_(phone);
+  if (!active || active.kind !== 'GRAMMAR' || !active.meetingNo) {
+    sendWhatsAppText_(phone,
+      'I received your image, but there is no active Grammarian request for this chat.');
+    return;
+  }
+
+  const caption = String((message.image && message.image.caption) || '').trim();
+  const explicit = /^\\s*(word|idiom)(?:\\b|\\s*:)/i.exec(caption);
+  const stage = explicit ? explicit[1].toUpperCase() :
+    String(active.step || '').toUpperCase();
+  const meetingNo = Number(active.meetingNo);
+  const mediaId = String((message.image && message.image.id) || '').trim();
+  if ((stage !== 'WORD' && stage !== 'IDIOM') || !mediaId ||
+      !verifyRoleAssignment_(meetingNo, 'GRM', member).ok) {
+    sendWhatsAppText_(phone,
+      'I could not link that image to your Grammarian assignment. Please try again.');
+    return;
+  }
+
+  try {
+    const link = saveGrammarImage_(mediaId, message.image.mime_type,
+      meetingNo, member, stage, message.id);
+    const appended = appendSubmission_({
+      meetingNo: meetingNo,
+      member: member,
+      type: 'GRAMMAR_' + stage + '_IMAGE',
+      related: 'GRM',
+      values: [caption, '', '', ''],
+      fileOrLink: link,
+      sourceMessageId: message.id
+    });
+    if (appended) {
+      sendWhatsAppText_(phone,
+        'Image saved for the ' + (stage === 'WORD' ? 'Word' : 'Idiom') +
+        ' of the Day, ATK Meeting ' + meetingNo + ' ✅');
+      logAutomation_('Grammarian', meetingNo, member,
+        stage + ' image saved', 'Success', link);
+    }
+  } catch (error) {
+    logAutomation_('Grammarian', meetingNo, member,
+      stage + ' image save failed', 'Error', String(error));
+    sendWhatsAppText_(phone,
+      'I received the image but could not save it. Please resend it later.');
+  }
+}
+
+function saveGrammarImage_(mediaId, mimeHint, meetingNo, member, stage, messageId) {
+  const folderId = String(configValue_('GRAMMAR_IMAGE_FOLDER_ID', '')).trim();
+  if (!folderId) throw new Error('GRAMMAR_IMAGE_FOLDER_ID is missing.');
+  const token = PropertiesService.getScriptProperties()
+    .getProperty('META_ACCESS_TOKEN');
+  if (!token) throw new Error('META_ACCESS_TOKEN is missing.');
+
+  const metadataResponse = UrlFetchApp.fetch(
+    'https://graph.facebook.com/v26.0/' + encodeURIComponent(mediaId), {
+      headers: { Authorization: 'Bearer ' + token },
+      muteHttpExceptions: true
+    });
+  if (metadataResponse.getResponseCode() !== 200) {
+    throw new Error('Meta media metadata HTTP ' + metadataResponse.getResponseCode());
+  }
+  const metadata = JSON.parse(metadataResponse.getContentText());
+  if (!metadata.url || !/^image\\//i.test(String(metadata.mime_type || mimeHint || ''))) {
+    throw new Error('WhatsApp media is not an image.');
+  }
+  if (Number(metadata.file_size || 0) > 10 * 1024 * 1024) {
+    throw new Error('WhatsApp image exceeds 10 MB.');
+  }
+
+  const download = UrlFetchApp.fetch(metadata.url, {
+    headers: { Authorization: 'Bearer ' + token },
+    muteHttpExceptions: true
+  });
+  if (download.getResponseCode() !== 200) {
+    throw new Error('Meta media download HTTP ' + download.getResponseCode());
+  }
+  const mime = String(metadata.mime_type || mimeHint || 'image/jpeg');
+  const extension = mime === 'image/png' ? 'png' :
+    mime === 'image/webp' ? 'webp' : 'jpg';
+  const safeMember = String(member || '').replace(/[^A-Za-z0-9_-]/g, '_');
+  const safeMessage = String(messageId || mediaId).replace(/[^A-Za-z0-9_-]/g, '_');
+  const filename = 'ATK_' + meetingNo + '_' + safeMember + '_' +
+    stage + '_' + safeMessage + '.' + extension;
+  const blob = download.getBlob().setName(filename);
+  const file = DriveApp.getFolderById(folderId).createFile(blob);
+  return file.getUrl();
+}
+
 function handleGrammarStageSubmission_(member, phone, requestedMeetingNo, stage, body, messageId) {
   if (!configBool_('GRAMMARIAN_WORKFLOW_ENABLED')) {
     sendWhatsAppText_(phone, 'Grammarian collection is not active yet.');

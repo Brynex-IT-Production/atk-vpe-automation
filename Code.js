@@ -302,6 +302,11 @@ function logWhatsAppWebhook_(payload) {
          *
          * This will later be used for role selection.
          */
+        else if (message.type === 'image') {
+          content = '[Image] ' + String(message.image?.id || '') +
+            (message.image?.caption ? ' · ' + message.image.caption : '');
+        }
+
         else if (message.type === 'interactive') {
 
           if (
