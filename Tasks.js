@@ -19,6 +19,13 @@ function phase1ScheduledTick() {
   }
 
   try {
+    checkRetiredGrammarTemplatesOnce_();
+  } catch (error) {
+    logAutomation_('WhatsApp Templates', '', '', 'Retired Grammarian template lookup',
+      'Error', String(error));
+  }
+
+  try {
     syncAtkTemplateApprovalStatus_();
   } catch (error) {
     logAutomation_('WhatsApp Templates', '', '', 'Approval status sync', 'Error', String(error));
