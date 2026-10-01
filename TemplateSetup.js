@@ -556,3 +556,60 @@ function speakerMoveRequestSpec_() {
     buttons: [{type: 'QUICK_REPLY', text: 'View dates'}]
   };
 }
+
+
+/**
+ * TEMPORARY DEV read-only lookup for retired Grammarian templates.
+ * This function performs GET requests only. It never creates or edits templates.
+ */
+function checkRetiredGrammarTemplatesOnce_() {
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty('RETIRED_GRAMMAR_META_CHECK_DONE') === 'TRUE') return;
+
+  const token = props.getProperty('META_ACCESS_TOKEN');
+  const wabaId = props.getProperty('WA_WABA_ID');
+  if (!token || !wabaId) {
+    logAutomation_('WhatsApp Templates', '', '', 'Retired Grammarian template lookup',
+      'Error', 'Missing Meta credentials.');
+    return;
+  }
+
+  const names = ['atk_grammar_request', 'atk_grammar_guided'];
+  const results = names.map(name => {
+    const url =
+      'https://graph.facebook.com/v26.0/' +
+      encodeURIComponent(wabaId) +
+      '/message_templates?name=' + encodeURIComponent(name) +
+      '&fields=id,name,status,category,language&limit=20';
+
+    const response = UrlFetchApp.fetch(url, {
+      method: 'get',
+      headers: { Authorization: 'Bearer ' + token },
+      muteHttpExceptions: true
+    });
+
+    const http = response.getResponseCode();
+    let parsed = {};
+    try { parsed = JSON.parse(response.getContentText() || '{}'); } catch (_) {}
+
+    if (http < 200 || http >= 300) {
+      return {name:name, http:http, error:response.getContentText()};
+    }
+
+    const exact = (parsed.data || []).find(t => t.name === name && t.language === 'en_US');
+    return exact
+      ? {name:name, found:true, id:exact.id || '', status:exact.status || '',
+         category:exact.category || '', language:exact.language || ''}
+      : {name:name, found:false};
+  });
+
+  logAutomation_(
+    'WhatsApp Templates',
+    '',
+    '',
+    'Retired Grammarian template lookup',
+    'Success',
+    JSON.stringify(results)
+  );
+  props.setProperty('RETIRED_GRAMMAR_META_CHECK_DONE', 'TRUE');
+}
