@@ -2591,6 +2591,68 @@ function agendaTimingDecision_(baseTableTopicsMinutes, presenters) {
   };
 }
 
+/**
+ * Rebalances the agenda when a reviewer increases/decreases programme time.
+ * Priority when extra time is needed:
+ *   1) Table Topics down to 12 min
+ *   2) Remove VPE Meeting Planning block
+ *   3) Transition buffer down from 9 to 7 min
+ *   4) Table Topics again; below 10 min requires VPE KEEP/REMOVE decision
+ * When time is recovered, restore transition buffer to 9 min first, then TT.
+ */
+function rebalanceAgendaTiming_(tableTopicsMinutes, transitionMinutes, meetingPlanningMinutes, deltaMinutes) {
+  let tt = Math.max(0, Number(tableTopicsMinutes || 0));
+  let buffer = Math.min(9, Math.max(7, Number(transitionMinutes == null ? 9 : transitionMinutes)));
+  let planning = Math.max(0, Number(meetingPlanningMinutes || 0));
+  let need = Number(deltaMinutes || 0);
+  let meetingPlanningRemoved = false;
+
+  if (need > 0) {
+    // 1. Protect a 12-minute TT block initially.
+    const fromTtAbove12 = Math.min(need, Math.max(0, tt - 12));
+    tt -= fromTtAbove12;
+    need -= fromTtAbove12;
+
+    // 2. Once TT is at/below 12, remove Meeting Planning before touching buffer.
+    if (need > 0 && tt <= 12 && planning > 0) {
+      need = Math.max(0, need - planning);
+      planning = 0;
+      meetingPlanningRemoved = true;
+    }
+
+    // 3. Reduce transition buffer, but never below 7 minutes.
+    if (need > 0) {
+      const fromBuffer = Math.min(need, Math.max(0, buffer - 7));
+      buffer -= fromBuffer;
+      need -= fromBuffer;
+    }
+
+    // 4. Last resort: take the balance from Table Topics.
+    if (need > 0) {
+      const fromTtFinal = Math.min(need, tt);
+      tt -= fromTtFinal;
+      need -= fromTtFinal;
+    }
+  } else if (need < 0) {
+    let recovered = Math.abs(need);
+    // Restore standard buffer first, then return remaining time to Table Topics.
+    const restoreBuffer = Math.min(recovered, 9 - buffer);
+    buffer += restoreBuffer;
+    recovered -= restoreBuffer;
+    tt += recovered;
+    need = 0;
+  }
+
+  return {
+    tableTopicsMinutes: tt,
+    transitionMinutes: buffer,
+    meetingPlanningMinutes: planning,
+    meetingPlanningRemoved: meetingPlanningRemoved,
+    unresolvedMinutes: Math.max(0, need),
+    needsVpeDecision: tt < 10
+  };
+}
+
 function sendAgendaTableTopicsDecision_(meetingNo, availableMinutes) {
   const vpe = configValue_('VPE_MEMBER_NAME', 'Riyas AF');
   const phone = phoneForMember_(vpe);
