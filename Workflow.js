@@ -247,6 +247,32 @@ function grammarStageCopyMessage_(stage) {
   );
 }
 
+function grammarStagePromptSentAt_(meetingNo, member, stage) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = ss.getSheetByName('WA Outbox');
+  if (!sheet || sheet.getLastRow() < 2) return null;
+
+  const expectedKind = String(stage || '').toUpperCase() === 'IDIOM'
+    ? 'GRAMMAR_IDIOM_PROMPT'
+    : 'GRAMMAR_WORD_PROMPT';
+  const successfulStates = new Set(['SENT', 'DELIVERED', 'READ', 'ACCEPTED']);
+  const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 16).getValues();
+
+  const sent = rows
+    .filter(row =>
+      String(row[1] || '').trim() === String(member || '').trim() &&
+      String(row[3] || '') === expectedKind &&
+      Number(row[10]) === Number(meetingNo) &&
+      successfulStates.has(String(row[6] || '').toUpperCase()) &&
+      row[12] instanceof Date
+    )
+    .map(row => row[12])
+    .sort((a, b) => b.getTime() - a.getTime());
+
+  return sent.length ? sent[0] : null;
+}
+
+
 function grammarStageReminderMessage_(member, meetingNo, stage) {
   const label = String(stage || '').toUpperCase() === 'IDIOM'
     ? 'Idiom of the Day'
@@ -2077,6 +2103,17 @@ function processGrammarAssignmentReminder_() {
 
     const phone = phoneForMember_(member);
     if (!phone || !isWhatsAppRecipientAllowed_(phone)) return;
+
+    const promptAt = grammarStagePromptSentAt_(meetingNo, member, stage);
+    if (!(promptAt instanceof Date)) return;
+
+    // Avoid a reminder immediately after someone has just selected the role
+    // or just submitted the Word and received the Idiom prompt.
+    const minHours = Math.max(
+      1,
+      Number(configValue_('GRAMMAR_REMINDER_MIN_HOURS', '2')) || 2
+    );
+    if ((now.getTime() - promptAt.getTime()) < minHours * 60 * 60 * 1000) return;
 
     // The old approved template asks for Word + Idiom together and no longer
     // matches this flow. Reminders therefore stay free-form until a new
