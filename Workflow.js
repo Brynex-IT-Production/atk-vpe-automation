@@ -124,6 +124,97 @@ function parseGrammarDetailsBlock_(text) {
 }
 
 
+function processGrammarFlowTestStartOnce_() {
+  const nonce = String(configValue_('GRAMMAR_TEST_NONCE', '') || '').trim();
+  if (!nonce) return;
+
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty('GRAMMAR_TEST_LAST_NONCE') === nonce) return;
+
+  const member = configValue_('VPE_MEMBER_NAME', 'Riyas AF');
+  const phone = normalizePhone_(phoneForMember_(member));
+  if (!phone || !isWhatsAppRecipientAllowed_(phone)) return;
+  if (!hasOpenWhatsAppServiceWindow_(phone)) {
+    logAutomation_('Grammarian Test', '', member,
+      'Start staged Grammarian test', 'Blocked',
+      'WhatsApp service window is not open');
+    return;
+  }
+
+  const intro =
+    'Hi ' + member + ',\n\n' +
+    'Thank you for being the Grammarian for the upcoming meeting.\n\n' +
+    'Let’s start with the Word of the Day. Please share the Word, Meaning and Usage in the format below.';
+  const format = grammarStageCopyMessage_('WORD');
+
+  const first = sendWhatsAppText_(phone, intro);
+  if (!first.ok) return;
+  const second = sendWhatsAppText_(phone, format);
+  if (!second.ok) return;
+
+  setConversation_(phone, {
+    kind: 'GRAMMAR_TEST',
+    meetingNo: 0,
+    related: 'GRM',
+    step: 'WORD',
+    data: { word: null }
+  });
+  props.setProperty('GRAMMAR_TEST_LAST_NONCE', nonce);
+  logAutomation_('Grammarian Test', '', member,
+    'Staged Grammarian test started', 'Success', nonce);
+}
+
+
+function handleGrammarFlowTestReply_(member, phone, rawText) {
+  const active = activeConversation_(phone);
+  if (!active || active.kind !== 'GRAMMAR_TEST') return false;
+
+  const stage = String(active.step || '').toUpperCase();
+  if (stage !== 'WORD' && stage !== 'IDIOM') {
+    clearConversation_(phone);
+    return false;
+  }
+
+  const details = parseGrammarStageBlock_(rawText, stage);
+  if (details.recognized < 3) {
+    sendWhatsAppText_(phone,
+      'Please send all three details together.\n\n' + grammarStageCopyMessage_(stage));
+    return true;
+  }
+
+  if (stage === 'WORD') {
+    active.step = 'IDIOM';
+    active.data = active.data || {};
+    active.data.word = {
+      item: details.item,
+      meaning: details.meaning,
+      usage: details.usage
+    };
+    setConversation_(phone, active);
+
+    sendWhatsAppText_(phone,
+      'Thank you, ' + member + '. The Word of the Day is received ✅\n\n' +
+      'Now please share the Idiom of the Day, along with its Meaning and Usage.');
+    sendWhatsAppText_(phone, grammarStageCopyMessage_('IDIOM'));
+
+    logAutomation_('Grammarian Test', '', member,
+      'Test Word received', 'Success', details.item);
+    return true;
+  }
+
+  const word = active.data && active.data.word ? active.data.word : {};
+  clearConversation_(phone);
+  sendWhatsAppText_(phone,
+    'Thank you. Your Grammarian details are complete ✅\n\n' +
+    'Word and Idiom of the Day have both been received.');
+
+  logAutomation_('Grammarian Test', '', member,
+    'Test completed', 'Success',
+    'Word=' + String(word.item || '') + ' | Idiom=' + details.item);
+  return true;
+}
+
+
 function parseGrammarStageBlock_(text, stage) {
   const normalizedStage = String(stage || '').toUpperCase();
   if (normalizedStage !== 'WORD' && normalizedStage !== 'IDIOM') {
