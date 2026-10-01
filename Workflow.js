@@ -1523,6 +1523,93 @@ function processAssignedRolePrompts_() {
   });
 }
 
+function grammarDetailsRequestBody_(member, meetingNo, isReminder) {
+  return (
+    'Hi ' + member + ',\n\n' +
+    (isReminder
+      ? 'Just a reminder about the Grammarian details for ATK Meeting ' + meetingNo + '.\n\n' +
+        'We haven’t received them yet.\n\n'
+      : 'As Grammarian for ATK Meeting ' + meetingNo + ', please send your Grammarian details in one message.\n\n') +
+    'Please reply in one message:\n\n' +
+    'Word:\n' +
+    'Word meaning:\n' +
+    'Idiom:\n' +
+    'Idiom meaning:\n\n' +
+    'Thank you.'
+  );
+}
+
+/**
+ * Catch-up for Grammarians who were entered directly in the planner instead
+ * of booking the role through WhatsApp. This intentionally uses the same
+ * ASSIGNMENT_PROMPT idempotency key expected by the reminder flow.
+ *
+ * No Meta template is used. If the WhatsApp customer-service window is not
+ * open, this waits rather than sending anything out of policy.
+ */
+function processMissingGrammarAssignmentPrompts_() {
+  if (!configBool_('GRAMMARIAN_WORKFLOW_ENABLED')) return;
+
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const tasks = ss.getSheetByName('Automation Tasks');
+  if (!tasks || tasks.getLastRow() < 2) return;
+
+  const rows = tasks.getRange(2, 1, tasks.getLastRow() - 1, 18).getValues();
+
+  rows.forEach(row => {
+    if (String(row[2] || '') !== 'GRAMMAR' ||
+        String(row[5] || '') !== 'Pending') return;
+
+    const meetingNo = Number(row[1]);
+    const member = String(row[3] || '').trim();
+    const related = String(row[4] || '').trim();
+    if (!meetingNo || !member || related !== 'GRM') return;
+
+    const assignment = verifyRoleAssignment_(meetingNo, 'GRM', member);
+    if (!assignment.ok) return;
+
+    const assignmentKey = ['ASSIGNMENT_PROMPT', meetingNo, related, member].join('|');
+    if (hasReminderBeenSent_(assignmentKey)) return;
+
+    const phone = phoneForMember_(member);
+    if (!phone || !isWhatsAppRecipientAllowed_(phone)) return;
+    if (!hasOpenWhatsAppServiceWindow_(phone)) return;
+
+    const body = grammarDetailsRequestBody_(member, meetingNo, false);
+    const result = sendWhatsAppText_(phone, body);
+
+    if (result.ok) {
+      setConversation_(phone, {
+        kind: 'GRAMMAR',
+        meetingNo: meetingNo,
+        related: related,
+        step: 'DETAILS_BLOCK',
+        data: {}
+      });
+    }
+
+    recordWorkflowOutbound_(
+      member,
+      phone,
+      'ASSIGNMENT_PROMPT',
+      body,
+      meetingNo,
+      result,
+      assignmentKey
+    );
+
+    logAutomation_(
+      'Grammarian',
+      meetingNo,
+      member,
+      'Missing Grammarian assignment prompt catch-up',
+      result.ok ? 'Sent' : (result.blocked ? 'Blocked' : 'Error'),
+      'Pending task; role verified; service window open'
+    );
+  });
+}
+
+
 function processGrammarAssignmentReminder_() {
   if (!configBool_('GRAMMARIAN_WORKFLOW_ENABLED')) return;
 
@@ -1588,16 +1675,7 @@ function processGrammarAssignmentReminder_() {
 
     if (hasReminderBeenSent_(reminderKey)) return;
 
-    const body =
-      'Hi ' + member + ',\n\n' +
-      'Just a reminder about the Grammarian details for ATK Meeting ' + meetingNo + '.\n\n' +
-      'We haven’t received them yet.\n\n' +
-      'Please reply in one message:\n\n' +
-      'Word:\n' +
-      'Word meaning:\n' +
-      'Idiom:\n' +
-      'Idiom meaning:\n\n' +
-      'Thank you.';
+    const body = grammarDetailsRequestBody_(member, meetingNo, true);
 
     const result = sendWhatsAppText_(phone, body);
 
