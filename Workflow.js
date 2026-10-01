@@ -20,7 +20,8 @@ function parseSpeakerDetailsBlock_(text) {
     path: fields.path || '',
     level: fields.level || '',
     project: fields.project || '',
-    title: fields.title || ''
+    title: fields.title || '',
+    time: fields.time || ''
   };
 }
 
@@ -1316,7 +1317,7 @@ function handleGrammarSubmission_(member, phone, requestedMeetingNo, body, messa
     member,
     type: 'GRAMMAR',
     related: 'GRM',
-    values: parts.slice(0, 4),
+    values: parts.slice(0, 5),
     sourceMessageId: messageId
   });
 
@@ -1627,14 +1628,14 @@ function handleSpeakerDetailsSubmission_(member, phone, requestedMeetingNo, body
 
   let parts = [];
   if (body && typeof body === 'object' && Number(body.recognized || 0) > 0) {
-    const missing = ['path', 'level', 'project', 'title']
+    const missing = ['path', 'level', 'project', 'title', 'time']
       .filter(key => !String(body[key] || '').trim());
 
     if (missing.length) {
       sendWhatsAppText_(phone,
         'Please add the missing detail' + (missing.length > 1 ? 's' : '') +
         ': ' + missing.map(key => key.charAt(0).toUpperCase() + key.slice(1)).join(', ') +
-        '\n\nPath:\nLevel:\nProject:\nTitle:');
+        '\n\nPath:\nLevel:\nProject:\nTitle:\nTime:');
       return;
     }
 
@@ -1642,13 +1643,14 @@ function handleSpeakerDetailsSubmission_(member, phone, requestedMeetingNo, body
       String(body.title || '').trim(),
       String(body.path || '').trim(),
       String(body.level || '').trim(),
-      String(body.project || '').trim()
+      String(body.project || '').trim(),
+      String(body.time || '').trim()
     ];
   } else {
     parts = String(body || '').split('|').map(v => v.trim());
-    if (parts.length < 4 || parts.slice(0, 4).some(v => !v)) {
+    if (parts.length < 5 || parts.slice(0, 5).some(v => !v)) {
       sendWhatsAppText_(phone,
-        'Please use this format:\n\nPath:\nLevel:\nProject:\nTitle:');
+        'Please use this format:\n\nPath:\nLevel:\nProject:\nTitle:\nTime:');
       return;
     }
   }
@@ -1681,7 +1683,8 @@ function handleSpeakerDetailsSubmission_(member, phone, requestedMeetingNo, body
     'Path: ' + parts[1] + '\n' +
     'Level: ' + parts[2] + '\n' +
     'Project: ' + parts[3] + '\n' +
-    'Title: ' + parts[0]);
+    'Title: ' + parts[0] + '\n' +
+    'Time: ' + parts[4]);
 
   logAutomation_(
     'Speaker Details',
@@ -1748,12 +1751,12 @@ function processSpeakerDetailPrompts_() {
           ? (
               'Hi ' + member + ',\n\n' +
               'You’re confirmed as a speaker for ATK Meeting ' + meetingNo + ' 🎤\n\n' +
-              'Please send your speech details in one message using this format:\n\n' +
-              'Path:\n' +
-              'Level:\n' +
-              'Project:\n' +
-              'Title:\n\n' +
-              'Thank you.'
+              'Please share your speech details in the format below. Here’s an example:\n\n' +
+              'Path: Presentation Mastery\n' +
+              'Level: 1\n' +
+              'Project: 3\n' +
+              'Title: My Ambition\n' +
+              'Time: 7 minutes'
             )
           : (
               'Hi ' + member + ',\n\n' +
@@ -1776,6 +1779,23 @@ function processSpeakerDetailPrompts_() {
         );
 
         if (!result.ok) return;
+
+        const copyBody =
+          'Please copy the message below, replace the details with yours, and send it back:\n\n' +
+          'Path:\n' +
+          'Level:\n' +
+          'Project:\n' +
+          'Title:\n' +
+          'Time:';
+        const copyResult = sendWhatsAppText_(phone, copyBody);
+        if (!copyResult || !copyResult.ok) return;
+
+        setConversation_(phone, {
+          kind: 'SPEAKER_DETAILS',
+          meetingNo: meetingNo,
+          related: related,
+          member: member
+        });
         introSent = true;
       }
 
@@ -1876,7 +1896,8 @@ function processSpeakerDetailReminders_() {
       'Path:\n' +
       'Level:\n' +
       'Project:\n' +
-      'Title:\n\n' +
+      'Title:\n' +
+      'Time:\n\n' +
       'Please send the pending details when you can.\n\n' +
       'Thank you.';
 
