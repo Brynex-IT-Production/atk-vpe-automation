@@ -494,7 +494,7 @@ function handleRoleSelection_(member, phone, interaction) {
         phone
       );
 
-      if (roleDef.code !== 'TMOD') {
+      if (roleDef.code !== 'TMOD' && roleDef.code !== 'GRM') {
         sendMeetingThemeToRole_(
           interaction.meetingNo,
           member,
