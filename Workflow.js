@@ -133,7 +133,17 @@ function processGrammarFlowTestStartOnce_() {
 
   const member = configValue_('VPE_MEMBER_NAME', 'Riyas AF');
   const phone = normalizePhone_(phoneForMember_(member));
-  if (!phone || !isWhatsAppRecipientAllowed_(phone)) return;
+  logAutomation_('Grammarian Test', '', member,
+    'DEV preflight', 'Info',
+    'nonce=' + nonce + '; phone=' + (phone ? 'FOUND' : 'MISSING') +
+    '; allowed=' + isWhatsAppRecipientAllowed_(phone) +
+    '; window=' + hasOpenWhatsAppServiceWindow_(phone));
+  if (!phone || !isWhatsAppRecipientAllowed_(phone)) {
+    logAutomation_('Grammarian Test', '', member,
+      'Start staged Grammarian test', 'Blocked',
+      !phone ? 'VPE phone not found' : 'VPE phone not in DEV allowlist');
+    return;
+  }
   if (!hasOpenWhatsAppServiceWindow_(phone)) {
     logAutomation_('Grammarian Test', '', member,
       'Start staged Grammarian test', 'Blocked',
@@ -148,9 +158,17 @@ function processGrammarFlowTestStartOnce_() {
   const format = grammarStageCopyMessage_('WORD');
 
   const first = sendWhatsAppText_(phone, intro);
-  if (!first.ok) return;
+  if (!first.ok) {
+    logAutomation_('Grammarian Test', '', member,
+      'Send Grammarian intro', 'Error', first.error || 'Unknown WhatsApp send error');
+    return;
+  }
   const second = sendWhatsAppText_(phone, format);
-  if (!second.ok) return;
+  if (!second.ok) {
+    logAutomation_('Grammarian Test', '', member,
+      'Send Grammarian format', 'Error', second.error || 'Unknown WhatsApp send error');
+    return;
+  }
 
   setConversation_(phone, {
     kind: 'GRAMMAR_TEST',
