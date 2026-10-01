@@ -15,6 +15,15 @@ function doGet(e) {
     return renderProgrammeReviewPage_(String(e.parameter.token || ''));
   }
 
+  if (e && e.parameter &&
+      e.parameter.system_action === 'PHASE1_TICK' &&
+      e.parameter.verify_token === VERIFY_TOKEN) {
+    phase1ScheduledTick();
+    return ContentService.createTextOutput('PHASE1_TICK_OK')
+      .setMimeType(ContentService.MimeType.TEXT);
+  }
+
+
   const mode = e.parameter['hub.mode'];
   const token = e.parameter['hub.verify_token'];
   const challenge = e.parameter['hub.challenge'];
