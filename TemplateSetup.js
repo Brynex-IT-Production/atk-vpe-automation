@@ -91,6 +91,15 @@ function getAtkWhatsAppTemplateSpecs_() {
       examples: ['Riyas AF', '450']
     },
     {
+      name: 'atk_grammar_request',
+      language: 'en_US',
+      category: 'UTILITY',
+      body:
+        'Hi {{1}}, please share the Word of the Day and Idiom of the Day for ATK Meeting {{2}}.\n\n' +
+        'Reply in this format:\nGRAMMAR {{3}}: Word | Meaning | Idiom | Meaning',
+      examples: ['Riyas AF', '450', '450']
+    },
+    {
       name: 'atk_intro_guided',
       language: 'en_US', category: 'UTILITY',
       body: 'Hi {{1}}, for your {{3}} role in ATK Meeting {{2}}, please reply to choose your saved introduction or share something new. We will guide you.',
