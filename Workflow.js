@@ -155,7 +155,7 @@ function processGrammarFlowTestStartOnce_() {
   const intro =
     'Hi ' + member + ',\n\n' +
     'Thank you for being the Grammarian for the upcoming meeting.\n\n' +
-    'Let’s start with the Word of the Day. Please share the Word, Meaning and Usage in the format below.';
+    'Let’s start with the Word of the Day. Please share only the Word.';
   const format = grammarStageCopyMessage_('WORD');
 
   const first = sendWhatsAppText_(phone, intro);
@@ -335,8 +335,7 @@ function grammarStageIntroMessage_(member, meetingNo, stage) {
   if (String(stage || '').toUpperCase() === 'IDIOM') {
     return (
       'Thank you, ' + member + '. The Word of the Day is received ✅\n\n' +
-      'Now please share the Idiom of the Day for ATK Meeting ' + meetingNo +
-      ', along with its Meaning and Usage.'
+      'Now please share only the Idiom of the Day for ATK Meeting ' + meetingNo + '.'
     );
   }
 
@@ -349,14 +348,43 @@ function grammarStageIntroMessage_(member, meetingNo, stage) {
   );
 }
 
-function grammarStageCopyMessage_(stage) {
+function grammarStageCopyMessage_(stage, editMode) {
   const label = String(stage || '').toUpperCase() === 'IDIOM' ? 'Idiom' : 'Word';
-  return (
-    'Please copy this message, add your details, and send it back:\n\n' +
-    label + ':\n' +
-    'Meaning:\n' +
-    'Usage:'
-  );
+  if (editMode) {
+    return (
+      'Please copy this message, make the changes you want, and send it back:\n\n' +
+      label + ':\n' +
+      'Meaning:\n' +
+      'Usage:'
+    );
+  }
+  return 'Please reply in this format:\n\n' + label + ':';
+}
+
+/**
+ * DEV contract for the AI content step. The provider/model adapter should
+ * return {meaning, usage}; workflow code remains provider-independent.
+ */
+function grammarAiGenerationRequest_(stage, item, meetingNo) {
+  return {
+    task: 'GRAMMAR_MEANING_USAGE',
+    stage: String(stage || '').toUpperCase(),
+    item: String(item || '').trim(),
+    meetingNo: Number(meetingNo || 0),
+    output: ['meaning', 'usage']
+  };
+}
+
+function grammarApprovalMessage_(stage, item, meaning, usage) {
+  const label = String(stage || '').toUpperCase() === 'IDIOM' ? 'Idiom' : 'Word';
+  return label + ': ' + item + '\n' +
+    'Meaning: ' + meaning + '\n' +
+    'Usage: ' + usage + '\n\n' +
+    'Is this okay to use for the meeting?';
+}
+
+function grammarApprovalEditFormat_(stage) {
+  return grammarStageCopyMessage_(stage, true);
 }
 
 function grammarStagePromptSentAt_(meetingNo, member, stage) {
