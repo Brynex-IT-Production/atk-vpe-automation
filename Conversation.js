@@ -122,6 +122,18 @@ function handleGuidedReply_(member, phone, text, messageId) {
   }
 
   if (kind === 'GRAMMAR') {
+    if (state.data && state.data.pendingImage) {
+      if (!/^(WORD|IDIOM)$/i.test(answer)) {
+        sendWhatsAppText_(phone, 'Please reply WORD or IDIOM to label the image.');
+        return true;
+      }
+      const pendingImage = state.data.pendingImage;
+      delete state.data.pendingImage;
+      setConversation_(phone, state);
+      saveGrammarImageSubmission_(
+        member, phone, n, answer.toUpperCase(), pendingImage);
+      return true;
+    }
     const stage = String(state.step || grammarStageForMember_(n, member)).toUpperCase();
     if (stage !== 'WORD' && stage !== 'IDIOM') {
       clearConversation_(phone);

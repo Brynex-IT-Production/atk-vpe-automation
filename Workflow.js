@@ -372,17 +372,41 @@ function handleGrammarImage_(member, phone, message) {
     return;
   }
 
+  // After the Word has been submitted, an uncaptioned image could belong
+  // either to that Word or to the upcoming Idiom. Ask instead of guessing.
+  if (!explicit && stage === 'IDIOM') {
+    active.data = active.data || {};
+    active.data.pendingImage = {
+      mediaId: mediaId,
+      mimeType: String(message.image.mime_type || ''),
+      caption: caption,
+      messageId: String(message.id || '')
+    };
+    setConversation_(phone, active);
+    sendWhatsAppText_(phone, 'Is this image for the Word or the Idiom? Reply WORD or IDIOM.');
+    return;
+  }
+
+  saveGrammarImageSubmission_(member, phone, meetingNo, stage, {
+    mediaId: mediaId,
+    mimeType: String(message.image.mime_type || ''),
+    caption: caption,
+    messageId: String(message.id || '')
+  });
+}
+
+function saveGrammarImageSubmission_(member, phone, meetingNo, stage, image) {
   try {
-    const link = saveGrammarImage_(mediaId, message.image.mime_type,
-      meetingNo, member, stage, message.id);
+    const link = saveGrammarImage_(image.mediaId, image.mimeType,
+      meetingNo, member, stage, image.messageId);
     const appended = appendSubmission_({
       meetingNo: meetingNo,
       member: member,
       type: 'GRAMMAR_' + stage + '_IMAGE',
       related: 'GRM',
-      values: [caption, '', '', ''],
+      values: [image.caption, '', '', ''],
       fileOrLink: link,
-      sourceMessageId: message.id
+      sourceMessageId: image.messageId
     });
     if (appended) {
       sendWhatsAppText_(phone,
