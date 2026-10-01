@@ -1573,10 +1573,14 @@ function processMissingGrammarAssignmentPrompts_() {
 
     const phone = phoneForMember_(member);
     if (!phone || !isWhatsAppRecipientAllowed_(phone)) return;
-    if (!hasOpenWhatsAppServiceWindow_(phone)) return;
 
     const body = grammarDetailsRequestBody_(member, meetingNo, false);
-    const result = sendWhatsAppText_(phone, body);
+    const result = sendAutomatedText_(
+      phone,
+      'GRAMMAR_REQUEST',
+      body,
+      [member, meetingNo, meetingNo]
+    );
 
     if (result.ok) {
       setConversation_(phone, {
@@ -1604,7 +1608,7 @@ function processMissingGrammarAssignmentPrompts_() {
       member,
       'Missing Grammarian assignment prompt catch-up',
       result.ok ? 'Sent' : (result.blocked ? 'Blocked' : 'Error'),
-      'Pending task; role verified; service window open'
+      'Pending task; role verified; channel=' + (result.channelMode || 'UNKNOWN')
     );
   });
 }
@@ -1658,11 +1662,6 @@ function processGrammarAssignmentReminder_() {
     const phone = phoneForMember_(member);
     if (!phone || !isWhatsAppRecipientAllowed_(phone)) return;
 
-    // No reminder template is used here. Reminders are allowed only while
-    // WhatsApp's customer-service window remains open from the member's inbound
-    // role-selection interaction (or any later inbound reply).
-    if (!hasOpenWhatsAppServiceWindow_(phone)) return;
-
     const slotDate = Utilities.formatDate(now, timezone, 'yyyyMMdd');
     const reminderKey = [
       'GRAMMAR_ASSIGNMENT_REMINDER',
@@ -1677,7 +1676,12 @@ function processGrammarAssignmentReminder_() {
 
     const body = grammarDetailsRequestBody_(member, meetingNo, true);
 
-    const result = sendWhatsAppText_(phone, body);
+    const result = sendAutomatedText_(
+      phone,
+      'GRAMMAR_REQUEST',
+      body,
+      [member, meetingNo, meetingNo]
+    );
 
     recordWorkflowOutbound_(
       member,
@@ -1695,7 +1699,7 @@ function processGrammarAssignmentReminder_() {
       member,
       'Grammarian reminder at ' + (localHour === 20 ? '8 PM' : localHour + ' AM'),
       result.ok ? 'Sent' : (result.blocked ? 'Blocked' : 'Error'),
-      'Pending; service window open'
+      'Pending; channel=' + (result.channelMode || 'UNKNOWN')
     );
   });
 }
