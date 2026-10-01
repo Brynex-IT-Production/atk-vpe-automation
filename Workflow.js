@@ -1442,7 +1442,8 @@ function appendSubmission_(data) {
     sourceId,
     now,
     now,
-    ''
+    '',
+    values[4] || ''
   ]);
   return true;
 }
