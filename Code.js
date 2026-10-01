@@ -121,7 +121,8 @@ function doPost(e) {
     }
 
     logWhatsAppWebhook_(payload);
-    if (!processAgendaDecisionButton_(payload)) {
+    if (!processAgendaDecisionButton_(payload) &&
+        !processGrammarApprovalButton_(payload)) {
       processWhatsAppAutomation_(payload);
     }
 
@@ -580,6 +581,33 @@ function processAgendaDecisionButton_(payload) {
       const match = String(reply.id).match(/^AGENDA_TT_(KEEP|REMOVE)\|(\d+)\|(\d+(?:\.\d+)?)$/);
       if (!match) return;
       recordAgendaTableTopicsDecision_(Number(match[2]), match[1], Number(match[3]));
+      handled = true;
+    });
+  });
+  return handled;
+}
+
+
+/* ATK_GRAMMAR_APPROVAL_BUTTON_V1 */
+function processGrammarApprovalButton_(payload) {
+  const entry = payload && payload.entry && payload.entry[0];
+  if (!entry || !entry.changes) return false;
+  let handled = false;
+  entry.changes.forEach(change => {
+    const messages = (change.value && change.value.messages) || [];
+    messages.forEach(message => {
+      const reply = message.type === 'interactive' &&
+        message.interactive && message.interactive.button_reply;
+      if (!reply || !reply.id) return;
+      const match = String(reply.id).match(
+        /^GRAMMAR_APPROVAL\|(\d+)\|(WORD|IDIOM)\|(APPROVE|EDIT)$/
+      );
+      if (!match) return;
+      const phone = String(message.from || '');
+      const member = findMemberByWhatsApp_(phone);
+      handleGrammarApprovalReply_(
+        member, phone, Number(match[1]), match[2], match[3], String(message.id || '')
+      );
       handled = true;
     });
   });
