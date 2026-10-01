@@ -2569,3 +2569,100 @@ function processReadySpeakerDetailsToTmod_() {
       String(row[4] || ''), [row[5], row[6], row[7], row[8]].map(String));
   });
 }
+
+
+/* ATK_AGENDA_TIMING_V1 */
+/**
+ * Agenda timing guardrail.
+ * Hardcore rule: reserve one minute for 75% of presenter transitions.
+ * Table Topics is the first/only flexible block. If the resulting TT time is
+ * below 10 minutes, the VPE must explicitly KEEP or REMOVE it.
+ */
+function agendaTimingDecision_(baseTableTopicsMinutes, presenters) {
+  const names = (presenters || []).map(v => String(v || '').trim()).filter(Boolean);
+  let totalTransitions = 0;
+  for (let i = 1; i < names.length; i++) {
+    if (names[i] !== names[i - 1]) totalTransitions++;
+  }
+  const transitionMinutes = Math.round(totalTransitions * 0.75);
+  const availableTableTopicsMinutes = Math.max(0, Number(baseTableTopicsMinutes || 0) - transitionMinutes);
+  return {
+    totalTransitions: totalTransitions,
+    coveredTransitions: transitionMinutes,
+    transitionMinutes: transitionMinutes,
+    availableTableTopicsMinutes: availableTableTopicsMinutes,
+    needsVpeDecision: availableTableTopicsMinutes < 10
+  };
+}
+
+function sendAgendaTableTopicsDecision_(meetingNo, availableMinutes) {
+  const vpe = configValue_('VPE_MEMBER_NAME', 'Riyas AF');
+  const phone = phoneForMember_(vpe);
+  if (!phone || !isWhatsAppRecipientAllowed_(phone)) return {ok:false, blocked:true, error:'VPE not allowlisted'};
+
+  const minutes = Math.max(0, Number(availableMinutes || 0));
+  const body =
+    'ATK Meeting ' + meetingNo + ' agenda needs your decision.\n\n' +
+    'After adding the required transition time, only ' + minutes +
+    ' minutes are available for Table Topics.\n\n' +
+    'Our minimum is 10 minutes. Would you like to keep Table Topics with the available ' +
+    minutes + ' minutes, or remove it?';
+
+  // Interactive reply buttons can only be sent inside an open customer-service window.
+  // Outside the window we deliberately do not fall back to a template until the VPE
+  // has reviewed and approved that Meta template.
+  if (!hasOpenWhatsAppServiceWindow_(phone)) {
+    logAutomation_('Agenda', meetingNo, vpe, 'Table Topics decision required',
+      'Blocked', 'Available=' + minutes + ' min | Meta button template approval required');
+    return {ok:false, blocked:true, error:'No open WhatsApp service window'};
+  }
+
+  const props = PropertiesService.getScriptProperties();
+  const token = props.getProperty('META_ACCESS_TOKEN');
+  const phoneId = props.getProperty('WA_PHONE_NUMBER_ID');
+  if (!token || !phoneId) return {ok:false, error:'Meta credentials missing'};
+
+  const payload = {
+    messaging_product: 'whatsapp',
+    to: String(phone).replace(/\D/g, ''),
+    type: 'interactive',
+    interactive: {
+      type: 'button',
+      body: {text: body},
+      action: {buttons: [
+        {type:'reply', reply:{id:'AGENDA_TT_KEEP|' + meetingNo + '|' + minutes, title:'Keep it'}},
+        {type:'reply', reply:{id:'AGENDA_TT_REMOVE|' + meetingNo + '|' + minutes, title:'Remove it'}}
+      ]}
+    }
+  };
+  const response = UrlFetchApp.fetch(
+    'https://graph.facebook.com/v26.0/' + encodeURIComponent(phoneId) + '/messages',
+    {method:'post', contentType:'application/json',
+     headers:{Authorization:'Bearer ' + token},
+     payload:JSON.stringify(payload), muteHttpExceptions:true}
+  );
+  const ok = response.getResponseCode() >= 200 && response.getResponseCode() < 300;
+  logAutomation_('Agenda', meetingNo, vpe, 'Table Topics decision required',
+    ok ? 'Sent' : 'Error', 'Available=' + minutes + ' min');
+  return {ok:ok, status:response.getResponseCode()};
+}
+
+function recordAgendaTableTopicsDecision_(meetingNo, action, availableMinutes) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = ss.getSheetByName('Agenda Preview');
+  if (!sheet) return false;
+  const keep = String(action || '').toUpperCase() === 'KEEP';
+  sheet.getRange('I4').setValue(
+    keep
+      ? 'VPE DECISION: KEEP TABLE TOPICS (' + availableMinutes + ' min)'
+      : 'VPE DECISION: REMOVE TABLE TOPICS'
+  );
+  sheet.getRange('I4').setNote(
+    'Transition rule: 1 minute reserved for 75% of presenter transitions. ' +
+    'Decision recorded ' + new Date()
+  );
+  logAutomation_('Agenda', meetingNo, configValue_('VPE_MEMBER_NAME','Riyas AF'),
+    'Table Topics decision', keep ? 'Keep' : 'Remove',
+    'Available=' + availableMinutes + ' min');
+  return true;
+}
