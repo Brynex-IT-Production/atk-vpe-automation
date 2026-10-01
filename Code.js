@@ -121,7 +121,9 @@ function doPost(e) {
     }
 
     logWhatsAppWebhook_(payload);
-    processWhatsAppAutomation_(payload);
+    if (!processAgendaDecisionButton_(payload)) {
+      processWhatsAppAutomation_(payload);
+    }
 
     return ContentService
       .createTextOutput('EVENT_RECEIVED')
@@ -561,4 +563,25 @@ function resendDevVpeIntro_() {
   } finally {
     lock.releaseLock();
   }
+}
+
+
+/* ATK_AGENDA_DECISION_BUTTON_V1 */
+function processAgendaDecisionButton_(payload) {
+  const entry = payload && payload.entry && payload.entry[0];
+  if (!entry || !entry.changes) return false;
+  let handled = false;
+  entry.changes.forEach(change => {
+    const messages = (change.value && change.value.messages) || [];
+    messages.forEach(message => {
+      const reply = message.type === 'interactive' &&
+        message.interactive && message.interactive.button_reply;
+      if (!reply || !reply.id) return;
+      const match = String(reply.id).match(/^AGENDA_TT_(KEEP|REMOVE)\|(\d+)\|(\d+(?:\.\d+)?)$/);
+      if (!match) return;
+      recordAgendaTableTopicsDecision_(Number(match[2]), match[1], Number(match[3]));
+      handled = true;
+    });
+  });
+  return handled;
 }
