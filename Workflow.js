@@ -123,6 +123,286 @@ function parseGrammarDetailsBlock_(text) {
   };
 }
 
+
+function parseGrammarStageBlock_(text, stage) {
+  const normalizedStage = String(stage || '').toUpperCase();
+  if (normalizedStage !== 'WORD' && normalizedStage !== 'IDIOM') {
+    return { recognized: 0, item: '', meaning: '', usage: '' };
+  }
+
+  const raw = String(text || '').trim();
+  const fields = {};
+  let currentKey = '';
+  const itemLabel = normalizedStage === 'WORD' ? 'Word' : 'Idiom';
+  const itemPattern = normalizedStage === 'WORD'
+    ? /^(Word(?: of the Day)?)$/i
+    : /^(Idiom(?: of the Day)?)$/i;
+
+  raw.split(/\r?\n/).forEach(line => {
+    const match = String(line || '').match(
+      /^\s*(Word(?: of the Day)?|Idiom(?: of the Day)?|Meaning|Usage|Example|Example usage)\s*:\s*(.*?)\s*$/i
+    );
+
+    if (match) {
+      const label = String(match[1] || '').trim();
+      const value = String(match[2] || '').trim();
+      let key = '';
+
+      if (itemPattern.test(label)) key = 'item';
+      else if (/^meaning$/i.test(label)) key = 'meaning';
+      else if (/^(usage|example|example usage)$/i.test(label)) key = 'usage';
+
+      // Ignore the opposite stage's item label rather than misclassifying it.
+      if (/^(word(?: of the day)?|idiom(?: of the day)?)$/i.test(label) && !itemPattern.test(label)) {
+        currentKey = '';
+        return;
+      }
+
+      currentKey = key;
+      if (key && value) fields[key] = value;
+      return;
+    }
+
+    const continuation = String(line || '').trim();
+    if (continuation && currentKey) {
+      fields[currentKey] = fields[currentKey]
+        ? fields[currentKey] + '\n' + continuation
+        : continuation;
+    }
+  });
+
+  const result = {
+    recognized: ['item', 'meaning', 'usage']
+      .filter(key => String(fields[key] || '').trim()).length,
+    item: String(fields.item || '').trim(),
+    meaning: String(fields.meaning || '').trim(),
+    usage: String(fields.usage || '').trim()
+  };
+  result.label = itemLabel;
+  return result;
+}
+
+function grammarStageForMember_(meetingNo, member) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = ss.getSheetByName('WA Submissions');
+  if (!sheet || sheet.getLastRow() < 2) return 'WORD';
+
+  const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 14).getValues();
+  let legacyDone = false;
+  let wordDone = false;
+  let idiomDone = false;
+
+  rows.forEach(row => {
+    if (Number(row[1]) !== Number(meetingNo) ||
+        String(row[2] || '').trim() !== String(member || '').trim() ||
+        String(row[4] || '').trim() !== 'GRM') return;
+
+    const type = String(row[3] || '').trim().toUpperCase();
+    if (type === 'GRAMMAR') legacyDone = true;
+    if (type === 'GRAMMAR_WORD') wordDone = true;
+    if (type === 'GRAMMAR_IDIOM') idiomDone = true;
+  });
+
+  if (legacyDone || (wordDone && idiomDone)) return 'DONE';
+  if (wordDone) return 'IDIOM';
+  return 'WORD';
+}
+
+function grammarStageIntroMessage_(member, meetingNo, stage) {
+  if (String(stage || '').toUpperCase() === 'IDIOM') {
+    return (
+      'Thank you, ' + member + '. The Word of the Day is received ✅\n\n' +
+      'Now please share the Idiom of the Day for ATK Meeting ' + meetingNo +
+      ', along with its Meaning and Usage.'
+    );
+  }
+
+  return (
+    'Hi ' + member + ',\n\n' +
+    'Thank you for being the Grammarian for ATK Meeting ' + meetingNo + '.\n\n' +
+    'Let’s start with the Word of the Day. Please share the Word, Meaning and Usage in the format below.'
+  );
+}
+
+function grammarStageCopyMessage_(stage) {
+  const label = String(stage || '').toUpperCase() === 'IDIOM' ? 'Idiom' : 'Word';
+  return (
+    'Please copy this message, add your details, and send it back:\n\n' +
+    label + ':\n' +
+    'Meaning:\n' +
+    'Usage:'
+  );
+}
+
+function grammarStageReminderMessage_(member, meetingNo, stage) {
+  const label = String(stage || '').toUpperCase() === 'IDIOM'
+    ? 'Idiom of the Day'
+    : 'Word of the Day';
+  return (
+    'Hi ' + member + ',\n\n' +
+    'Just a reminder about the ' + label + ' for ATK Meeting ' + meetingNo + '.\n\n' +
+    grammarStageCopyMessage_(stage)
+  );
+}
+
+function sendGrammarStagePrompt_(member, phone, meetingNo, stage, sourceKind) {
+  const normalizedStage = String(stage || '').toUpperCase();
+  if (normalizedStage !== 'WORD' && normalizedStage !== 'IDIOM') return false;
+  if (!phone || !isWhatsAppRecipientAllowed_(phone)) return false;
+
+  // This collection flow is intentionally free-form. It should only start
+  // while the member has an open WhatsApp customer-service window.
+  if (!hasOpenWhatsAppServiceWindow_(phone)) return false;
+
+  const intro = grammarStageIntroMessage_(member, meetingNo, normalizedStage);
+  const format = grammarStageCopyMessage_(normalizedStage);
+  const baseKey = [
+    sourceKind || 'GRAMMAR_STAGE_PROMPT',
+    meetingNo,
+    'GRM',
+    member,
+    normalizedStage
+  ].join('|');
+
+  const first = sendWhatsAppText_(phone, intro);
+  recordWorkflowOutbound_(
+    member,
+    phone,
+    normalizedStage === 'WORD' ? 'GRAMMAR_WORD_PROMPT' : 'GRAMMAR_IDIOM_PROMPT',
+    intro,
+    meetingNo,
+    first,
+    baseKey + '|INTRO'
+  );
+  if (!first.ok) return false;
+
+  const second = sendWhatsAppText_(phone, format);
+  recordWorkflowOutbound_(
+    member,
+    phone,
+    normalizedStage === 'WORD' ? 'GRAMMAR_WORD_FORMAT' : 'GRAMMAR_IDIOM_FORMAT',
+    format,
+    meetingNo,
+    second,
+    baseKey + '|FORMAT'
+  );
+  if (!second.ok) return false;
+
+  setConversation_(phone, {
+    kind: 'GRAMMAR',
+    meetingNo: Number(meetingNo),
+    related: 'GRM',
+    step: normalizedStage,
+    data: {}
+  });
+  return true;
+}
+
+function handleGrammarStageSubmission_(member, phone, requestedMeetingNo, stage, body, messageId) {
+  if (!configBool_('GRAMMARIAN_WORKFLOW_ENABLED')) {
+    sendWhatsAppText_(phone, 'Grammarian collection is not active yet.');
+    return;
+  }
+
+  const task = findPendingTaskForMember_('GRAMMAR', member, requestedMeetingNo);
+  if (!task) {
+    sendWhatsAppText_(phone, 'I could not find a pending Grammarian submission for you.');
+    return;
+  }
+
+  const normalizedStage = String(stage || '').toUpperCase();
+  const expectedStage = grammarStageForMember_(task.meetingNo, member);
+  if (expectedStage === 'DONE') {
+    clearConversation_(phone);
+    sendWhatsAppText_(phone, 'Your Grammarian details are already complete. Thank you.');
+    return;
+  }
+
+  if (normalizedStage !== expectedStage) {
+    setConversation_(phone, {
+      kind: 'GRAMMAR',
+      meetingNo: task.meetingNo,
+      related: 'GRM',
+      step: expectedStage,
+      data: {}
+    });
+    sendWhatsAppText_(phone, grammarStageCopyMessage_(expectedStage));
+    return;
+  }
+
+  const details = parseGrammarStageBlock_(body, normalizedStage);
+  if (details.recognized < 3) {
+    sendWhatsAppText_(
+      phone,
+      'Please send all three details together.\n\n' + grammarStageCopyMessage_(normalizedStage)
+    );
+    return;
+  }
+
+  const assignment = verifyRoleAssignment_(task.meetingNo, 'GRM', member);
+  if (!assignment.ok) {
+    clearConversation_(phone);
+    sendWhatsAppText_(
+      phone,
+      'Your Grammarian assignment for Meeting ' + task.meetingNo +
+      ' has changed, so I did not save this.'
+    );
+    syncPhase1Tasks_();
+    return;
+  }
+
+  const submissionType = normalizedStage === 'WORD' ? 'GRAMMAR_WORD' : 'GRAMMAR_IDIOM';
+  appendSubmission_({
+    meetingNo: task.meetingNo,
+    member: member,
+    type: submissionType,
+    related: 'GRM',
+    values: [details.item, details.meaning, details.usage, ''],
+    sourceMessageId: messageId
+  });
+
+  if (normalizedStage === 'WORD') {
+    logAutomation_(
+      'Grammarian',
+      task.meetingNo,
+      member,
+      'Word of the Day received',
+      'Success',
+      details.item
+    );
+
+    // The member's submission itself refreshes the service window, so the
+    // Idiom request can immediately continue free-form.
+    setConversation_(phone, {
+      kind: 'GRAMMAR',
+      meetingNo: task.meetingNo,
+      related: 'GRM',
+      step: 'IDIOM',
+      data: {}
+    });
+    sendGrammarStagePrompt_(member, phone, task.meetingNo, 'IDIOM', 'GRAMMAR_AFTER_WORD');
+    syncPhase1Tasks_();
+    return;
+  }
+
+  clearConversation_(phone);
+  syncPhase1Tasks_();
+  sendWhatsAppText_(
+    phone,
+    'Thank you. Your Grammarian details are complete ✅\n\n' +
+    'Word and Idiom of the Day have both been received.'
+  );
+  logAutomation_(
+    'Grammarian',
+    task.meetingNo,
+    member,
+    'Idiom of the Day received — Grammarian details complete',
+    'Success',
+    details.item
+  );
+}
+
+
 function handleStructuredSubmission_(member, phone, rawText, messageId) {
   const text = String(rawText || '').trim();
   if (!text) return false;
@@ -143,6 +423,19 @@ function handleStructuredSubmission_(member, phone, rawText, messageId) {
   if (grammarBlock.recognized >= 4) {
     handleGrammarSubmission_(member, phone, 0, grammarBlock, messageId);
     return true;
+  }
+
+  const pendingGrammarTask = findPendingTaskForMember_('GRAMMAR', member, 0);
+  if (pendingGrammarTask) {
+    const grammarStage = grammarStageForMember_(pendingGrammarTask.meetingNo, member);
+    if (grammarStage === 'WORD' || grammarStage === 'IDIOM') {
+      const stageBlock = parseGrammarStageBlock_(text, grammarStage);
+      if (stageBlock.recognized >= 3) {
+        handleGrammarStageSubmission_(
+          member, phone, pendingGrammarTask.meetingNo, grammarStage, stageBlock, messageId);
+        return true;
+      }
+    }
   }
 
   const introMatch = text.match(/^INTRO(?:\s+(\d+))?\s*:\s*(.+)$/i);
@@ -452,6 +745,11 @@ function sendImmediateAssignmentPrompts_(meetingNo, roleDef, member, phone) {
       !configBool_('INTRO_WORKFLOW_ENABLED')) return;
   const kind = roleDef.code === 'TMOD' ? 'THEME' :
     roleDef.code === 'GRM' ? 'GRAMMAR' : 'INTRO';
+
+  if (kind === 'GRAMMAR') {
+    sendGrammarStagePrompt_(member, phone, meetingNo, 'WORD', 'ASSIGNMENT_PROMPT');
+    return;
+  }
 
   if (kind === 'INTRO' && defaultIntro_(member)) {
     const sent = sendIntroChoiceButtons_(
@@ -1661,20 +1959,12 @@ function processAssignedRolePrompts_() {
   });
 }
 
-function grammarDetailsRequestBody_(member, meetingNo, isReminder) {
-  return (
-    'Hi ' + member + ',\n\n' +
-    (isReminder
-      ? 'Just a reminder about the Grammarian details for ATK Meeting ' + meetingNo + '.\n\n' +
-        'We haven’t received them yet.\n\n'
-      : 'As Grammarian for ATK Meeting ' + meetingNo + ', please send your Grammarian details in one message.\n\n') +
-    'Please reply in one message:\n\n' +
-    'Word:\n' +
-    'Word meaning:\n' +
-    'Idiom:\n' +
-    'Idiom meaning:\n\n' +
-    'Thank you.'
-  );
+function grammarDetailsRequestBody_(member, meetingNo, isReminder, stage) {
+  const currentStage = String(stage || 'WORD').toUpperCase();
+  return isReminder
+    ? grammarStageReminderMessage_(member, meetingNo, currentStage)
+    : grammarStageIntroMessage_(member, meetingNo, currentStage) +
+      '\n\n' + grammarStageCopyMessage_(currentStage);
 }
 
 /**
@@ -1706,64 +1996,44 @@ function processMissingGrammarAssignmentPrompts_() {
     const assignment = verifyRoleAssignment_(meetingNo, 'GRM', member);
     if (!assignment.ok) return;
 
-    const assignmentKey = ['ASSIGNMENT_PROMPT', meetingNo, related, member].join('|');
+    const stage = grammarStageForMember_(meetingNo, member);
+    if (stage === 'DONE') return;
+
+    const assignmentKey = ['ASSIGNMENT_PROMPT', meetingNo, related, member, stage, 'INTRO'].join('|');
     if (hasReminderBeenSent_(assignmentKey)) return;
 
     const phone = phoneForMember_(member);
     if (!phone || !isWhatsAppRecipientAllowed_(phone)) return;
 
-    const body = grammarDetailsRequestBody_(member, meetingNo, false);
-    const result = sendAutomatedText_(
-      phone,
-      'GRAMMAR_REQUEST',
-      body,
-      [member, meetingNo, meetingNo]
-    );
+    // A manually entered role may not have opened a WhatsApp service window.
+    // Do not fall back to the retired all-in-one Grammarian template.
+    if (!hasOpenWhatsAppServiceWindow_(phone)) return;
 
-    if (result.ok) {
-      setConversation_(phone, {
-        kind: 'GRAMMAR',
-        meetingNo: meetingNo,
-        related: related,
-        step: 'DETAILS_BLOCK',
-        data: {}
-      });
-    }
-
-    recordWorkflowOutbound_(
-      member,
-      phone,
-      'ASSIGNMENT_PROMPT',
-      body,
-      meetingNo,
-      result,
-      assignmentKey
+    const sent = sendGrammarStagePrompt_(
+      member, phone, meetingNo, stage, 'ASSIGNMENT_PROMPT'
     );
 
     logAutomation_(
       'Grammarian',
       meetingNo,
       member,
-      'Missing Grammarian assignment prompt catch-up',
-      result.ok ? 'Sent' : (result.blocked ? 'Blocked' : 'Error'),
-      'Pending task; role verified; channel=' + (result.channelMode || 'UNKNOWN')
+      'Missing Grammarian stage prompt catch-up',
+      sent ? 'Sent' : 'Error',
+      'Stage=' + stage + ' | free-form only'
     );
   });
 }
-
 
 function processGrammarAssignmentReminder_() {
   if (!configBool_('GRAMMARIAN_WORKFLOW_ENABLED')) return;
 
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const tasks = ss.getSheetByName('Automation Tasks');
-  const outbox = ss.getSheetByName('WA Outbox');
-  if (!tasks || !outbox || tasks.getLastRow() < 2 || outbox.getLastRow() < 2) return;
+  if (!tasks || tasks.getLastRow() < 2) return;
 
   const now = new Date();
   const timezone = configValue_('TIMEZONE', 'Asia/Kolkata');
   const localHour = Number(Utilities.formatDate(now, timezone, 'H'));
-
   const reminderHours = String(
     configValue_('GRAMMAR_REMINDER_HOURS', '7,20')
   ).split(',')
@@ -1772,59 +2042,46 @@ function processGrammarAssignmentReminder_() {
 
   if (reminderHours.indexOf(localHour) === -1) return;
 
-  const successfulStates = new Set(['SENT', 'DELIVERED', 'READ', 'ACCEPTED']);
-  const taskRows = tasks.getRange(2, 1, tasks.getLastRow() - 1, 18).getValues();
-  const outboxRows = outbox.getRange(2, 1, outbox.getLastRow() - 1, 16).getValues();
-
-  taskRows.forEach(row => {
+  const rows = tasks.getRange(2, 1, tasks.getLastRow() - 1, 18).getValues();
+  rows.forEach(row => {
     if (String(row[2] || '') !== 'GRAMMAR' ||
         String(row[5] || '') !== 'Pending') return;
 
     const meetingNo = Number(row[1]);
     const member = String(row[3] || '').trim();
     const related = String(row[4] || '').trim();
-    if (!meetingNo || !member) return;
+    if (!meetingNo || !member || related !== 'GRM') return;
 
-    const assignmentKey = ['ASSIGNMENT_PROMPT', meetingNo, related, member].join('|');
-    const firstSend = outboxRows
-      .filter(r =>
-        String(r[15] || '') === assignmentKey &&
-        successfulStates.has(String(r[6] || '').toUpperCase()) &&
-        r[12] instanceof Date
-      )
-      .map(r => r[12])
-      .sort((a, b) => a.getTime() - b.getTime())[0];
-
-    if (!(firstSend instanceof Date) || now <= firstSend) return;
+    const stage = grammarStageForMember_(meetingNo, member);
+    if (stage === 'DONE') return;
 
     const phone = phoneForMember_(member);
     if (!phone || !isWhatsAppRecipientAllowed_(phone)) return;
 
+    // The old approved template asks for Word + Idiom together and no longer
+    // matches this flow. Reminders therefore stay free-form until a new
+    // reminder template is explicitly approved in the future.
+    if (!hasOpenWhatsAppServiceWindow_(phone)) return;
+
     const slotDate = Utilities.formatDate(now, timezone, 'yyyyMMdd');
     const reminderKey = [
-      'GRAMMAR_ASSIGNMENT_REMINDER',
+      'GRAMMAR_STAGE_REMINDER',
       meetingNo,
       related,
       member,
+      stage,
       slotDate,
       'H' + localHour
     ].join('|');
-
     if (hasReminderBeenSent_(reminderKey)) return;
 
-    const body = grammarDetailsRequestBody_(member, meetingNo, true);
-
-    const result = sendAutomatedText_(
-      phone,
-      'GRAMMAR_REQUEST',
-      body,
-      [member, meetingNo, meetingNo]
-    );
+    const body = grammarStageReminderMessage_(member, meetingNo, stage);
+    const result = sendWhatsAppText_(phone, body);
 
     recordWorkflowOutbound_(
       member,
       phone,
-      'GRAMMAR_ASSIGNMENT_REMINDER',
+      'GRAMMAR_STAGE_REMINDER',
       body,
       meetingNo,
       result,
@@ -1835,9 +2092,10 @@ function processGrammarAssignmentReminder_() {
       'Grammarian',
       meetingNo,
       member,
-      'Grammarian reminder at ' + (localHour === 20 ? '8 PM' : localHour + ' AM'),
+      'Grammarian ' + stage + ' reminder at ' +
+        (localHour === 20 ? '8 PM' : localHour + ' AM'),
       result.ok ? 'Sent' : (result.blocked ? 'Blocked' : 'Error'),
-      'Pending; channel=' + (result.channelMode || 'UNKNOWN')
+      'Free-form split flow'
     );
   });
 }
