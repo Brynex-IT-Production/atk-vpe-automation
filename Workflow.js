@@ -2574,21 +2574,17 @@ function processReadySpeakerDetailsToTmod_() {
 /* ATK_AGENDA_TIMING_V1 */
 /**
  * Agenda timing guardrail.
- * Hardcore rule: reserve one minute for 75% of presenter transitions.
+ * Fixed rule: reserve a 9-minute transition/buffer allowance for every meeting,
+ * regardless of the number of speakers or presenter changes.
  * Table Topics is the first/only flexible block. If the resulting TT time is
  * below 10 minutes, the VPE must explicitly KEEP or REMOVE it.
  */
 function agendaTimingDecision_(baseTableTopicsMinutes, presenters) {
-  const names = (presenters || []).map(v => String(v || '').trim()).filter(Boolean);
-  let totalTransitions = 0;
-  for (let i = 1; i < names.length; i++) {
-    if (names[i] !== names[i - 1]) totalTransitions++;
-  }
-  const transitionMinutes = Math.round(totalTransitions * 0.75);
+  const transitionMinutes = 9;
   const availableTableTopicsMinutes = Math.max(0, Number(baseTableTopicsMinutes || 0) - transitionMinutes);
   return {
-    totalTransitions: totalTransitions,
-    coveredTransitions: transitionMinutes,
+    totalTransitions: null,
+    coveredTransitions: null,
     transitionMinutes: transitionMinutes,
     availableTableTopicsMinutes: availableTableTopicsMinutes,
     needsVpeDecision: availableTableTopicsMinutes < 10
@@ -2658,7 +2654,7 @@ function recordAgendaTableTopicsDecision_(meetingNo, action, availableMinutes) {
       : 'VPE DECISION: REMOVE TABLE TOPICS'
   );
   sheet.getRange('I4').setNote(
-    'Transition rule: 1 minute reserved for 75% of presenter transitions. ' +
+    'Transition rule: fixed 9-minute meeting buffer. ' +
     'Decision recorded ' + new Date()
   );
   logAutomation_('Agenda', meetingNo, configValue_('VPE_MEMBER_NAME','Riyas AF'),
