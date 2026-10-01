@@ -41,27 +41,65 @@ function parseGrammarDetailsBlock_(text) {
 
   const raw = String(text || '').trim();
   const fields = {};
-  let recognized = 0;
+  let currentKey = '';
+  let section = '';
 
   raw.split(/\r?\n/).forEach(line => {
     const match = String(line || '').match(
-      /^\s*(Word(?: of the Day)?|Word meaning|Meaning of (?:the )?word|Idiom(?: of the Day)?|Idiom meaning|Meaning of (?:the )?idiom)\s*:\s*(.*?)\s*$/i
+      /^\s*(Word(?: of the Day)?|Word meaning|Meaning of (?:the )?word|Idiom(?: of the Day)?|Idiom meaning|Meaning of (?:the )?idiom|Meaning)\s*:\s*(.*?)\s*$/i
     );
-    if (!match) return;
 
-    const label = String(match[1] || '').toLowerCase();
-    const value = String(match[2] || '').trim();
-    let key = '';
+    if (match) {
+      const label = String(match[1] || '').toLowerCase();
+      const value = String(match[2] || '').trim();
+      let key = '';
 
-    if (/^word(?: of the day)?$/.test(label)) key = 'word';
-    else if (/^(word meaning|meaning of (?:the )?word)$/.test(label)) key = 'wordMeaning';
-    else if (/^idiom(?: of the day)?$/.test(label)) key = 'idiom';
-    else if (/^(idiom meaning|meaning of (?:the )?idiom)$/.test(label)) key = 'idiomMeaning';
+      if (/^word(?: of the day)?$/.test(label)) {
+        key = 'word';
+        section = 'word';
+      } else if (/^(word meaning|meaning of (?:the )?word)$/.test(label)) {
+        key = 'wordMeaning';
+        section = 'word';
+      } else if (/^idiom(?: of the day)?$/.test(label)) {
+        key = 'idiom';
+        section = 'idiom';
+      } else if (/^(idiom meaning|meaning of (?:the )?idiom)$/.test(label)) {
+        key = 'idiomMeaning';
+        section = 'idiom';
+      } else if (label === 'meaning') {
+        // Natural replies commonly use "Meaning:" twice. Resolve each one
+        // from the section that immediately precedes it, rather than requiring
+        // the stricter "Word meaning:" / "Idiom meaning:" labels.
+        if (section === 'word' && !fields.wordMeaning) {
+          key = 'wordMeaning';
+        } else if (section === 'idiom' && !fields.idiomMeaning) {
+          key = 'idiomMeaning';
+        } else if (fields.word && !fields.wordMeaning && !fields.idiom) {
+          key = 'wordMeaning';
+          section = 'word';
+        } else if (fields.idiom && !fields.idiomMeaning) {
+          key = 'idiomMeaning';
+          section = 'idiom';
+        }
+      }
 
-    if (!key) return;
-    if (!Object.prototype.hasOwnProperty.call(fields, key)) recognized++;
-    fields[key] = value;
+      currentKey = key;
+      if (key && value) fields[key] = value;
+      return;
+    }
+
+    // Preserve continuation lines inside a labelled field. This lets members
+    // send a longer definition over multiple lines without breaking parsing.
+    const continuation = String(line || '').trim();
+    if (continuation && currentKey) {
+      fields[currentKey] = fields[currentKey]
+        ? fields[currentKey] + '\n' + continuation
+        : continuation;
+    }
   });
+
+  let recognized = ['word', 'wordMeaning', 'idiom', 'idiomMeaning']
+    .filter(key => String(fields[key] || '').trim()).length;
 
   if (recognized < 4 && raw.indexOf('|') !== -1) {
     const parts = raw.split('|').map(v => String(v || '').trim());
@@ -84,7 +122,6 @@ function parseGrammarDetailsBlock_(text) {
     idiomMeaning: fields.idiomMeaning || ''
   };
 }
-
 
 function handleStructuredSubmission_(member, phone, rawText, messageId) {
   const text = String(rawText || '').trim();
