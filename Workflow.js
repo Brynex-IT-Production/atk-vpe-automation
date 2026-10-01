@@ -230,9 +230,11 @@ function grammarStageIntroMessage_(member, meetingNo, stage) {
     );
   }
 
+  const theme = meetingTheme_(meetingNo);
   return (
     'Hi ' + member + ',\n\n' +
     'Thank you for being the Grammarian for ATK Meeting ' + meetingNo + '.\n\n' +
+    (theme ? 'The meeting theme is: ' + theme + '\n\n' : '') +
     'Let’s start with the Word of the Day. Please share the Word, Meaning and Usage in the format below.'
   );
 }
