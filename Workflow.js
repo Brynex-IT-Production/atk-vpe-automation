@@ -524,6 +524,106 @@ function sendMeetingThemeToAssignedRoles_(meetingNo) {
 }
 
 
+function sendThemeAndTmodToVppr_(meetingNo) {
+  if (!configBool_('VPPR_THEME_HANDOFF_ENABLED')) return false;
+
+  const vppr = String(configValue_('VPPR_MEMBER_NAME', '') || '').trim();
+  if (!vppr) return false;
+
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const planner = ss.getSheetByName('VPE Weekly Planner');
+  if (!planner || planner.getLastRow() < 3) return false;
+
+  const ids = planner.getRange(3, 1, Math.min(60, planner.getLastRow() - 2), 1)
+    .getValues().flat();
+  const idx = ids.findIndex(v => Number(v) === Number(meetingNo));
+  if (idx < 0) return false;
+
+  const row = planner.getRange(idx + 3, 1, 1, 28).getValues()[0];
+  const theme = String(row[3] || '').trim();
+  const tmod = String(row[18] || '').trim();
+  if (!theme || !tmod) return false;
+
+  const phone = normalizePhone_(phoneForMember_(vppr));
+  if (!/^\d{10,15}$/.test(phone || '')) return false;
+  if (!isWhatsAppRecipientAllowed_(phone)) return false;
+
+  const key = ['VPPR_THEME_HANDOFF', meetingNo, vppr, theme, tmod].join('|');
+  if (hasReminderBeenSent_(key)) return false;
+
+  const body =
+    'Hi ' + vppr + ',\n\n' +
+    'ATK Meeting ' + meetingNo + ' update for promotion:\n\n' +
+    'Theme: ' + theme + '\n' +
+    'Toastmaster of the Day: ' + tmod + '\n\n' +
+    'Please use these details for the meeting promotion/poster.\n\n' +
+    'Thank you.';
+
+  const result = sendAutomatedText_(
+    phone,
+    'TMOD_UPDATE',
+    body,
+    [
+      vppr,
+      meetingNo,
+      'For VPPR promotion — Theme: ' + theme +
+        ' | Toastmaster of the Day: ' + tmod
+    ]
+  );
+
+  recordWorkflowOutbound_(
+    vppr,
+    phone,
+    'VPPR_THEME_HANDOFF',
+    body,
+    meetingNo,
+    result,
+    key
+  );
+
+  logAutomation_(
+    'VPPR Handoff',
+    meetingNo,
+    vppr,
+    'Theme + TMOD shared with VPPR',
+    result.ok ? 'Sent' : (result.blocked ? 'Blocked' : 'Error'),
+    'Theme=' + theme + ' | TMOD=' + tmod +
+      ' | channel=' + (result.channelMode || 'UNKNOWN')
+  );
+
+  return Boolean(result && result.ok);
+}
+
+
+function processVpprThemeHandoffs_() {
+  if (!configBool_('VPPR_THEME_HANDOFF_ENABLED')) return;
+
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const planner = ss.getSheetByName('VPE Weekly Planner');
+  if (!planner || planner.getLastRow() < 3) return;
+
+  const today = startOfDay_(new Date());
+  const rows = planner.getRange(
+    3, 1, Math.min(60, planner.getLastRow() - 2), 28
+  ).getValues();
+
+  rows.forEach(row => {
+    const meetingNo = Number(row[0]);
+    const meetingDate = row[1];
+    const status = String(row[2] || '').trim();
+    const theme = String(row[3] || '').trim();
+    const tmod = String(row[18] || '').trim();
+
+    if (!meetingNo || !(meetingDate instanceof Date)) return;
+    if (startOfDay_(meetingDate) < today) return;
+    if (['Completed', 'Cancelled'].indexOf(status) !== -1) return;
+    if (!theme || !tmod) return;
+
+    sendThemeAndTmodToVppr_(meetingNo);
+  });
+}
+
+
 function handleThemeSubmission_(member, phone, requestedMeetingNo, theme, messageId) {
   if (!configBool_('TMOD_WORKFLOW_ENABLED')) {
     sendWhatsAppText_(phone, 'Theme collection is not active yet.');
@@ -562,6 +662,7 @@ function handleThemeSubmission_(member, phone, requestedMeetingNo, theme, messag
   syncPhase1Tasks_();
   sendWhatsAppText_(phone, 'Theme received ✅\nMeeting ' + task.meetingNo + ': ' + cleanTheme);
   logAutomation_('TMOD Theme', task.meetingNo, member, 'Theme received', 'Success', cleanTheme);
+  sendThemeAndTmodToVppr_(task.meetingNo);
   sendMeetingThemeToAssignedRoles_(task.meetingNo);
 }
 
