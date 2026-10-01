@@ -164,7 +164,7 @@ function buildVpeExceptionDigest_() {
     );
 
     const grammarPending = pendingByType('GRAMMAR');
-    if (grammarPending.length) issues.push('Grammarian Word/Idiom pending');
+    if (grammarPending.length) issues.push('Grammarian Word/Idiom details pending');
 
     const introPending = pendingByType('INTRO');
     if (introPending.length) issues.push(introPending.length + ' role-player introduction' + (introPending.length === 1 ? '' : 's') + ' pending');
