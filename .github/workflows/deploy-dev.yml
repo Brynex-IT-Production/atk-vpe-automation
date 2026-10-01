@@ -131,7 +131,7 @@ jobs:
       - name: Run DEV scheduler tick after deployment
         shell: bash
         run: |
-          response=$(curl --fail-with-body --silent --show-error \
+          response=$(curl --location --fail-with-body --silent --show-error \
             --get \
             --data-urlencode 'system_action=PHASE1_TICK' \
             --data-urlencode 'verify_token=ATK_VPE_VERIFY_2026_X7K9M4P2' \
