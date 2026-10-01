@@ -470,10 +470,14 @@ function handleRoleSelection_(member, phone, interaction) {
     const result = reserveRole_(interaction.meetingNo, roleDef, member);
 
     if (result.status === 'BOOKED') {
-      sendWhatsAppText_(phone,
-        'Confirmed ✅\n' + roleDef.name + (result.speakerName ? ' for ' + result.speakerName : '') +
-        ' · ATK Meeting ' + interaction.meetingNo +
-        ' · ' + result.dateText + '\n\nThank you, ' + member + '.');
+      // Grammarian has its own two-message confirmation + copy/fill flow.
+      // Avoid a third, redundant generic confirmation message.
+      if (roleDef.code !== 'GRM') {
+        sendWhatsAppText_(phone,
+          'Confirmed ✅\n' + roleDef.name + (result.speakerName ? ' for ' + result.speakerName : '') +
+          ' · ATK Meeting ' + interaction.meetingNo +
+          ' · ' + result.dateText + '\n\nThank you, ' + member + '.');
+      }
 
       logAutomation_('Role Selection', interaction.meetingNo, member,
         'Role booked: ' + roleDef.name, 'Success', 'Planner row ' + result.rowNumber);
