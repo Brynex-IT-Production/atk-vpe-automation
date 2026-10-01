@@ -130,6 +130,19 @@ function parseGrammarStageBlock_(text, stage) {
     return { recognized: 0, item: '', meaning: '', usage: '' };
   }
 
+  if (text && typeof text === 'object') {
+    const item = String(text.item || '').trim();
+    const meaning = String(text.meaning || '').trim();
+    const usage = String(text.usage || '').trim();
+    return {
+      recognized: [item, meaning, usage].filter(Boolean).length,
+      item: item,
+      meaning: meaning,
+      usage: usage,
+      label: normalizedStage === 'WORD' ? 'Word' : 'Idiom'
+    };
+  }
+
   const raw = String(text || '').trim();
   const fields = {};
   let currentKey = '';
@@ -249,6 +262,13 @@ function sendGrammarStagePrompt_(member, phone, meetingNo, stage, sourceKind) {
   const normalizedStage = String(stage || '').toUpperCase();
   if (normalizedStage !== 'WORD' && normalizedStage !== 'IDIOM') return false;
   if (!phone || !isWhatsAppRecipientAllowed_(phone)) return false;
+
+  const active = activeConversation_(phone);
+  if (active && !(
+      active.kind === 'GRAMMAR' &&
+      Number(active.meetingNo) === Number(meetingNo) &&
+      String(active.step || '').toUpperCase() === normalizedStage
+    )) return false;
 
   // This collection flow is intentionally free-form. It should only start
   // while the member has an open WhatsApp customer-service window.
