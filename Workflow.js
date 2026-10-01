@@ -8,7 +8,7 @@ function parseSpeakerDetailsBlock_(text) {
   let recognized = 0;
 
   String(text || '').split(/\r?\n/).forEach(line => {
-    const match = String(line || '').match(/^\s*(Path|Level|Project|Title)\s*:\s*(.*?)\s*$/i);
+    const match = String(line || '').match(/^\s*(Path|Level|Project|Title|Time)\s*:\s*(.*?)\s*$/i);
     if (!match) return;
     const key = match[1].toLowerCase();
     if (!Object.prototype.hasOwnProperty.call(fields, key)) recognized++;
@@ -1669,7 +1669,7 @@ function handleSpeakerDetailsSubmission_(member, phone, requestedMeetingNo, body
     member,
     type: 'SPEAKER_DETAILS',
     related: task.related,
-    values: parts.slice(0, 4),
+    values: parts.slice(0, 5),
     sourceMessageId: messageId
   });
 
