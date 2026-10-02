@@ -2825,3 +2825,64 @@ function recordAgendaTableTopicsDecision_(meetingNo, action, availableMinutes) {
     'Available=' + availableMinutes + ' min');
   return true;
 }
+
+
+/* ATK_AGENDA_DEADLINE_V1 */
+/**
+ * Hard agenda publication rule.
+ * The agenda must not be blocked by missing role-player inputs.
+ * Default deadline: Saturday 8:00 PM, Asia/Kolkata.
+ *
+ * Readiness can publish earlier; once the deadline is reached this returns
+ * publishNow=true even when required details are still pending. Missing values
+ * should be rendered as "Pending" / "TBC" by the agenda builder and can be
+ * revised later when submissions arrive.
+ */
+function agendaPublicationDecision_(meetingDate, readiness) {
+  const timezone = configValue_('TIMEZONE', 'Asia/Kolkata');
+  const deadlineDay = String(configValue_('AGENDA_PUBLISH_DEADLINE_DAY', 'SATURDAY')).toUpperCase();
+  const deadlineHour = Math.max(0, Math.min(23,
+    Number(configValue_('AGENDA_PUBLISH_DEADLINE_HOUR', '20')) || 20
+  ));
+
+  const meeting = meetingDate instanceof Date ? new Date(meetingDate) : new Date(meetingDate);
+  if (isNaN(meeting.getTime())) {
+    return {publishNow:false, deadlineReached:false, ready:false, error:'Invalid meeting date'};
+  }
+
+  const dayMap = {SUNDAY:0, MONDAY:1, TUESDAY:2, WEDNESDAY:3, THURSDAY:4, FRIDAY:5, SATURDAY:6};
+  const targetDay = Object.prototype.hasOwnProperty.call(dayMap, deadlineDay) ? dayMap[deadlineDay] : 6;
+
+  // ATK meetings are normally Monday; walk backwards to the configured
+  // publication weekday so the rule also behaves correctly if a meeting date changes.
+  const deadline = new Date(meeting);
+  deadline.setHours(deadlineHour, 0, 0, 0);
+  while (deadline.getDay() !== targetDay || deadline.getTime() >= meeting.getTime()) {
+    deadline.setDate(deadline.getDate() - 1);
+  }
+
+  const now = new Date();
+  const ready = Boolean(readiness && readiness.ready);
+  const deadlineReached = now.getTime() >= deadline.getTime();
+
+  return {
+    publishNow: ready || deadlineReached,
+    deadlineReached: deadlineReached,
+    ready: ready,
+    deadline: deadline,
+    timezone: timezone,
+    allowPendingFields: deadlineReached && !ready,
+    publicationReason: ready ? 'READY' : (deadlineReached ? 'HARD_DEADLINE' : 'WAITING_FOR_INPUTS')
+  };
+}
+
+/**
+ * Normalizes unresolved agenda values for a deadline publication.
+ * This deliberately keeps publication moving instead of treating a missing
+ * Theme / Grammarian / speaker field as a blocker.
+ */
+function agendaValueForPublication_(value, deadlineReached) {
+  const clean = String(value == null ? '' : value).trim();
+  if (clean) return clean;
+  return deadlineReached ? 'TBC' : '[Pending]';
+}
