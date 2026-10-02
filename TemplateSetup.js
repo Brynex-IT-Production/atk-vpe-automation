@@ -579,3 +579,9 @@ function agendaApprovalSpec_() {
     buttons: [{type: 'QUICK_REPLY', text: 'Approve Agenda'}]
   };
 }
+
+function submitAgendaApprovalTemplateFromDev() {
+  const result = createAtkWhatsAppTemplates_();
+  console.log(JSON.stringify(result));
+  return result;
+}
