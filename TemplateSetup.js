@@ -33,6 +33,7 @@ function getAtkWhatsAppTemplateSpecs_() {
     speakerDetailsV3Spec_(),
     vpeProgrammeReviewSpec_(),
     speakerMoveRequestSpec_(),
+    agendaApprovalSpec_(),
     {
       name: 'atk_role_reminder',
       language: 'en_US',
@@ -567,3 +568,14 @@ function speakerMoveRequestSpec_() {
 }
 
 
+
+function agendaApprovalSpec_() {
+  return {
+    name: 'atk_agenda_approval_v1',
+    language: 'en_US',
+    category: 'UTILITY',
+    body: 'Hi {{1}},\n\nThe agenda for ATK Meeting {{2}} is ready for review.\n\nPlease review the attached agenda and approve it if everything is in order.',
+    examples: ['Riyas AF', '451'],
+    buttons: [{type: 'QUICK_REPLY', text: 'Approve Agenda'}]
+  };
+}
