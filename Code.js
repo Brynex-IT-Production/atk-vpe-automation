@@ -16,6 +16,15 @@ function doGet(e) {
     return renderProgrammeReviewPage_(String(e.parameter.token || ''));
   }
 
+  // CREATE_WA_TEMPLATES_GET — DEV deployment helper
+  if (e && e.parameter &&
+      e.parameter.system_action === 'CREATE_WA_TEMPLATES' &&
+      e.parameter.verify_token === VERIFY_TOKEN) {
+    const result = createAtkWhatsAppTemplates_();
+    return ContentService.createTextOutput(JSON.stringify(result))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
   if (e && e.parameter &&
       e.parameter.system_action === 'PHASE1_TICK' &&
       e.parameter.verify_token === VERIFY_TOKEN) {
