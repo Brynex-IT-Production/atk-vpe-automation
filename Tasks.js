@@ -52,6 +52,7 @@ function phase1ScheduledTick() {
   processMonthlyProgrammePlanning_();
   processSpeakingSlotTargeting_();
   updateControlCenterReadiness_();
+  processAgendaApprovalAutomation_();
   processVpeExceptionDigest_();
 }
 
@@ -680,4 +681,43 @@ function sendApprovedRoleReminderV2DevTestOnce_() {
   } finally {
     lock.releaseLock();
   }
+}
+
+
+/* ATK_AGENDA_APPROVAL_SCHEDULER_V1 */
+function processAgendaApprovalAutomation_() {
+  if (!configBool_('AGENDA_APPROVAL_WORKFLOW_ENABLED')) return;
+
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const planner = ss.getSheetByName('VPE Weekly Planner');
+  const preview = ss.getSheetByName('Agenda Preview');
+  if (!planner || !preview) return;
+
+  const previewMeetingNo = Number(preview.getRange('B4').getValue());
+  if (!previewMeetingNo) return;
+
+  const ids = planner.getRange(3,1,Math.max(0,Math.min(60,planner.getLastRow()-2)),1)
+    .getValues().flat();
+  const idx = ids.findIndex(v => Number(v) === previewMeetingNo);
+  if (idx < 0) return;
+
+  const meetingDate = planner.getRange(idx+3,2).getValue();
+  if (!(meetingDate instanceof Date)) return;
+
+  // The preview itself is the current canonical readiness surface. If any
+  // explicit pending markers remain, readiness is false; the hard Saturday
+  // deadline may still force publication for approval.
+  const display = preview.getDataRange().getDisplayValues();
+  const pending = display.some(row => row.some(v => /^\s*(\[Pending\]|\[Pending time\]|Pending)\s*$/i.test(String(v||''))));
+  const decision = agendaPublicationDecision_(meetingDate, {ready:!pending});
+  if (!decision.publishNow) return;
+
+  const current = latestAgendaApprovalRecord_(previewMeetingNo);
+  const fingerprint = agendaPreviewFingerprint_();
+  if (current && String(current.values[4]||'') === fingerprint &&
+      ['AWAITING_APPROVAL','APPROVED'].indexOf(String(current.values[5]||'')) >= 0) {
+    return;
+  }
+
+  sendAgendaForApproval_(previewMeetingNo);
 }
