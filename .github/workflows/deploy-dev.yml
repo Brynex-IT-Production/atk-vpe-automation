@@ -138,3 +138,4 @@ jobs:
             'https://script.google.com/macros/s/AKfycbwzHdJptr44J1aWN4UqHp6qN435kwFPbG8ngYGEYABqypF2urE0Jyd0hLd63M-wYVVE/exec')
           echo "$response"
           test "$response" = "PHASE1_TICK_OK"
+
