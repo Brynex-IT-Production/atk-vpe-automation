@@ -2886,3 +2886,199 @@ function agendaValueForPublication_(value, deadlineReached) {
   if (clean) return clean;
   return deadlineReached ? 'TBC' : '[Pending]';
 }
+
+
+/* ATK_AGENDA_APPROVAL_V1
+ * Agenda approval is satisfied by EITHER the VPE OR the President.
+ * The exact PDF version sent for review is fingerprinted so a later edit
+ * cannot inherit an earlier approval.
+ */
+function agendaApprovalSheet_() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let sheet = ss.getSheetByName('Agenda Approvals');
+  if (!sheet) {
+    sheet = ss.insertSheet('Agenda Approvals');
+    sheet.appendRow([
+      'Meeting No','Version','PDF File ID','PDF URL','Fingerprint','Status',
+      'VPE Status','President Status','Approved By','Approved At','Created At','Notes'
+    ]);
+    sheet.hideSheet();
+  }
+  return sheet;
+}
+
+function agendaPreviewFingerprint_() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = ss.getSheetByName('Agenda Preview');
+  if (!sheet) throw new Error('Agenda Preview not found.');
+  const values = sheet.getDataRange().getDisplayValues();
+  const raw = JSON.stringify(values);
+  const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, raw, Utilities.Charset.UTF_8);
+  return bytes.map(v => ('0' + (v & 255).toString(16)).slice(-2)).join('');
+}
+
+function latestAgendaApprovalRecord_(meetingNo) {
+  const sheet = agendaApprovalSheet_();
+  if (sheet.getLastRow() < 2) return null;
+  const rows = sheet.getRange(2,1,sheet.getLastRow()-1,12).getValues();
+  for (let i=rows.length-1;i>=0;i--) {
+    if (Number(rows[i][0]) === Number(meetingNo)) return {row:i+2, values:rows[i]};
+  }
+  return null;
+}
+
+function createAgendaPdfForReview_(meetingNo) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const preview = ss.getSheetByName('Agenda Preview');
+  if (!preview) throw new Error('Agenda Preview not found.');
+
+  const fingerprint = agendaPreviewFingerprint_();
+  const existing = latestAgendaApprovalRecord_(meetingNo);
+  if (existing && String(existing.values[4] || '') === fingerprint &&
+      String(existing.values[2] || '')) {
+    const file = DriveApp.getFileById(String(existing.values[2]));
+    return {file:file, version:Number(existing.values[1] || 1), fingerprint:fingerprint,
+      row:existing.row, reused:true};
+  }
+
+  const version = existing ? Number(existing.values[1] || 0) + 1 : 1;
+  const base = ss.getUrl().replace(/edit.*$/, '');
+  const exportUrl = base + 'export?format=pdf&gid=' + preview.getSheetId() +
+    '&portrait=true&size=A4&fitw=true&sheetnames=false&printtitle=false' +
+    '&pagenumbers=false&gridlines=false&fzr=false&top_margin=0.25&bottom_margin=0.25' +
+    '&left_margin=0.25&right_margin=0.25';
+
+  const token = ScriptApp.getOAuthToken();
+  const response = UrlFetchApp.fetch(exportUrl, {
+    headers:{Authorization:'Bearer ' + token}, muteHttpExceptions:true
+  });
+  if (response.getResponseCode() < 200 || response.getResponseCode() >= 300) {
+    throw new Error('Agenda PDF export failed. HTTP ' + response.getResponseCode());
+  }
+
+  const name = 'ATK_Meeting_' + meetingNo + '_Agenda_v' + version + '_REVIEW.pdf';
+  const blob = response.getBlob().setName(name);
+  const folderId = String(configValue_('AGENDA_PDF_FOLDER_ID','')).trim();
+  const file = folderId ? DriveApp.getFolderById(folderId).createFile(blob) : DriveApp.createFile(blob);
+
+  const approvals = agendaApprovalSheet_();
+  approvals.appendRow([
+    Number(meetingNo), version, file.getId(), file.getUrl(), fingerprint, 'AWAITING_APPROVAL',
+    'PENDING','PENDING','','',new Date(),'Either VPE or President approval is sufficient.'
+  ]);
+  return {file:file, version:version, fingerprint:fingerprint, row:approvals.getLastRow(), reused:false};
+}
+
+function uploadAgendaPdfToMeta_(file) {
+  const props = PropertiesService.getScriptProperties();
+  const token = props.getProperty('META_ACCESS_TOKEN');
+  const phoneId = props.getProperty('WA_PHONE_NUMBER_ID');
+  if (!token || !phoneId) throw new Error('Meta credentials missing.');
+  const response = UrlFetchApp.fetch(
+    'https://graph.facebook.com/v26.0/' + encodeURIComponent(phoneId) + '/media',
+    {method:'post', headers:{Authorization:'Bearer ' + token},
+     payload:{messaging_product:'whatsapp', type:'application/pdf', file:file.getBlob()},
+     muteHttpExceptions:true}
+  );
+  const http=response.getResponseCode();
+  let data={}; try{data=JSON.parse(response.getContentText()||'{}');}catch(_){}
+  if (http<200 || http>=300 || !data.id) throw new Error('Meta PDF upload failed. HTTP ' + http);
+  return String(data.id);
+}
+
+function sendAgendaApprovalReview_(member, phone, meetingNo, pdf, roleLabel) {
+  if (!phone || !isWhatsAppRecipientAllowed_(phone)) {
+    return {ok:false, blocked:true, error:'Recipient not allowlisted in current send mode'};
+  }
+  if (!hasOpenWhatsAppServiceWindow_(phone)) {
+    return {ok:false, deferred:true, templateRequired:true,
+      error:'Agenda PDF approval template required outside service window'};
+  }
+
+  const mediaId = uploadAgendaPdfToMeta_(pdf.file);
+  const caption = 'ATK Meeting ' + meetingNo + ' — Agenda v' + pdf.version +
+    '\n\nPlease review the attached agenda. If everything is okay, tap Approve Agenda. ' +
+    'Approval from either the VPE or President will finalize this version.';
+
+  const documentResult = sendWhatsAppPayload_({
+    messaging_product:'whatsapp', recipient_type:'individual', to:normalizePhone_(phone),
+    type:'document', document:{id:mediaId, filename:pdf.file.getName(), caption:caption}
+  });
+  recordWorkflowOutbound_(member, phone, 'AGENDA_PDF_REVIEW', caption, meetingNo, documentResult,
+    ['AGENDA_PDF_REVIEW',meetingNo,pdf.version,member].join('|'));
+  if (!documentResult.ok) return documentResult;
+
+  const body = 'ATK Meeting ' + meetingNo + ' Agenda v' + pdf.version +
+    '\nApprove this exact PDF version?';
+  const buttonResult = sendWhatsAppPayload_({
+    messaging_product:'whatsapp', recipient_type:'individual', to:normalizePhone_(phone),
+    type:'interactive', interactive:{type:'button', body:{text:body}, action:{buttons:[
+      {type:'reply',reply:{id:['AGENDA_APPROVE',meetingNo,pdf.version,pdf.fingerprint].join('|'),title:'Approve Agenda'}}
+    ]}}
+  });
+  recordWorkflowOutbound_(member, phone, 'AGENDA_APPROVAL_REQUEST', body, meetingNo, buttonResult,
+    ['AGENDA_APPROVAL_REQUEST',meetingNo,pdf.version,member].join('|'));
+  return buttonResult;
+}
+
+function sendAgendaForApproval_(meetingNo) {
+  const pdf = createAgendaPdfForReview_(meetingNo);
+  const vpe = configValue_('VPE_MEMBER_NAME','Riyas AF');
+  const president = configValue_('PRESIDENT_MEMBER_NAME','Abhilasha Kishore');
+  const recipients = [
+    {member:vpe, role:'VPE'},
+    {member:president, role:'President'}
+  ];
+  const results = recipients.map(r => {
+    const phone = phoneForMember_(r.member);
+    const result = sendAgendaApprovalReview_(r.member, phone, meetingNo, pdf, r.role);
+    return {member:r.member, role:r.role, result:result};
+  });
+  logAutomation_('Agenda',meetingNo,'VPE + President','Agenda PDF approval dispatch',
+    results.some(x=>x.result&&x.result.ok)?'Sent':'Deferred',
+    'Version=' + pdf.version + ' | either approval finalizes');
+  return {meetingNo:Number(meetingNo), version:pdf.version, fingerprint:pdf.fingerprint, results:results};
+}
+
+function recordAgendaApproval_(meetingNo, version, fingerprint, member, messageId) {
+  const record = latestAgendaApprovalRecord_(meetingNo);
+  if (!record || Number(record.values[1]) !== Number(version) ||
+      String(record.values[4] || '') !== String(fingerprint || '')) {
+    sendWhatsAppText_(phoneForMember_(member),
+      'That agenda version is no longer current. Please review the latest agenda.');
+    return {ok:false, stale:true};
+  }
+  if (String(record.values[5] || '') === 'APPROVED') {
+    sendWhatsAppText_(phoneForMember_(member),
+      'This agenda version has already been approved and finalized.');
+    return {ok:true, alreadyApproved:true};
+  }
+
+  const sheet = agendaApprovalSheet_();
+  const vpe = configValue_('VPE_MEMBER_NAME','Riyas AF');
+  const president = configValue_('PRESIDENT_MEMBER_NAME','Abhilasha Kishore');
+  const role = member === vpe ? 'VPE' : (member === president ? 'President' : '');
+  if (!role) return {ok:false, error:'Unauthorized agenda approver'};
+
+  if (role === 'VPE') sheet.getRange(record.row,7).setValue('APPROVED');
+  if (role === 'President') sheet.getRange(record.row,8).setValue('APPROVED');
+  sheet.getRange(record.row,6).setValue('APPROVED');
+  sheet.getRange(record.row,9).setValue(member + ' (' + role + ')');
+  sheet.getRange(record.row,10).setValue(new Date());
+  sheet.getRange(record.row,12).setValue('Approved by ' + role + '. Either approver is sufficient.');
+
+  const ss=SpreadsheetApp.openById(SPREADSHEET_ID);
+  const preview=ss.getSheetByName('Agenda Preview');
+  if (preview) {
+    preview.getRange('I1').setValue('APPROVED — ' + role);
+    preview.getRange('I2').setValue('Approved by: ' + member);
+    preview.getRange('I3').setValue('Agenda v' + version + ' finalized');
+  }
+
+  sendWhatsAppText_(phoneForMember_(member),
+    'Agenda approved ✅\nATK Meeting ' + meetingNo + ' · Version ' + version +
+    '\nThis version is now finalized.');
+  logAutomation_('Agenda',meetingNo,member,'Agenda approval','Approved',
+    'Version=' + version + ' | Message=' + String(messageId||''));
+  return {ok:true, approvedBy:member, role:role};
+}
