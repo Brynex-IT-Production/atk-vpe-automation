@@ -19,6 +19,13 @@ function phase1ScheduledTick() {
   }
 
   try {
+    const agendaTemplateStatus = String(configValue_('WA_TEMPLATE_AGENDA_APPROVAL_STATUS', '')).toUpperCase();
+    if (agendaTemplateStatus !== 'SUBMITTED' && agendaTemplateStatus !== 'APPROVED') {
+      const templateResult = createAtkWhatsAppTemplates_();
+      logAutomation_('WhatsApp Templates', '', '', 'Agenda approval template submission',
+        templateResult && templateResult.ok ? 'Success' : 'Error',
+        JSON.stringify(templateResult || {}));
+    }
     syncAtkTemplateApprovalStatus_();
   } catch (error) {
     logAutomation_('WhatsApp Templates', '', '', 'Approval status sync', 'Error', String(error));
