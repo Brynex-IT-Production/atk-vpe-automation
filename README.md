@@ -16,3 +16,5 @@ Automation system for Advanced Toastmasters of Kerala (ATK) VPE operations.
 - DEV Spreadsheet ID: `1qZnZov1l9DfvhTzruqlLubGhydcOOFKLf2kG8xplNLM`
 
 The initial workflow safely bootstraps the current Apps Script source into this repository before future code changes are deployed from GitHub.
+
+<!-- deployment refresh 2026-10-02 agenda -->
