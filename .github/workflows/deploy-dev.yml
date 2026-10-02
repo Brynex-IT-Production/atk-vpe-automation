@@ -113,6 +113,11 @@ jobs:
           cd /tmp/atk-vpe-dev
           clasp push --force
 
+      - name: Run template submission directly from HEAD
+        run: |
+          cd /tmp/atk-vpe-dev
+          clasp run-function submitAgendaApprovalTemplateFromDev
+
       - name: Verify existing DEV web app deployment
         run: |
           cd /tmp/atk-vpe-dev
