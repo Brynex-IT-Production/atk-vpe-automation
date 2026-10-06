@@ -46,6 +46,8 @@ function apiHandleRequest_(payload) {
         return {status:200,data:{members:apiListMembers_(clubId)}};
       case 'meeting_template.get':
         return {status:200,data:apiDefaultMeetingTemplate_(clubId)};
+      case 'club.bootstrap':
+        return {status:200,data:apiClubBootstrap_(clubId)};
       case 'meeting.create':
         return {status:201,data:apiCreateMeeting_(clubId,payload)};
       case 'meeting.get':
@@ -344,4 +346,21 @@ function apiDashboard_(clubId) {
   }));
 
   return {club_id:clubId,meetings:meetings,pending_actions:pending};
+}
+
+
+function apiClubBootstrap_(clubId) {
+  return {
+    club:{club_id:clubId,name:clubId === API_DEFAULT_CLUB_ID_ ? 'ATK' : clubId,
+      timezone:configValue_('TIMEZONE','Asia/Kolkata')},
+    members:apiListMembers_(clubId),
+    meeting_template:apiDefaultMeetingTemplate_(clubId),
+    capabilities:{
+      meeting_planning:true,
+      custom_sessions:true,
+      ordered_items:true,
+      dashboard:true,
+      whatsapp_activation:false
+    }
+  };
 }
