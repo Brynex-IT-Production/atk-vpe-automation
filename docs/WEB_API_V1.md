@@ -135,3 +135,43 @@ Do not expose `meeting.sync`, sheet names, planner meeting numbers, task-sheet f
 
 ## Activation validation
 Before automation can start, the backend validates the meeting. V1 currently requires a TMOD and an evaluator for every assigned prepared speaker. Failed validation returns `MEETING_NOT_READY` with actionable details for the UI.
+
+
+## API readiness freeze
+No new product features are to be added during frontend integration. The API surface for the agreed V1 screens is:
+
+- health
+- club.bootstrap
+- club.settings.get / club.settings.save
+- members.list / member.save
+- excom.list / excom.save
+- meeting_template.get
+- meetings.list
+- meeting.create / meeting.get / meeting.save
+- dashboard.get
+- meeting.activate
+- meeting.sync (internal migration only; disabled unless WEB_API_ALLOW_LEGACY_SYNC=TRUE)
+
+All frontend requests should send `api_version: "v1"`.
+
+## Security for frontend integration
+`WEB_API_KEY` is acceptable only for server-to-server/dev integration. It MUST NOT be compiled into or shipped in a public Flutter Web bundle. Before public beta, replace it with authenticated user/session tokens or put a trusted backend-for-frontend in front of this Apps Script API. Meta/WhatsApp tokens remain server-side only.
+
+## Integration test matrix
+The frontend/backend handoff is accepted only after these scenarios pass without live WhatsApp sends:
+
+1. Bootstrap ATK and load active members/default meeting structure.
+2. Create a normal meeting and retrieve it.
+3. Assign members using member IDs; save and retrieve identical order.
+4. Drag/reorder items; saved order survives reload.
+5. Remove Speaker 3, add an Education Session, place it in the desired order, save/reload.
+6. Reject unknown/inactive member IDs.
+7. Reject duplicate standard role codes.
+8. Incomplete meeting returns actionable activation issues.
+9. Ready meeting can reach READY_FOR_SYNC without sending WhatsApp.
+10. Dashboard returns upcoming readiness plus UI-ready pending actions.
+11. Legacy sync remains blocked unless explicitly enabled server-side.
+12. Existing Meta webhook path continues to process non-API requests unchanged.
+
+## Frontend acceptance criterion
+A VPE must be able to onboard club data, plan and edit a meeting, see readiness/pending actions and prepare the meeting without opening Google Sheets. Any normal workflow that requires the VPE to open a Sheet is an integration defect.
