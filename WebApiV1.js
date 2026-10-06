@@ -10,6 +10,7 @@ const API_V1_VERSION_ = '2026-10-06';
 const API_MEETING_ITEMS_SHEET_ = 'API Meeting Items';
 const API_MEETINGS_SHEET_ = 'API Meetings';
 const API_DEFAULT_CLUB_ID_ = 'ATK';
+const API_ALLOW_LEGACY_SYNC_PROPERTY_ = 'WEB_API_ALLOW_LEGACY_SYNC';
 const API_CLUB_SETTINGS_SHEET_ = 'API Club Settings';
 const API_EXCOM_SHEET_ = 'API ExCom';
 
@@ -413,6 +414,12 @@ function apiActivateMeeting_(clubId,meetingId) {
  * Custom sessions remain in API Meeting Items and are handled by Programme Planning.
  */
 function apiSyncMeetingToLegacyPlanner_(clubId, meetingId) {
+  const allowed = String(PropertiesService.getScriptProperties().getProperty(API_ALLOW_LEGACY_SYNC_PROPERTY_) || '').toUpperCase() === 'TRUE';
+  if (!allowed) {
+    const err = new Error('Legacy sync is disabled in this environment');
+    err.apiCode = 'LEGACY_SYNC_DISABLED';
+    throw err;
+  }
   if (clubId !== API_DEFAULT_CLUB_ID_) throw new Error('Legacy adapter currently supports ATK only');
   const meeting = apiGetMeeting_(clubId, meetingId);
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -556,7 +563,8 @@ function apiClubBootstrap_(clubId) {
       custom_sessions:true,
       ordered_items:true,
       dashboard:true,
-      whatsapp_activation:false
+      whatsapp_activation:false,
+      legacy_sync:false
     }
   };
 }
