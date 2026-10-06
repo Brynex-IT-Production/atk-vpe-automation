@@ -62,6 +62,14 @@ function doPost(e) {
   try {
 
     const incoming = JSON.parse(e.postData.contents);
+
+    // WEB_API_V1: Flutter/Web requests are explicitly namespaced so they can
+    // share the Apps Script deployment without entering Meta webhook logic.
+    if (incoming && incoming.api_version === 'v1') {
+      const apiResult = apiHandleRequest_(incoming);
+      return apiJson_(apiResult.status || 200, apiResult.data, apiResult.error);
+    }
+
     const relaySecret = PropertiesService.getScriptProperties()
       .getProperty('RELAY_SHARED_SECRET');
     let payload = incoming;
