@@ -11,6 +11,10 @@ const SUBMISSION_SHEET_ = 'WA Submissions';
 function phase1ScheduledTick() {
   if (!configBool_('TASK_ENGINE_ENABLED')) return;
 
+  // Member introductions are intentionally opt-in. Keep this workflow off unless
+  // the VPE explicitly enables INTRO_WORKFLOW_ENABLED for a future use case.
+  const introWorkflowEnabled = configBool_('INTRO_WORKFLOW_ENABLED');
+
   try {
     ensureProgrammePlanningSetup_();
     syncProgrammeSlots_();
@@ -51,11 +55,11 @@ function phase1ScheduledTick() {
   // This order prevents a first-time catch-up and a reminder firing in the same tick.
   processGrammarAssignmentReminder_();
   processMissingGrammarAssignmentPrompts_();
-  processIntroChoiceTimeouts_();
+  if (introWorkflowEnabled) processIntroChoiceTimeouts_();
   processThemeRequestReminder_();
-  processReadyIntroductionBundles_();
+  if (introWorkflowEnabled) processReadyIntroductionBundles_();
   processReadySpeakerDetailsToTmod_();
-  processMemberIntroOnboarding_();
+  if (introWorkflowEnabled) processMemberIntroOnboarding_();
   processEvaluatorNotifications_();
   processMonthlyProgrammePlanning_();
   processSpeakingSlotTargeting_();
@@ -169,7 +173,7 @@ function syncPhase1Tasks_() {
 
       // Role-player introduction task once the role is filled. TMOD does not need
       // an introduction for themselves.
-      if (member && def.code !== 'TMOD') {
+      if (introWorkflowEnabled && member && def.code !== 'TMOD') {
         const introKey = taskId_(meetingNo, 'INTRO', def.code, member);
         const introDone = submissions.has(submissionKey_(meetingNo, member, 'INTRO', def.code));
 
@@ -273,6 +277,7 @@ function syncPhase1Tasks_() {
         payload: JSON.stringify({ slot: sp.slot })
       });
 
+      if (introWorkflowEnabled) {
       const speakerIntroKey = taskId_(meetingNo, 'INTRO', slotRef, sp.member);
       const speakerIntroDone = submissions.has(submissionKey_(meetingNo, sp.member, 'INTRO', slotRef));
       generated[speakerIntroKey] = buildTask_(existing[speakerIntroKey], {
@@ -286,6 +291,8 @@ function syncPhase1Tasks_() {
         reference: 'Speaker ' + sp.slot,
         payload: JSON.stringify({ slot: sp.slot })
       });
+
+      }
 
       const evaluatorKey = taskId_(meetingNo, 'EVALUATOR_ASSIGNMENT', slotRef, sp.member);
       generated[evaluatorKey] = buildTask_(existing[evaluatorKey], {
@@ -302,6 +309,7 @@ function syncPhase1Tasks_() {
 
       if (sp.evaluator) {
         const evaluatorRole = 'EV' + sp.slot;
+        if (introWorkflowEnabled) {
         const evaluatorIntroKey = taskId_(meetingNo, 'INTRO', evaluatorRole, sp.evaluator);
         const evaluatorIntroDone = submissions.has(
           submissionKey_(meetingNo, sp.evaluator, 'INTRO', evaluatorRole));
@@ -316,6 +324,7 @@ function syncPhase1Tasks_() {
           reference: 'Evaluator for ' + sp.member,
           payload: JSON.stringify({roleCode: evaluatorRole, roleName: 'Evaluator ' + sp.slot})
         });
+        }
         const coordinationKey = taskId_(meetingNo, 'EVALUATOR_COORDINATION', slotRef, sp.member);
         const speakerPairKey = ['EVALUATOR_PAIR_SPEAKER', meetingNo, slotRef, sp.member, sp.evaluator].join('|');
         const evaluatorPairKey = ['EVALUATOR_PAIR_EVALUATOR', meetingNo, slotRef, sp.evaluator, sp.member].join('|');
