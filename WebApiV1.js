@@ -52,6 +52,8 @@ function apiHandleRequest_(payload) {
         return {status:200,data:apiGetMeeting_(clubId,String(payload.meeting_id || ''))};
       case 'meeting.save':
         return {status:200,data:apiSaveMeeting_(clubId,payload)};
+      case 'meeting.sync':
+        return {status:200,data:apiSyncMeetingToLegacyPlanner_(clubId,String(payload.meeting_id || ''))};
       case 'meeting.activate':
         return {status:200,data:apiActivateMeeting_(clubId,String(payload.meeting_id || ''))};
       default:
