@@ -91,3 +91,21 @@ This maps standard roles/speeches to the existing VPE Weekly Planner but sends n
 
 ## Security note for Flutter Web
 Do not permanently embed `WEB_API_KEY` in a public Flutter Web bundle. For the internal Dev handoff it can be supplied through a controlled relay/test environment. Before public launch, authentication must move to a user/session token or a server/BFF layer. Meta credentials always remain server-side.
+
+
+## Locked V1 architecture (2026-10-06)
+- Flutter Web is the only normal VPE operating interface.
+- Google Sheets are temporary hidden storage only; VPEs must never need sheet access.
+- Existing proven WhatsApp/workflow logic is preserved.
+- The API is the permanent product boundary.
+- New client-facing features must use domain objects/IDs, never sheet rows or columns.
+- Normal meeting operations must not require developer intervention.
+- Migration success criterion: ATK can run meetings from the web app without the VPE opening Sheets.
+
+## Dashboard
+`dashboard.get` returns upcoming meetings, readiness by workflow area, and pending role-player actions. The Flutter client does not read Automation Tasks or planner cells directly.
+
+Example:
+```json
+{"api_version":"v1","api_key":"...","action":"dashboard.get","club_id":"ATK"}
+```
