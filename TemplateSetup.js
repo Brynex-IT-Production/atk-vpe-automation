@@ -34,6 +34,7 @@ function getAtkWhatsAppTemplateSpecs_() {
     vpeProgrammeReviewSpec_(),
     speakerMoveRequestSpec_(),
     agendaApprovalSpec_(),
+    grammarHandoffSpec_(),
     {
       name: 'atk_role_reminder',
       language: 'en_US',
@@ -125,6 +126,35 @@ function getAtkWhatsAppTemplateSpecs_() {
       examples: ['Riyas AF', '450', 'Speaker Anil Mathew — speech title and project details']
     }
   ];
+}
+
+
+function grammarHandoffSpec_() {
+  return {
+    name: 'atk_grammar_handoff_v1',
+    language: 'en_US',
+    category: 'UTILITY',
+    body:
+      'Hi {{1}},\n\n' +
+      'The Grammarian details for ATK Meeting {{2}} are ready.\n\n' +
+      'Word of the Day: {{3}}\n' +
+      'Meaning: {{4}}\n' +
+      'Usage: {{5}}\n\n' +
+      'Idiom of the Day: {{6}}\n' +
+      'Meaning: {{7}}\n' +
+      'Usage: {{8}}\n\n' +
+      'These are the final details approved by the Grammarian.',
+    examples: [
+      'Riyas AF',
+      '451',
+      'Nostalgia',
+      'A warm and sometimes bittersweet feeling we experience when remembering happy moments from the past.',
+      'Visiting my old school filled me with nostalgia and brought back many wonderful memories.',
+      'Down memory lane',
+      'To remember or talk about pleasant experiences from the past.',
+      'Looking through our old college photos took us down memory lane.'
+    ]
+  };
 }
 
 function createOrReadTemplate_(token, wabaId, spec) {
