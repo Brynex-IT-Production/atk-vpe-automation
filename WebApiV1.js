@@ -64,7 +64,11 @@ function apiHandleRequest_(payload) {
         return {status:404,error:{code:'UNKNOWN_ACTION',message:'Unknown API action: '+action}};
     }
   } catch (err) {
-    return {status:500,error:{code:'INTERNAL_ERROR',message:String(err && err.message || err)}};
+    return {status:500,error:{
+      code:String(err && err.apiCode || 'INTERNAL_ERROR'),
+      message:String(err && err.message || err),
+      details:(err && err.details) || null
+    }};
   }
 }
 
@@ -236,8 +240,30 @@ function apiSaveMeeting_(clubId,payload) {
   return apiGetMeeting_(clubId,meetingId);
 }
 
+function apiActivationCheck_(meeting) {
+  const byCode = {};
+  meeting.items.forEach(x => { if (x.code) byCode[x.code] = x; });
+  const errors = [];
+  if (!byCode.TMOD || !byCode.TMOD.member_id) errors.push({code:'TMOD_REQUIRED',message:'Assign a TMOD before starting automation.'});
+  const speakerCodes = ['S1','S2','S3'].filter(code => byCode[code] && byCode[code].member_id);
+  speakerCodes.forEach(code => {
+    const ev = 'EV'+code.slice(1);
+    if (!byCode[ev] || !byCode[ev].member_id) {
+      errors.push({code:'EVALUATOR_REQUIRED',related:code,message:'Assign an evaluator for '+code+' before starting automation.'});
+    }
+  });
+  return {ready:errors.length===0,errors:errors};
+}
+
 function apiActivateMeeting_(clubId,meetingId) {
   const meeting = apiGetMeeting_(clubId,meetingId);
+  const check = apiActivationCheck_(meeting);
+  if (!check.ready) {
+    const err = new Error('Meeting is not ready for activation');
+    err.apiCode = 'MEETING_NOT_READY';
+    err.details = check.errors;
+    throw err;
+  }
   if (meeting.status === 'ACTIVE') return meeting;
 
   // Safety: API V1 activation does NOT send WhatsApp. It only marks the web plan
