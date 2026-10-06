@@ -21,9 +21,19 @@ function apiJson_(status, data, error) {
   })).setMimeType(ContentService.MimeType.JSON);
 }
 
+function apiAuthenticate_(payload) {
+  const expected = String(PropertiesService.getScriptProperties().getProperty('WEB_API_KEY') || '');
+  if (!expected) return false;
+  const supplied = String(payload && payload.api_key || '');
+  return supplied && supplied === expected;
+}
+
 function apiHandleRequest_(payload) {
   payload = payload || {};
   const action = String(payload.action || '').trim();
+  if (action !== 'health' && !apiAuthenticate_(payload)) {
+    return {status:401,error:{code:'UNAUTHORIZED',message:'Valid API key required'}};
+  }
   const clubId = String(payload.club_id || API_DEFAULT_CLUB_ID_).trim();
 
   if (!action) return {status:400,error:{code:'MISSING_ACTION',message:'action is required'}};
@@ -179,11 +189,25 @@ function apiGetMeeting_(clubId,meetingId) {
   };
 }
 
+function apiValidateMeetingItems_(items) {
+  const knownCodes = {TMOD:1,GE:1,TTM:1,S1:1,S2:1,S3:1,EV1:1,EV2:1,EV3:1,Timer:1,Ah:1,GRM:1};
+  const seenCodes = {};
+  (items || []).forEach(item => {
+    const code = String(item.code || '');
+    const type = String(item.type || 'role');
+    if (code && !knownCodes[code]) throw new Error('Unsupported standard code: '+code);
+    if (code && seenCodes[code]) throw new Error('Duplicate standard code: '+code);
+    if (code) seenCodes[code] = true;
+    if (type === 'session' && code) throw new Error('Custom sessions must not use a standard role code');
+  });
+}
+
 function apiSaveMeeting_(clubId,payload) {
   const meetingId = String(payload.meeting_id || '');
   const sheets = apiEnsureSheets_();
   const meeting = apiGetMeeting_(clubId,meetingId);
   if (meeting.status === 'ACTIVE') throw new Error('Active meeting cannot be structurally edited in API V1');
+  apiValidateMeetingItems_(payload.items || []);
   const saved = apiReplaceMeetingItems_(sheets.items,clubId,meetingId,payload.items || []);
   // touch updated timestamp
   for (let r=2;r<=sheets.meetings.getLastRow();r++) {
@@ -211,4 +235,52 @@ function apiActivateMeeting_(clubId,meetingId) {
     }
   }
   return apiGetMeeting_(clubId,meetingId);
+}
+
+
+/**
+ * Synchronizes an ordered API meeting into the legacy planner.
+ * This writes only the fields the proven automation already understands.
+ * Custom sessions remain in API Meeting Items and are handled by Programme Planning.
+ */
+function apiSyncMeetingToLegacyPlanner_(clubId, meetingId) {
+  if (clubId !== API_DEFAULT_CLUB_ID_) throw new Error('Legacy adapter currently supports ATK only');
+  const meeting = apiGetMeeting_(clubId, meetingId);
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const planner = ss.getSheetByName('VPE Weekly Planner');
+  if (!planner) throw new Error('VPE Weekly Planner missing');
+
+  const rows = planner.getRange(3,1,Math.max(0,planner.getLastRow()-2),28).getValues();
+  const wanted = String(meeting.meeting_date);
+  let idx = rows.findIndex(r => {
+    if (!(r[1] instanceof Date)) return false;
+    return Utilities.formatDate(r[1], configValue_('TIMEZONE','Asia/Kolkata'), 'yyyy-MM-dd') === wanted;
+  });
+  if (idx < 0) throw new Error('No legacy planner row exists for meeting date '+wanted);
+
+  const rowNo = idx + 3;
+  const byCode = {};
+  meeting.items.forEach(x => { if (x.code) byCode[x.code] = x; });
+  const memberName = code => String((byCode[code] && byCode[code].member_name) || '').trim();
+
+  // Speakers and their status columns.
+  [['S1',7,9],['S2',11,13],['S3',15,17]].forEach(x => {
+    planner.getRange(rowNo,x[1]).setValue(memberName(x[0]));
+    planner.getRange(rowNo,x[2]).setValue(memberName(x[0]) ? 'Planned' : '');
+  });
+
+  // Standard role columns.
+  ROLE_DEFS_.forEach(def => planner.getRange(rowNo,def.column).setValue(memberName(def.code)));
+  SpreadsheetApp.flush();
+
+  const meetingNo = Number(planner.getRange(rowNo,1).getValue());
+  const sheets = apiEnsureSheets_();
+  for (let r=2;r<=sheets.meetings.getLastRow();r++) {
+    if (String(sheets.meetings.getRange(r,1).getValue())===meetingId) {
+      sheets.meetings.getRange(r,7).setValue(meetingNo);
+      sheets.meetings.getRange(r,6).setValue(new Date());
+      break;
+    }
+  }
+  return {meeting_id:meetingId,planner_meeting_no:meetingNo,synced:true};
 }
