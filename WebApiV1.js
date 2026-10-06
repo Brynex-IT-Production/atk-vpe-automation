@@ -10,6 +10,8 @@ const API_V1_VERSION_ = '2026-10-06';
 const API_MEETING_ITEMS_SHEET_ = 'API Meeting Items';
 const API_MEETINGS_SHEET_ = 'API Meetings';
 const API_DEFAULT_CLUB_ID_ = 'ATK';
+const API_CLUB_SETTINGS_SHEET_ = 'API Club Settings';
+const API_EXCOM_SHEET_ = 'API ExCom';
 
 function apiJson_(status, data, error) {
   return ContentService.createTextOutput(JSON.stringify({
@@ -44,6 +46,16 @@ function apiHandleRequest_(payload) {
         return {status:200,data:{service:'vpe-api',status:'ok'}};
       case 'members.list':
         return {status:200,data:{members:apiListMembers_(clubId)}};
+      case 'member.save':
+        return {status:200,data:apiSaveMember_(clubId,payload)};
+      case 'club.settings.get':
+        return {status:200,data:apiGetClubSettings_(clubId)};
+      case 'club.settings.save':
+        return {status:200,data:apiSaveClubSettings_(clubId,payload)};
+      case 'excom.list':
+        return {status:200,data:{excom:apiListExCom_(clubId)}};
+      case 'excom.save':
+        return {status:200,data:apiSaveExCom_(clubId,payload)};
       case 'meeting_template.get':
         return {status:200,data:apiDefaultMeetingTemplate_(clubId)};
       case 'club.bootstrap':
@@ -87,6 +99,94 @@ function apiListMembers_(clubId) {
       status:String(r[3] || '').trim()
     }))
     .filter(m => m.member_id && m.name);
+}
+
+
+function apiSaveMember_(clubId,payload) {
+  if (clubId !== API_DEFAULT_CLUB_ID_) throw new Error('Club not provisioned: '+clubId);
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sh = ss.getSheetByName('Member Master');
+  if (!sh) throw new Error('Member Master missing');
+  const memberId = String(payload.member_id || '').trim() || apiNewId_('MEM');
+  const name = String(payload.name || '').trim();
+  const whatsapp = String(payload.whatsapp || '').trim();
+  const status = String(payload.status || 'Active').trim();
+  if (!name) throw new Error('name is required');
+  if (!whatsapp) throw new Error('whatsapp is required');
+  const rows = sh.getLastRow() >= 2 ? sh.getRange(2,1,sh.getLastRow()-1,4).getValues() : [];
+  const idx = rows.findIndex(r => String(r[0] || '').trim() === memberId);
+  if (idx >= 0) sh.getRange(idx+2,1,1,4).setValues([[memberId,name,whatsapp,status]]);
+  else sh.appendRow([memberId,name,whatsapp,status]);
+  SpreadsheetApp.flush();
+  return {member_id:memberId,name:name,whatsapp:whatsapp,status:status};
+}
+
+function apiEnsureOnboardingSheets_() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let settings = ss.getSheetByName(API_CLUB_SETTINGS_SHEET_);
+  if (!settings) {
+    settings = ss.insertSheet(API_CLUB_SETTINGS_SHEET_);
+    settings.appendRow(['Club ID','Club Name','Timezone','Meeting Time','Updated At']);
+    settings.hideSheet();
+  }
+  let excom = ss.getSheetByName(API_EXCOM_SHEET_);
+  if (!excom) {
+    excom = ss.insertSheet(API_EXCOM_SHEET_);
+    excom.appendRow(['Club ID','Officer Role','Member ID','Member Name','Updated At']);
+    excom.hideSheet();
+  }
+  return {settings:settings,excom:excom};
+}
+
+function apiGetClubSettings_(clubId) {
+  const sheets = apiEnsureOnboardingSheets_();
+  const rows = sheets.settings.getLastRow() >= 2
+    ? sheets.settings.getRange(2,1,sheets.settings.getLastRow()-1,5).getValues() : [];
+  const row = rows.find(r => String(r[0]) === clubId);
+  return row ? {club_id:clubId,name:String(row[1]),timezone:String(row[2]),meeting_time:String(row[3])}
+    : {club_id:clubId,name:clubId === API_DEFAULT_CLUB_ID_ ? 'ATK' : clubId,
+       timezone:configValue_('TIMEZONE','Asia/Kolkata'),meeting_time:''};
+}
+
+function apiSaveClubSettings_(clubId,payload) {
+  const sheets = apiEnsureOnboardingSheets_();
+  const current = apiGetClubSettings_(clubId);
+  const name = String(payload.name || current.name || '').trim();
+  const timezone = String(payload.timezone || current.timezone || 'Asia/Kolkata').trim();
+  const meetingTime = String(payload.meeting_time || current.meeting_time || '').trim();
+  if (!name) throw new Error('Club name is required');
+  if (meetingTime && !/^([01]\\d|2[0-3]):[0-5]\\d$/.test(meetingTime)) throw new Error('meeting_time must be HH:MM');
+  const rows = sheets.settings.getLastRow() >= 2
+    ? sheets.settings.getRange(2,1,sheets.settings.getLastRow()-1,5).getValues() : [];
+  const idx = rows.findIndex(r => String(r[0]) === clubId);
+  const values = [[clubId,name,timezone,meetingTime,new Date()]];
+  if (idx >= 0) sheets.settings.getRange(idx+2,1,1,5).setValues(values);
+  else sheets.settings.appendRow(values[0]);
+  return apiGetClubSettings_(clubId);
+}
+
+function apiListExCom_(clubId) {
+  const sheets = apiEnsureOnboardingSheets_();
+  if (sheets.excom.getLastRow() < 2) return [];
+  return sheets.excom.getRange(2,1,sheets.excom.getLastRow()-1,5).getValues()
+    .filter(r => String(r[0]) === clubId)
+    .map(r => ({officer_role:String(r[1]),member_id:String(r[2]),member_name:String(r[3])}));
+}
+
+function apiSaveExCom_(clubId,payload) {
+  const role = String(payload.officer_role || '').trim();
+  const memberId = String(payload.member_id || '').trim();
+  if (!role || !memberId) throw new Error('officer_role and member_id are required');
+  const member = apiMemberIndex_(clubId)[memberId];
+  if (!member) throw new Error('Unknown or inactive member_id: '+memberId);
+  const sheets = apiEnsureOnboardingSheets_();
+  const rows = sheets.excom.getLastRow() >= 2
+    ? sheets.excom.getRange(2,1,sheets.excom.getLastRow()-1,5).getValues() : [];
+  const idx = rows.findIndex(r => String(r[0]) === clubId && String(r[1]) === role);
+  const values = [[clubId,role,memberId,member.name,new Date()]];
+  if (idx >= 0) sheets.excom.getRange(idx+2,1,1,5).setValues(values);
+  else sheets.excom.appendRow(values[0]);
+  return {officer_role:role,member_id:memberId,member_name:member.name};
 }
 
 function apiDefaultMeetingTemplate_(clubId) {
@@ -387,9 +487,9 @@ function apiDashboard_(clubId) {
 
 function apiClubBootstrap_(clubId) {
   return {
-    club:{club_id:clubId,name:clubId === API_DEFAULT_CLUB_ID_ ? 'ATK' : clubId,
-      timezone:configValue_('TIMEZONE','Asia/Kolkata')},
+    club:apiGetClubSettings_(clubId),
     members:apiListMembers_(clubId),
+    excom:apiListExCom_(clubId),
     meeting_template:apiDefaultMeetingTemplate_(clubId),
     capabilities:{
       meeting_planning:true,
