@@ -195,9 +195,16 @@ function apiGetMeeting_(clubId,meetingId) {
   };
 }
 
-function apiValidateMeetingItems_(items) {
+function apiMemberIndex_(clubId) {
+  const map = {};
+  apiListMembers_(clubId).forEach(m => { map[m.member_id] = m; });
+  return map;
+}
+
+function apiValidateMeetingItems_(items, clubId) {
   const knownCodes = {TMOD:1,GE:1,TTM:1,S1:1,S2:1,S3:1,EV1:1,EV2:1,EV3:1,Timer:1,Ah:1,GRM:1};
   const seenCodes = {};
+  const members = apiMemberIndex_(clubId);
   (items || []).forEach(item => {
     const code = String(item.code || '');
     const type = String(item.type || 'role');
@@ -205,6 +212,9 @@ function apiValidateMeetingItems_(items) {
     if (code && seenCodes[code]) throw new Error('Duplicate standard code: '+code);
     if (code) seenCodes[code] = true;
     if (type === 'session' && code) throw new Error('Custom sessions must not use a standard role code');
+    const memberId = String(item.member_id || '');
+    if (memberId && !members[memberId]) throw new Error('Unknown or inactive member_id: '+memberId);
+    if (memberId && !String(item.member_name || '').trim()) item.member_name = members[memberId].name;
   });
 }
 
@@ -213,7 +223,7 @@ function apiSaveMeeting_(clubId,payload) {
   const sheets = apiEnsureSheets_();
   const meeting = apiGetMeeting_(clubId,meetingId);
   if (meeting.status === 'ACTIVE') throw new Error('Active meeting cannot be structurally edited in API V1');
-  apiValidateMeetingItems_(payload.items || []);
+  apiValidateMeetingItems_(payload.items || [],clubId);
   const saved = apiReplaceMeetingItems_(sheets.items,clubId,meetingId,payload.items || []);
   // touch updated timestamp
   for (let r=2;r<=sheets.meetings.getLastRow();r++) {
