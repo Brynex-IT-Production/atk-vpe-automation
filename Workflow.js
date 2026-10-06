@@ -679,6 +679,72 @@ function sendGrammarApprovalButtons_(member, phone, meetingNo, stage, item, mean
   return result;
 }
 
+function approvedGrammarBundle_(meetingNo) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = ss.getSheetByName('WA Submissions');
+  if (!sheet || sheet.getLastRow() < 2) return null;
+  const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 14).getValues();
+  const out = {};
+  rows.forEach(row => {
+    if (Number(row[1]) !== Number(meetingNo) || String(row[4] || '').trim() !== 'GRM') return;
+    const type = String(row[3] || '').trim().toUpperCase();
+    if (type === 'GRAMMAR_WORD') out.word = {item:String(row[5]||'').trim(), meaning:String(row[6]||'').trim(), usage:String(row[7]||'').trim()};
+    if (type === 'GRAMMAR_IDIOM') out.idiom = {item:String(row[5]||'').trim(), meaning:String(row[6]||'').trim(), usage:String(row[7]||'').trim()};
+  });
+  return out.word && out.idiom ? out : null;
+}
+
+function grammarHandoffRecipients_(meetingNo) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const planner = ss.getSheetByName('VPE Weekly Planner');
+  const recipients = [];
+  if (planner && planner.getLastRow() >= 3) {
+    const ids = planner.getRange(3, 1, Math.min(60, planner.getLastRow() - 2), 1).getValues().flat();
+    const idx = ids.findIndex(v => Number(v) === Number(meetingNo));
+    if (idx >= 0) {
+      const row = planner.getRange(idx + 3, 1, 1, 28).getValues()[0];
+      const tmod = String(row[18] || '').trim();
+      if (tmod) recipients.push({member:tmod, role:'Toastmaster of the Day'});
+    }
+  }
+  const vpe = String(configValue_('VPE_MEMBER_NAME', 'Riyas AF') || '').trim();
+  if (vpe && !recipients.some(r => r.member === vpe)) recipients.push({member:vpe, role:'VP Education'});
+  return recipients;
+}
+
+function sendApprovedGrammarBundle_(meetingNo) {
+  const bundle = approvedGrammarBundle_(meetingNo);
+  if (!bundle) return false;
+  const body =
+    'The Grammarian details for ATK Meeting ' + meetingNo + ' are ready.\n\n' +
+    'Word of the Day: ' + bundle.word.item + '\n' +
+    'Meaning: ' + bundle.word.meaning + '\n' +
+    'Usage: ' + bundle.word.usage + '\n\n' +
+    'Idiom of the Day: ' + bundle.idiom.item + '\n' +
+    'Meaning: ' + bundle.idiom.meaning + '\n' +
+    'Usage: ' + bundle.idiom.usage + '\n\n' +
+    'These are the final details approved by the Grammarian.';
+  let anySent = false;
+  grammarHandoffRecipients_(meetingNo).forEach(recipient => {
+    const phone = normalizePhone_(phoneForMember_(recipient.member));
+    if (!phone || !isWhatsAppRecipientAllowed_(phone)) return;
+    const key = ['GRAMMAR_HANDOFF', meetingNo, recipient.member,
+      bundle.word.item, bundle.idiom.item].join('|');
+    if (hasReminderBeenSent_(key)) return;
+    const personalized = 'Hi ' + recipient.member + ',\n\n' + body;
+    const result = sendAutomatedText_(phone, 'GRAMMAR_HANDOFF', personalized,
+      [recipient.member, meetingNo, bundle.word.item, bundle.idiom.item]);
+    recordWorkflowOutbound_(recipient.member, phone, 'GRAMMAR_HANDOFF',
+      personalized, meetingNo, result, key);
+    logAutomation_('Grammarian', meetingNo, recipient.member,
+      'Approved Word + Idiom shared with ' + recipient.role,
+      result && result.ok ? 'Sent' : (result && result.blocked ? 'Blocked' : 'Error'),
+      bundle.word.item + ' / ' + bundle.idiom.item);
+    if (result && result.ok) anySent = true;
+  });
+  return anySent;
+}
+
 function saveApprovedGrammarStage_(member, phone, meetingNo, stage, details, sourceMessageId) {
   const normalizedStage = String(stage || '').toUpperCase();
   appendSubmission_({
@@ -701,6 +767,9 @@ function saveApprovedGrammarStage_(member, phone, meetingNo, stage, details, sou
     sendWhatsAppText_(phone,
       'Thank you. Your Grammarian details are complete ✅\n\n' +
       'Word and Idiom of the Day have both been approved.');
+    // Both approved items are now canonical: compile once and hand them to
+    // the TMOD and VP Education. Idempotency prevents duplicate successful sends.
+    sendApprovedGrammarBundle_(meetingNo);
   }
   syncPhase1Tasks_();
 }
