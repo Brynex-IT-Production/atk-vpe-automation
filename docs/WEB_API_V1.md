@@ -109,3 +109,29 @@ Example:
 ```json
 {"api_version":"v1","api_key":"...","action":"dashboard.get","club_id":"ATK"}
 ```
+
+
+## Frontend integration sequence
+1. Login/session established by the product shell.
+2. Call `club.bootstrap` once to load club, active members, default structure and capabilities.
+3. `meeting.create` after the VPE selects a date.
+4. Keep local UI edits client-side while the VPE assigns/reorders.
+5. `meeting.save` persists the ordered array.
+6. `meeting.sync` is a temporary backend migration operation and should NOT be shown as a VPE button.
+7. `meeting.activate` is the future Start Automation boundary. In the current safe branch it does not send WhatsApp.
+8. `dashboard.get` drives upcoming-meeting readiness and pending actions.
+
+## UX-to-API mapping
+- Select date -> meeting.create
+- Search member dropdown -> bootstrap.members (client-side search)
+- Drag row -> reorder local items array
+- Add session -> append/insert item with type=session
+- Delete row -> remove item from local array
+- Save Meeting Plan -> meeting.save
+- Dashboard refresh -> dashboard.get
+
+## Important UI rule
+Do not expose `meeting.sync`, sheet names, planner meeting numbers, task-sheet fields, Meta template names or Apps Script concepts in the VPE interface.
+
+## Activation validation
+Before automation can start, the backend validates the meeting. V1 currently requires a TMOD and an evaluator for every assigned prepared speaker. Failed validation returns `MEETING_NOT_READY` with actionable details for the UI.
