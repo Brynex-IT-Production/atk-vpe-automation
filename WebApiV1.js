@@ -63,7 +63,9 @@ function apiHandleRequest_(payload) {
       case 'meeting.create':
         return {status:201,data:apiCreateMeeting_(clubId,payload)};
       case 'meeting.get':
-        return {status:200,data:apiGetMeeting_(clubId,String(payload.meeting_id || ''))};
+        return {status:200,data:apiMeetingDetail_(clubId,String(payload.meeting_id || ''))};
+      case 'meetings.list':
+        return {status:200,data:{meetings:apiListMeetings_(clubId)}};
       case 'meeting.save':
         return {status:200,data:apiSaveMeeting_(clubId,payload)};
       case 'meeting.sync':
@@ -299,6 +301,31 @@ function apiGetMeeting_(clubId,meetingId) {
   };
 }
 
+
+function apiListMeetings_(clubId) {
+  const sheets = apiEnsureSheets_();
+  if (sheets.meetings.getLastRow() < 2) return [];
+  return sheets.meetings.getRange(2,1,sheets.meetings.getLastRow()-1,7).getValues()
+    .filter(r => String(r[1]) === clubId)
+    .map(r => ({
+      meeting_id:String(r[0]),meeting_date:String(r[2]),status:String(r[3]),
+      updated_at:r[5] instanceof Date ? r[5].toISOString() : String(r[5] || '')
+    }))
+    .sort((a,b)=>a.meeting_date.localeCompare(b.meeting_date));
+}
+
+function apiMeetingDetail_(clubId,meetingId) {
+  const meeting = apiGetMeeting_(clubId,meetingId);
+  const check = apiActivationCheck_(meeting);
+  const actions = meeting.planner_meeting_no ? apiPendingActionsForMeeting_(Number(meeting.planner_meeting_no)) : [];
+  return {
+    meeting_id:meeting.meeting_id,club_id:meeting.club_id,meeting_date:meeting.meeting_date,
+    status:meeting.status,items:meeting.items,
+    activation:{ready:check.ready,issues:check.errors},
+    pending_actions:actions
+  };
+}
+
 function apiMemberIndex_(clubId) {
   const map = {};
   apiListMembers_(clubId).forEach(m => { map[m.member_id] = m; });
@@ -432,6 +459,39 @@ function apiSyncMeetingToLegacyPlanner_(clubId, meetingId) {
  * VPE-facing dashboard projection. Sheets remain an implementation detail:
  * the client receives meetings/readiness/actions as domain objects only.
  */
+
+function apiPendingActionLabel_(type,member,related,state) {
+  const names = {
+    THEME:'Theme pending', GRAMMAR:'Grammarian input pending',
+    SPEAKER_DETAILS:'Speech details pending', INTRO:'Introduction pending',
+    EVALUATOR_COORDINATION:'Evaluator coordination pending'
+  };
+  const title = names[type] || (String(type || '').replace(/_/g,' ').toLowerCase() + ' pending');
+  return {
+    title:title.charAt(0).toUpperCase()+title.slice(1),
+    description:[member,related].filter(Boolean).join(' · '),
+    severity:state === 'Escalated' ? 'attention' : 'pending'
+  };
+}
+
+function apiPendingActionsForMeeting_(meetingNo) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const tasks = ss.getSheetByName(TASK_SHEET_);
+  if (!tasks || tasks.getLastRow() < 2) return [];
+  return tasks.getRange(2,1,tasks.getLastRow()-1,18).getValues()
+    .filter(r => Number(r[1]) === Number(meetingNo) &&
+      ['Pending','Sent','Escalated'].indexOf(String(r[5] || '')) >= 0)
+    .map(r => {
+      const ui = apiPendingActionLabel_(String(r[2] || ''),String(r[3] || ''),String(r[4] || ''),String(r[5] || ''));
+      return {
+        action_id:String(r[0] || ''),kind:String(r[2] || ''),member_name:String(r[3] || ''),
+        related:String(r[4] || ''),state:String(r[5] || ''),title:ui.title,
+        description:ui.description,severity:ui.severity,
+        due_at:r[6] instanceof Date ? r[6].toISOString() : String(r[6] || '')
+      };
+    });
+}
+
 function apiDashboard_(clubId) {
   if (clubId !== API_DEFAULT_CLUB_ID_) throw new Error('Club not provisioned: '+clubId);
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -471,15 +531,15 @@ function apiDashboard_(clubId) {
 
   const pending = taskRows.filter(r =>
     ['Pending','Sent','Escalated'].indexOf(String(r[5] || '')) >= 0
-  ).map(r => ({
-    task_id:String(r[0] || ''),
-    meeting_no:Number(r[1] || 0),
-    type:String(r[2] || ''),
-    member:String(r[3] || ''),
-    related:String(r[4] || ''),
-    state:String(r[5] || ''),
-    due_at:r[6] instanceof Date ? r[6].toISOString() : String(r[6] || '')
-  }));
+  ).map(r => {
+    const ui = apiPendingActionLabel_(String(r[2] || ''),String(r[3] || ''),String(r[4] || ''),String(r[5] || ''));
+    return {
+      action_id:String(r[0] || ''),meeting_no:Number(r[1] || 0),
+      kind:String(r[2] || ''),member_name:String(r[3] || ''),related:String(r[4] || ''),
+      state:String(r[5] || ''),title:ui.title,description:ui.description,severity:ui.severity,
+      due_at:r[6] instanceof Date ? r[6].toISOString() : String(r[6] || '')
+    };
+  });
 
   return {club_id:clubId,meetings:meetings,pending_actions:pending};
 }
