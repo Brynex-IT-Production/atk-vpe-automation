@@ -578,3 +578,34 @@ function apiClubBootstrap_(clubId) {
     }
   };
 }
+
+
+/**
+ * Non-destructive DEV smoke test. Does not sync the legacy planner or send WhatsApp.
+ * Run manually after deploying the DEV Apps Script version.
+ */
+function apiDevSmokeTest_() {
+  const report = [];
+  const check = (name,fn) => {
+    try { const value=fn(); report.push({name:name,ok:true,value:value}); }
+    catch (e) { report.push({name:name,ok:false,error:String(e && e.message || e)}); }
+  };
+  check('members',()=>({count:apiListMembers_(API_DEFAULT_CLUB_ID_).length}));
+  check('club_settings',()=>apiGetClubSettings_(API_DEFAULT_CLUB_ID_));
+  check('excom',()=>({count:apiListExCom_(API_DEFAULT_CLUB_ID_).length}));
+  check('template',()=>({items:apiDefaultMeetingTemplate_(API_DEFAULT_CLUB_ID_).items.length}));
+  check('dashboard',()=>{
+    const d=apiDashboard_(API_DEFAULT_CLUB_ID_);
+    return {meetings:d.meetings.length,pending_actions:d.pending_actions.length};
+  });
+  check('legacy_sync_guard',()=>{
+    const enabled=String(PropertiesService.getScriptProperties().getProperty(API_ALLOW_LEGACY_SYNC_PROPERTY_) || '').toUpperCase()==='TRUE';
+    if (enabled) throw new Error('WEB_API_ALLOW_LEGACY_SYNC must be FALSE/absent during frontend integration');
+    return {blocked:true};
+  });
+  check('api_key_configured',()=>{
+    if (!String(PropertiesService.getScriptProperties().getProperty('WEB_API_KEY') || '')) throw new Error('WEB_API_KEY missing');
+    return {configured:true};
+  });
+  return {ok:report.every(x=>x.ok),checks:report};
+}
