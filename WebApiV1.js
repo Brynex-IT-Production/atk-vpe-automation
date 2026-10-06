@@ -54,6 +54,8 @@ function apiHandleRequest_(payload) {
         return {status:200,data:apiSaveMeeting_(clubId,payload)};
       case 'meeting.sync':
         return {status:200,data:apiSyncMeetingToLegacyPlanner_(clubId,String(payload.meeting_id || ''))};
+      case 'dashboard.get':
+        return {status:200,data:apiDashboard_(clubId)};
       case 'meeting.activate':
         return {status:200,data:apiActivateMeeting_(clubId,String(payload.meeting_id || ''))};
       default:
@@ -285,4 +287,61 @@ function apiSyncMeetingToLegacyPlanner_(clubId, meetingId) {
     }
   }
   return {meeting_id:meetingId,planner_meeting_no:meetingNo,synced:true};
+}
+
+
+/**
+ * VPE-facing dashboard projection. Sheets remain an implementation detail:
+ * the client receives meetings/readiness/actions as domain objects only.
+ */
+function apiDashboard_(clubId) {
+  if (clubId !== API_DEFAULT_CLUB_ID_) throw new Error('Club not provisioned: '+clubId);
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const planner = ss.getSheetByName('VPE Weekly Planner');
+  const tasks = ss.getSheetByName(TASK_SHEET_);
+  if (!planner) return {club_id:clubId,meetings:[],pending_actions:[]};
+
+  const today = startOfDay_(new Date());
+  const rows = planner.getLastRow() >= 3
+    ? planner.getRange(3,1,Math.min(60,planner.getLastRow()-2),28).getValues() : [];
+  const taskRows = tasks && tasks.getLastRow() >= 2
+    ? tasks.getRange(2,1,tasks.getLastRow()-1,18).getValues() : [];
+
+  const meetings = rows.filter(row => {
+    return Number(row[0]) && row[1] instanceof Date &&
+      startOfDay_(row[1]) >= today &&
+      ['Completed','Cancelled'].indexOf(String(row[2] || '')) < 0;
+  }).slice(0,4).map(row => {
+    const readiness = buildReadinessRow_(row,taskRows);
+    return {
+      meeting_no:Number(row[0]),
+      meeting_date:Utilities.formatDate(row[1],configValue_('TIMEZONE','Asia/Kolkata'),'yyyy-MM-dd'),
+      status:String(row[2] || ''),
+      readiness:{
+        roles:readiness[1],
+        programme:readiness[2],
+        theme:readiness[3],
+        grammar:readiness[4],
+        introductions:readiness[5],
+        speaker_details:readiness[6],
+        evaluators:readiness[7],
+        coordination:readiness[8],
+        overall:readiness[9]
+      }
+    };
+  });
+
+  const pending = taskRows.filter(r =>
+    ['Pending','Sent','Escalated'].indexOf(String(r[5] || '')) >= 0
+  ).map(r => ({
+    task_id:String(r[0] || ''),
+    meeting_no:Number(r[1] || 0),
+    type:String(r[2] || ''),
+    member:String(r[3] || ''),
+    related:String(r[4] || ''),
+    state:String(r[5] || ''),
+    due_at:r[6] instanceof Date ? r[6].toISOString() : String(r[6] || '')
+  }));
+
+  return {club_id:clubId,meetings:meetings,pending_actions:pending};
 }
