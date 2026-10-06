@@ -40,6 +40,9 @@ function apiHandleRequest_(payload) {
   const clubId = String(payload.club_id || API_DEFAULT_CLUB_ID_).trim();
 
   if (!action) return {status:400,error:{code:'MISSING_ACTION',message:'action is required'}};
+  if (payload.api_version && String(payload.api_version) !== 'v1') {
+    return {status:400,error:{code:'UNSUPPORTED_API_VERSION',message:'api_version must be v1'}};
+  }
 
   try {
     switch (action) {
@@ -79,8 +82,11 @@ function apiHandleRequest_(payload) {
         return {status:404,error:{code:'UNKNOWN_ACTION',message:'Unknown API action: '+action}};
     }
   } catch (err) {
-    return {status:500,error:{
-      code:String(err && err.apiCode || 'INTERNAL_ERROR'),
+    const code = String(err && err.apiCode || 'INTERNAL_ERROR');
+    const clientCodes = ['BAD_REQUEST','NOT_FOUND','MEETING_NOT_READY','LEGACY_SYNC_DISABLED'];
+    const status = code === 'NOT_FOUND' ? 404 : (clientCodes.indexOf(code) >= 0 ? 400 : 500);
+    return {status:status,error:{
+      code:code,
       message:String(err && err.message || err),
       details:(err && err.details) || null
     }};
@@ -279,13 +285,17 @@ function apiReplaceMeetingItems_(sheet,clubId,meetingId,items) {
 }
 
 function apiGetMeeting_(clubId,meetingId) {
-  if (!meetingId) throw new Error('meeting_id is required');
+  if (!meetingId) {
+    const e = new Error('meeting_id is required'); e.apiCode='BAD_REQUEST'; throw e;
+  }
   const sheets = apiEnsureSheets_();
   const mr = sheets.meetings.getLastRow() >= 2
     ? sheets.meetings.getRange(2,1,sheets.meetings.getLastRow()-1,7).getValues()
       .find(r => String(r[0])===meetingId && String(r[1])===clubId)
     : null;
-  if (!mr) throw new Error('Meeting not found');
+  if (!mr) {
+    const e = new Error('Meeting not found'); e.apiCode='NOT_FOUND'; throw e;
+  }
 
   const rows = sheets.items.getLastRow() >= 2
     ? sheets.items.getRange(2,1,sheets.items.getLastRow()-1,11).getValues()
