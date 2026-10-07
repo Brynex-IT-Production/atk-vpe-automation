@@ -609,3 +609,11 @@ function apiDevSmokeTest_() {
   });
   return {ok:report.every(x=>x.ok),checks:report};
 }
+
+
+/**
+ * Public editor entrypoint for the non-destructive DEV API smoke test.
+ */
+function apiDevSmokeTest() {
+  return apiDevSmokeTest_();
+}
