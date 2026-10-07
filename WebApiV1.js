@@ -615,5 +615,7 @@ function apiDevSmokeTest_() {
  * Public editor entrypoint for the non-destructive DEV API smoke test.
  */
 function apiDevSmokeTest() {
-  return apiDevSmokeTest_();
+  const result = apiDevSmokeTest_();
+  console.log(JSON.stringify(result, null, 2));
+  return result;
 }
