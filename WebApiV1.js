@@ -49,7 +49,7 @@ function apiHandleRequest_(payload) {
       case 'health':
         return {status:200,data:{service:'vpe-api',status:'ok'}};
       case 'members.list':
-        return {status:200,data:{members:apiListMembers_(clubId)}};
+        return {status:200,data:{members:apiListMembers_(clubId).map(apiPublicMember_)}};
       case 'member.save':
         return {status:200,data:apiSaveMember_(clubId,payload)};
       case 'club.settings.get':
@@ -91,6 +91,10 @@ function apiHandleRequest_(payload) {
       details:(err && err.details) || null
     }};
   }
+}
+
+function apiPublicMember_(m) {
+  return {member_id:m.member_id,name:m.name,status:m.status};
 }
 
 function apiListMembers_(clubId) {
@@ -565,7 +569,7 @@ function apiDashboard_(clubId) {
 function apiClubBootstrap_(clubId) {
   return {
     club:apiGetClubSettings_(clubId),
-    members:apiListMembers_(clubId),
+    members:apiListMembers_(clubId).map(apiPublicMember_),
     excom:apiListExCom_(clubId),
     meeting_template:apiDefaultMeetingTemplate_(clubId),
     capabilities:{
