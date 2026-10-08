@@ -267,7 +267,7 @@ function apiCreateMeeting_(clubId,payload) {
 function apiReplaceMeetingItems_(sheet,clubId,meetingId,items) {
   const now = new Date();
   const normalized = (items || []).map((item,index)=>({
-    item_id:String(item.item_id || apiNewId_('ITM')),
+    item_id:String((item.item_id && String(item.item_id).indexOf('DEFAULT_') !== 0) ? item.item_id : apiNewId_('ITM')),
     position:index+1,
     type:String(item.type || 'role'),
     code:String(item.code || ''),
@@ -310,8 +310,11 @@ function apiGetMeeting_(clubId,meetingId) {
     label:String(r[6]), member_id:String(r[7]), member_name:String(r[8])
   })).sort((a,b)=>a.position-b.position);
 
+  const meetingDate = mr[2] instanceof Date
+    ? Utilities.formatDate(mr[2], configValue_('TIMEZONE','Asia/Kolkata'), 'yyyy-MM-dd')
+    : String(mr[2] || '').slice(0,10);
   return {
-    meeting_id:String(mr[0]), club_id:String(mr[1]), meeting_date:String(mr[2]),
+    meeting_id:String(mr[0]), club_id:String(mr[1]), meeting_date:meetingDate,
     status:String(mr[3]), planner_meeting_no:String(mr[6] || ''), items:items
   };
 }
