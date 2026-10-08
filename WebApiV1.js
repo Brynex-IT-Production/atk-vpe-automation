@@ -131,7 +131,7 @@ function apiSaveMember_(clubId,payload) {
   if (idx >= 0) sh.getRange(idx+2,1,1,4).setValues([[memberId,name,whatsapp,status]]);
   else sh.appendRow([memberId,name,whatsapp,status]);
   SpreadsheetApp.flush();
-  return {member_id:memberId,name:name,whatsapp:whatsapp,status:status};
+  return {member_id:memberId,name:name,status:status};
 }
 
 function apiEnsureOnboardingSheets_() {
