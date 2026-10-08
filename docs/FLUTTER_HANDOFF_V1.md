@@ -19,7 +19,7 @@ Every frontend API request uses:
 Do not ship the DEV API key in a public production Flutter Web bundle.
 
 ## Startup
-Call `club.bootstrap`. It returns club settings, active members, ExCom, the default ordered meeting template, and capability flags.
+Call `club.bootstrap` for club settings, ExCom, the default ordered meeting template, and capability flags. Load active members separately with `members.list`.
 
 ## Meeting planner mapping
 - Choose date -> `meeting.create` with `meeting_date: "YYYY-MM-DD"`
