@@ -569,7 +569,6 @@ function apiDashboard_(clubId) {
 function apiClubBootstrap_(clubId) {
   return {
     club:apiGetClubSettings_(clubId),
-    members:apiListMembers_(clubId).map(apiPublicMember_),
     excom:apiListExCom_(clubId),
     meeting_template:apiDefaultMeetingTemplate_(clubId),
     capabilities:{
