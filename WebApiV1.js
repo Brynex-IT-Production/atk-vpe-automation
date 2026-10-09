@@ -6,11 +6,12 @@
  * Existing automation continues to read VPE Weekly Planner.
  */
 
-const API_V1_VERSION_ = '2026-10-09.5';
+const API_V1_VERSION_ = '2026-10-09.6';
 const API_MEETING_ITEMS_SHEET_ = 'API Meeting Items';
 const API_MEETINGS_SHEET_ = 'API Meetings';
 const API_DEFAULT_CLUB_ID_ = 'ATK';
 const API_ALLOW_LEGACY_SYNC_PROPERTY_ = 'WEB_API_ALLOW_LEGACY_SYNC';
+const API_AUTO_SYNC_PLANNED_PROPERTY_ = 'WEB_API_AUTO_SYNC_PLANNED';
 const API_CLUB_SETTINGS_SHEET_ = 'API Club Settings';
 const API_EXCOM_SHEET_ = 'API ExCom';
 
@@ -373,6 +374,27 @@ function apiValidateMeetingItems_(items, clubId) {
   });
 }
 
+function apiBridgePlannedMeetingIfEnabled_(clubId,meetingId) {
+  const props = PropertiesService.getScriptProperties();
+  const autoSync = String(props.getProperty(API_AUTO_SYNC_PLANNED_PROPERTY_) || '').toUpperCase() === 'TRUE';
+  if (!autoSync) return {enabled:false,synced:false};
+
+  const allowLegacy = String(props.getProperty(API_ALLOW_LEGACY_SYNC_PROPERTY_) || '').toUpperCase() === 'TRUE';
+  if (!allowLegacy) {
+    const e = new Error('Auto-sync is enabled but legacy sync permission is disabled');
+    e.apiCode = 'LEGACY_SYNC_DISABLED';
+    throw e;
+  }
+
+  const result = apiSyncMeetingToLegacyPlanner_(clubId,meetingId);
+
+  // Refresh legacy-derived programme/task projections after the planner write.
+  if (typeof syncProgrammeSlots_ === 'function') syncProgrammeSlots_();
+  if (typeof syncPhase1Tasks_ === 'function' && configBool_('TASK_ENGINE_ENABLED')) syncPhase1Tasks_();
+
+  return {enabled:true,synced:true,planner_meeting_no:result.planner_meeting_no};
+}
+
 function apiSaveMeeting_(clubId,payload) {
   const meetingId = String(payload.meeting_id || '');
   const saveMode = String(payload.save_mode || 'DRAFT').toUpperCase();
@@ -396,6 +418,7 @@ function apiSaveMeeting_(clubId,payload) {
       break;
     }
   }
+  if (saveMode === 'CONFIRMED') apiBridgePlannedMeetingIfEnabled_(clubId,meetingId);
   return apiGetMeeting_(clubId,meetingId);
 }
 
@@ -735,6 +758,9 @@ function apiDevIntegrationTest() {
     const syncEnabled = String(PropertiesService.getScriptProperties()
       .getProperty(API_ALLOW_LEGACY_SYNC_PROPERTY_) || '').toUpperCase() === 'TRUE';
     record('legacy_sync_guard', !syncEnabled, syncEnabled ? 'ENABLED - unsafe for DEV test' : 'blocked');
+    const autoSyncEnabled = String(PropertiesService.getScriptProperties()
+      .getProperty(API_AUTO_SYNC_PLANNED_PROPERTY_) || '').toUpperCase() === 'TRUE';
+    record('auto_sync_guard', !autoSyncEnabled, autoSyncEnabled ? 'ENABLED - unsafe for DEV test' : 'blocked');
 
   } catch (e) {
     record('runner_exception', false, String(e && e.message || e));
