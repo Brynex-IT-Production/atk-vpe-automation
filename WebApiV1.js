@@ -6,7 +6,7 @@
  * Existing automation continues to read VPE Weekly Planner.
  */
 
-const API_V1_VERSION_ = '2026-10-09.3';
+const API_V1_VERSION_ = '2026-10-09.4';
 const API_MEETING_ITEMS_SHEET_ = 'API Meeting Items';
 const API_MEETINGS_SHEET_ = 'API Meetings';
 const API_DEFAULT_CLUB_ID_ = 'ATK';
@@ -436,6 +436,38 @@ function apiActivateMeeting_(clubId,meetingId) {
 
 
 /**
+ * Builds the exact legacy-planner values implied by an ordered API meeting.
+ * Pure mapping: no sheet writes, safe for previews/tests.
+ */
+function apiBuildLegacyPlannerProjection_(meeting) {
+  const byCode = {};
+  (meeting.items || []).forEach(x => { if (x.code) byCode[x.code] = x; });
+  const name = code => String((byCode[code] && byCode[code].member_name) || '').trim();
+
+  const speakers = {
+    S1:name('S1'), S2:name('S2'), S3:name('S3')
+  };
+  const roles = {};
+  ROLE_DEFS_.forEach(def => { roles[def.code] = name(def.code); });
+
+  return {speakers:speakers,roles:roles};
+}
+
+function apiApplyProjectionToPlannerRow_(row, projection) {
+  const out = (row || []).slice();
+  while (out.length < 28) out.push('');
+
+  [['S1',7,9],['S2',11,13],['S3',15,17]].forEach(x => {
+    out[x[1]-1] = projection.speakers[x[0]] || '';
+    out[x[2]-1] = projection.speakers[x[0]] ? 'Planned' : '';
+  });
+  ROLE_DEFS_.forEach(def => {
+    out[def.column-1] = projection.roles[def.code] || '';
+  });
+  return out;
+}
+
+/**
  * Synchronizes an ordered API meeting into the legacy planner.
  * This writes only the fields the proven automation already understands.
  * Custom sessions remain in API Meeting Items and are handled by Programme Planning.
@@ -462,18 +494,16 @@ function apiSyncMeetingToLegacyPlanner_(clubId, meetingId) {
   if (idx < 0) throw new Error('No legacy planner row exists for meeting date '+wanted);
 
   const rowNo = idx + 3;
-  const byCode = {};
-  meeting.items.forEach(x => { if (x.code) byCode[x.code] = x; });
-  const memberName = code => String((byCode[code] && byCode[code].member_name) || '').trim();
+  const projection = apiBuildLegacyPlannerProjection_(meeting);
 
   // Speakers and their status columns.
   [['S1',7,9],['S2',11,13],['S3',15,17]].forEach(x => {
-    planner.getRange(rowNo,x[1]).setValue(memberName(x[0]));
-    planner.getRange(rowNo,x[2]).setValue(memberName(x[0]) ? 'Planned' : '');
+    planner.getRange(rowNo,x[1]).setValue(projection.speakers[x[0]] || '');
+    planner.getRange(rowNo,x[2]).setValue(projection.speakers[x[0]] ? 'Planned' : '');
   });
 
   // Standard role columns.
-  ROLE_DEFS_.forEach(def => planner.getRange(rowNo,def.column).setValue(memberName(def.code)));
+  ROLE_DEFS_.forEach(def => planner.getRange(rowNo,def.column).setValue(projection.roles[def.code] || ''));
   SpreadsheetApp.flush();
 
   const meetingNo = Number(planner.getRange(rowNo,1).getValue());
@@ -715,6 +745,48 @@ function apiDevIntegrationTest() {
     meeting_id: meetingId,
     checks: results
   };
+  console.log(JSON.stringify(report,null,2));
+  return report;
+}
+
+
+/**
+ * Verifies the web-plan -> legacy-role-call bridge without sheet writes or messaging.
+ */
+function apiDevRoleCallBridgeTest() {
+  const clubId = API_DEFAULT_CLUB_ID_;
+  const members = apiListMembers_(clubId);
+  if (members.length < 6) throw new Error('Need at least 6 active members');
+
+  const meeting = {
+    meeting_id:'TEST_BRIDGE',
+    meeting_date:'2026-12-30',
+    items:apiDefaultMeetingTemplate_(clubId).items.map(x => Object.assign({},x))
+  };
+  const byCode = {};
+  meeting.items.forEach(x => byCode[x.code] = x);
+
+  byCode.TMOD.member_id=members[0].member_id; byCode.TMOD.member_name=members[0].name;
+  byCode.GE.member_id=members[1].member_id; byCode.GE.member_name=members[1].name;
+  byCode.S1.member_id=members[2].member_id; byCode.S1.member_name=members[2].name;
+  byCode.EV1.member_id=members[3].member_id; byCode.EV1.member_name=members[3].name;
+  byCode.S2.member_id=members[4].member_id; byCode.S2.member_name=members[4].name;
+  // S3 deliberately vacant, therefore EV3 must not be offered.
+
+  const projection = apiBuildLegacyPlannerProjection_(meeting);
+  const syntheticRow = apiApplyProjectionToPlannerRow_(new Array(28).fill(''),projection);
+  const available = availableRoleDefs_(syntheticRow).map(x => x.code);
+
+  const checks = [
+    {name:'manual_tmod_hidden',ok:available.indexOf('TMOD') < 0},
+    {name:'manual_ge_hidden',ok:available.indexOf('GE') < 0},
+    {name:'manual_ev1_hidden',ok:available.indexOf('EV1') < 0},
+    {name:'vacant_ttm_offered',ok:available.indexOf('TTM') >= 0},
+    {name:'ev2_offered_for_assigned_s2',ok:available.indexOf('EV2') >= 0},
+    {name:'ev3_hidden_without_s3',ok:available.indexOf('EV3') < 0}
+  ];
+
+  const report = {ok:checks.every(x=>x.ok),available_roles:available,checks:checks};
   console.log(JSON.stringify(report,null,2));
   return report;
 }
