@@ -60,3 +60,15 @@ The VPE must not see or depend on Google Sheets, Apps Script internals, Meta tem
 - `CONFIRMED`: mark the plan as `PLANNED`. Vacant roles are allowed because the automation engine is expected to fill them through role-call workflows.
 
 Confirming a meeting plan does not itself expose a separate VPE-facing "Start Automation" control in V1.
+
+
+## Confirmed-plan automation bridge
+The backend now has a disabled-by-default bridge from a confirmed web meeting plan into the existing ATK automation stack.
+
+Server properties:
+- `WEB_API_AUTO_SYNC_PLANNED` — when TRUE, a `meeting.save` with `save_mode:"CONFIRMED"` attempts the legacy bridge.
+- `WEB_API_ALLOW_LEGACY_SYNC` — separate safety permission required for any planner write.
+
+Both remain FALSE/absent during frontend integration. The Flutter client must not expose or control these flags.
+
+When deliberately enabled later, a confirmed plan can update the existing planner, refresh programme slots, and rebuild automation tasks. This is how manual web assignments become unavailable in the WhatsApp role-call flow without changing the existing role-selection engine.
