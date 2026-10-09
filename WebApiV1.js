@@ -6,7 +6,7 @@
  * Existing automation continues to read VPE Weekly Planner.
  */
 
-const API_V1_VERSION_ = '2026-10-08.1';
+const API_V1_VERSION_ = '2026-10-09.1';
 const API_MEETING_ITEMS_SHEET_ = 'API Meeting Items';
 const API_MEETINGS_SHEET_ = 'API Meetings';
 const API_DEFAULT_CLUB_ID_ = 'ATK';
@@ -326,7 +326,11 @@ function apiListMeetings_(clubId) {
   return sheets.meetings.getRange(2,1,sheets.meetings.getLastRow()-1,7).getValues()
     .filter(r => String(r[1]) === clubId)
     .map(r => ({
-      meeting_id:String(r[0]),meeting_date:String(r[2]),status:String(r[3]),
+      meeting_id:String(r[0]),
+      meeting_date:r[2] instanceof Date
+        ? Utilities.formatDate(r[2],configValue_('TIMEZONE','Asia/Kolkata'),'yyyy-MM-dd')
+        : String(r[2] || '').slice(0,10),
+      status:String(r[3]),
       updated_at:r[5] instanceof Date ? r[5].toISOString() : String(r[5] || '')
     }))
     .sort((a,b)=>a.meeting_date.localeCompare(b.meeting_date));
@@ -369,15 +373,23 @@ function apiValidateMeetingItems_(items, clubId) {
 
 function apiSaveMeeting_(clubId,payload) {
   const meetingId = String(payload.meeting_id || '');
+  const saveMode = String(payload.save_mode || 'DRAFT').toUpperCase();
+  if (['DRAFT','CONFIRMED'].indexOf(saveMode) < 0) {
+    const e = new Error('save_mode must be DRAFT or CONFIRMED'); e.apiCode='BAD_REQUEST'; throw e;
+  }
+
   const sheets = apiEnsureSheets_();
   const meeting = apiGetMeeting_(clubId,meetingId);
   if (meeting.status === 'ACTIVE') throw new Error('Active meeting cannot be structurally edited in API V1');
+
   apiValidateMeetingItems_(payload.items || [],clubId);
-  const saved = apiReplaceMeetingItems_(sheets.items,clubId,meetingId,payload.items || []);
-  // touch updated timestamp
+  apiReplaceMeetingItems_(sheets.items,clubId,meetingId,payload.items || []);
+
+  const nextStatus = saveMode === 'CONFIRMED' ? 'PLANNED' : 'DRAFT';
   for (let r=2;r<=sheets.meetings.getLastRow();r++) {
     if (String(sheets.meetings.getRange(r,1).getValue())===meetingId &&
         String(sheets.meetings.getRange(r,2).getValue())===clubId) {
+      sheets.meetings.getRange(r,4).setValue(nextStatus);
       sheets.meetings.getRange(r,6).setValue(new Date());
       break;
     }
@@ -386,17 +398,13 @@ function apiSaveMeeting_(clubId,payload) {
 }
 
 function apiActivationCheck_(meeting) {
-  const byCode = {};
-  meeting.items.forEach(x => { if (x.code) byCode[x.code] = x; });
   const errors = [];
-  if (!byCode.TMOD || !byCode.TMOD.member_id) errors.push({code:'TMOD_REQUIRED',message:'Assign a TMOD before starting automation.'});
-  const speakerCodes = ['S1','S2','S3'].filter(code => byCode[code] && byCode[code].member_id);
-  speakerCodes.forEach(code => {
-    const ev = 'EV'+code.slice(1);
-    if (!byCode[ev] || !byCode[ev].member_id) {
-      errors.push({code:'EVALUATOR_REQUIRED',related:code,message:'Assign an evaluator for '+code+' before starting automation.'});
-    }
-  });
+  if (!meeting || !meeting.meeting_date) {
+    errors.push({code:'MEETING_DATE_REQUIRED',message:'Meeting date is required.'});
+  }
+  if (!meeting || !meeting.items || !meeting.items.length) {
+    errors.push({code:'MEETING_STRUCTURE_REQUIRED',message:'Add at least one meeting item.'});
+  }
   return {ready:errors.length===0,errors:errors};
 }
 
