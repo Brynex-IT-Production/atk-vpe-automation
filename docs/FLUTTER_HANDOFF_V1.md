@@ -27,7 +27,8 @@ Call `club.bootstrap` for club settings, ExCom, the default ordered meeting temp
 - Drag/drop -> reorder the local `items` array
 - Add custom session -> add an item with `type: "session"`, blank `code`, label, and optional member assignment
 - Delete -> remove item locally
-- Save Meeting Plan -> `meeting.save`
+- Save as Draft -> `meeting.save` with `save_mode: "DRAFT"`
+- Save Meeting Plan -> `meeting.save` with `save_mode: "CONFIRMED"`
 - Reload detail -> `meeting.get`
 - Meetings screen -> `meetings.list`
 
@@ -51,3 +52,11 @@ Important codes: UNAUTHORIZED, MISSING_ACTION, UNSUPPORTED_API_VERSION, BAD_REQU
 
 ## Acceptance rule
 The VPE must not see or depend on Google Sheets, Apps Script internals, Meta template names, task rows, or planner column numbers.
+
+
+## Save semantics
+`meeting.save` accepts `save_mode`:
+- `DRAFT`: persist an incomplete working plan.
+- `CONFIRMED`: mark the plan as `PLANNED`. Vacant roles are allowed because the automation engine is expected to fill them through role-call workflows.
+
+Confirming a meeting plan does not itself expose a separate VPE-facing "Start Automation" control in V1.
