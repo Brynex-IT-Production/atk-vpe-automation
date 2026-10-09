@@ -6,7 +6,7 @@
  * Existing automation continues to read VPE Weekly Planner.
  */
 
-const API_V1_VERSION_ = '2026-10-09.1';
+const API_V1_VERSION_ = '2026-10-09.2';
 const API_MEETING_ITEMS_SHEET_ = 'API Meeting Items';
 const API_MEETINGS_SHEET_ = 'API Meetings';
 const API_DEFAULT_CLUB_ID_ = 'ATK';
@@ -275,7 +275,9 @@ function apiReplaceMeetingItems_(sheet,clubId,meetingId,items) {
     member_id:String(item.member_id || ''),
     member_name:String(item.member_name || '')
   }));
-  if (normalized.some(x => !x.label)) throw new Error('Every meeting item requires a label');
+  if (normalized.some(x => !x.label)) {
+    const e = new Error('Every meeting item requires a label'); e.apiCode='BAD_REQUEST'; throw e;
+  }
 
   // Remove prior rows for this meeting, bottom-up.
   for (let r=sheet.getLastRow(); r>=2; r--) {
@@ -361,12 +363,12 @@ function apiValidateMeetingItems_(items, clubId) {
   (items || []).forEach(item => {
     const code = String(item.code || '');
     const type = String(item.type || 'role');
-    if (code && !knownCodes[code]) throw new Error('Unsupported standard code: '+code);
-    if (code && seenCodes[code]) throw new Error('Duplicate standard code: '+code);
+    if (code && !knownCodes[code]) { const e=new Error('Unsupported standard code: '+code); e.apiCode='BAD_REQUEST'; throw e; }
+    if (code && seenCodes[code]) { const e=new Error('Duplicate standard code: '+code); e.apiCode='BAD_REQUEST'; throw e; }
     if (code) seenCodes[code] = true;
-    if (type === 'session' && code) throw new Error('Custom sessions must not use a standard role code');
+    if (type === 'session' && code) { const e=new Error('Custom sessions must not use a standard role code'); e.apiCode='BAD_REQUEST'; throw e; }
     const memberId = String(item.member_id || '');
-    if (memberId && !members[memberId]) throw new Error('Unknown or inactive member_id: '+memberId);
+    if (memberId && !members[memberId]) { const e=new Error('Unknown or inactive member_id: '+memberId); e.apiCode='BAD_REQUEST'; throw e; }
     if (memberId && !String(item.member_name || '').trim()) item.member_name = members[memberId].name;
   });
 }
