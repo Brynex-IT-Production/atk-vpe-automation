@@ -6,7 +6,7 @@
  * Existing automation continues to read VPE Weekly Planner.
  */
 
-const API_V1_VERSION_ = '2026-10-09.2';
+const API_V1_VERSION_ = '2026-10-09.3';
 const API_MEETING_ITEMS_SHEET_ = 'API Meeting Items';
 const API_MEETINGS_SHEET_ = 'API Meetings';
 const API_DEFAULT_CLUB_ID_ = 'ATK';
@@ -634,4 +634,87 @@ function apiDevSmokeTest() {
   const result = apiDevSmokeTest_();
   console.log(JSON.stringify(result, null, 2));
   return result;
+}
+
+
+/**
+ * Public DEV integration test runner.
+ * Safe by design: uses API storage only, does not sync legacy planner and does not send WhatsApp.
+ */
+function apiDevIntegrationTest() {
+  const clubId = API_DEFAULT_CLUB_ID_;
+  const results = [];
+  const record = (name, ok, detail) => results.push({name:name,ok:!!ok,detail:detail || ''});
+  let meetingId = '';
+
+  try {
+    const members = apiListMembers_(clubId);
+    if (members.length < 4) throw new Error('Need at least 4 active members for integration test');
+
+    const created = apiCreateMeeting_(clubId,{meeting_date:'2026-12-31'});
+    meetingId = created.meeting_id;
+    record('create_meeting', created.status === 'DRAFT' && created.items.length === 12,
+      created.meeting_id);
+
+    // Draft save with a manual TMOD assignment.
+    const draftItems = created.items.map(x => Object.assign({},x));
+    draftItems[0].member_id = members[0].member_id;
+    draftItems[0].member_name = members[0].name;
+    const draft = apiSaveMeeting_(clubId,{
+      meeting_id:meetingId,save_mode:'DRAFT',items:draftItems
+    });
+    record('draft_save', draft.status === 'DRAFT' && draft.items[0].member_id === members[0].member_id,
+      draft.status);
+
+    // Confirmed save with vacancies intentionally left open.
+    const confirmed = apiSaveMeeting_(clubId,{
+      meeting_id:meetingId,save_mode:'CONFIRMED',items:draftItems
+    });
+    record('confirmed_save_allows_vacancies', confirmed.status === 'PLANNED', confirmed.status);
+
+    // Reload integrity.
+    const reloaded = apiGetMeeting_(clubId,meetingId);
+    record('reload_integrity',
+      reloaded.status === 'PLANNED' && reloaded.items[0].member_id === members[0].member_id,
+      reloaded.status);
+
+    // Invalid member must be rejected as BAD_REQUEST.
+    let invalidMemberOk = false;
+    try {
+      const bad = reloaded.items.map(x => Object.assign({},x));
+      bad[1].member_id = 'DOES_NOT_EXIST';
+      bad[1].member_name = 'Invalid';
+      apiSaveMeeting_(clubId,{meeting_id:meetingId,save_mode:'DRAFT',items:bad});
+    } catch (e) {
+      invalidMemberOk = e && e.apiCode === 'BAD_REQUEST';
+    }
+    record('invalid_member_rejected', invalidMemberOk);
+
+    // Duplicate standard code must be rejected as BAD_REQUEST.
+    let duplicateRoleOk = false;
+    try {
+      const dup = reloaded.items.map(x => Object.assign({},x));
+      dup[1].code = dup[0].code;
+      apiSaveMeeting_(clubId,{meeting_id:meetingId,save_mode:'DRAFT',items:dup});
+    } catch (e) {
+      duplicateRoleOk = e && e.apiCode === 'BAD_REQUEST';
+    }
+    record('duplicate_role_rejected', duplicateRoleOk);
+
+    // Legacy sync must remain disabled during frontend integration.
+    const syncEnabled = String(PropertiesService.getScriptProperties()
+      .getProperty(API_ALLOW_LEGACY_SYNC_PROPERTY_) || '').toUpperCase() === 'TRUE';
+    record('legacy_sync_guard', !syncEnabled, syncEnabled ? 'ENABLED - unsafe for DEV test' : 'blocked');
+
+  } catch (e) {
+    record('runner_exception', false, String(e && e.message || e));
+  }
+
+  const report = {
+    ok: results.length > 0 && results.every(x => x.ok),
+    meeting_id: meetingId,
+    checks: results
+  };
+  console.log(JSON.stringify(report,null,2));
+  return report;
 }
