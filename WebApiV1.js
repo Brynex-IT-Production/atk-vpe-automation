@@ -6,7 +6,7 @@
  * Existing automation continues to read VPE Weekly Planner.
  */
 
-const API_V1_VERSION_ = '2026-10-09.4';
+const API_V1_VERSION_ = '2026-10-09.5';
 const API_MEETING_ITEMS_SHEET_ = 'API Meeting Items';
 const API_MEETINGS_SHEET_ = 'API Meetings';
 const API_DEFAULT_CLUB_ID_ = 'ATK';
@@ -787,6 +787,40 @@ function apiDevRoleCallBridgeTest() {
   ];
 
   const report = {ok:checks.every(x=>x.ok),available_roles:available,checks:checks};
+  console.log(JSON.stringify(report,null,2));
+  return report;
+}
+
+
+/**
+ * One-shot DEV backend readiness test.
+ * Safe: no legacy planner writes and no WhatsApp sends.
+ */
+function apiDevBackendReadinessTest() {
+  const sections = [];
+  const run = (name, fn) => {
+    try {
+      const result = fn();
+      sections.push({name:name,ok:!!(result && result.ok),result:result});
+    } catch (e) {
+      sections.push({name:name,ok:false,error:String(e && e.message || e)});
+    }
+  };
+
+  run('smoke', apiDevSmokeTest_);
+  run('meeting_planner', apiDevIntegrationTest);
+  run('role_call_bridge', apiDevRoleCallBridgeTest);
+  run('dashboard_contract', () => {
+    const d = apiDashboard_(API_DEFAULT_CLUB_ID_);
+    const valid = d && Array.isArray(d.meetings) && Array.isArray(d.pending_actions);
+    return {ok:valid,meetings:d.meetings.length,pending_actions:d.pending_actions.length};
+  });
+
+  const report = {
+    ok: sections.every(x => x.ok),
+    version: API_V1_VERSION_,
+    sections: sections
+  };
   console.log(JSON.stringify(report,null,2));
   return report;
 }
