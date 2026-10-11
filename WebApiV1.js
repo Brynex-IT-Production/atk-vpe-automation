@@ -6,7 +6,7 @@
  * Existing automation continues to read VPE Weekly Planner.
  */
 
-const API_V1_VERSION_ = '2026-10-11.7';
+const API_V1_VERSION_ = '2026-10-11.8';
 const API_MEETING_ITEMS_SHEET_ = 'API Meeting Items';
 const API_MEETINGS_SHEET_ = 'API Meetings';
 const API_DEFAULT_CLUB_ID_ = 'ATK';
@@ -1419,4 +1419,110 @@ function apiDevHandleRolePreviewSelection_(member,phone,interaction) {
   sendWhatsAppText_(phone,
     'DEV preview only ✅ No role was booked and no assignment workflow was triggered.');
   return true;
+}
+
+
+/**
+ * DEV diagnostic for the controlled WhatsApp role preview.
+ * Read-only: does not send anything or mutate assignments.
+ */
+function apiDevRolePreviewDiagnostic() {
+  const props=PropertiesService.getScriptProperties();
+  const raw=props.getProperty(API_DEV_ROLE_PREVIEW_PROPERTY_);
+  let preview=null;
+  try { preview=raw ? JSON.parse(raw) : null; } catch(ignore) {}
+
+  const ss=apiSpreadsheet_();
+  const webhook=ss.getSheetByName('WA Webhook Log');
+  const automation=ss.getSheetByName('Automation Log');
+
+  const member=configValue_('VPE_MEMBER_NAME','Riyas AF');
+  const phone=normalizePhone_(phoneForMember_(member));
+  const masked=phone ? ('******'+phone.slice(-4)) : '';
+
+  const recentWebhook=[];
+  if (webhook && webhook.getLastRow()>=2) {
+    const start=Math.max(2,webhook.getLastRow()-19);
+    const rows=webhook.getRange(start,1,webhook.getLastRow()-start+1,7).getValues();
+    rows.forEach(r=>{
+      const rowPhone=normalizePhone_(r[2]||'');
+      if (!phone || rowPhone===phone) {
+        recentWebhook.push({
+          at:r[0] instanceof Date ? r[0].toISOString() : String(r[0]||''),
+          event:String(r[1]||''),
+          message_id:String(r[4]||''),
+          message_type:String(r[5]||''),
+          content:String(r[6]||'')
+        });
+      }
+    });
+  }
+
+  const recentAutomation=[];
+  if (automation && automation.getLastRow()>=2) {
+    const start=Math.max(2,automation.getLastRow()-29);
+    const rows=automation.getRange(start,1,automation.getLastRow()-start+1,7).getValues();
+    rows.forEach(r=>{
+      const module=String(r[1]||'');
+      const action=String(r[4]||'');
+      if (/WhatsApp|Role Selection/i.test(module) ||
+          /role menu|inbound processing/i.test(action)) {
+        recentAutomation.push({
+          at:r[0] instanceof Date ? r[0].toISOString() : String(r[0]||''),
+          module:module,
+          meeting_no:String(r[2]||''),
+          action:action,
+          result:String(r[5]||''),
+          notes:String(r[6]||'')
+        });
+      }
+    });
+  }
+
+  const now=Date.now();
+  const result={
+    ok:true,
+    version:API_V1_VERSION_,
+    member:member,
+    recipient_masked:masked,
+    preview_present:Boolean(preview),
+    preview_expired:preview ? now>Number(preview.expiresAt||0) : null,
+    preview_meeting_no:preview ? Number(preview.meetingNo||0) : null,
+    expected_roles:preview && preview.available ? preview.available.map(x=>x.code) : [],
+    recent_webhook:recentWebhook,
+    recent_automation:recentAutomation
+  };
+  console.log(JSON.stringify(result,null,2));
+  return result;
+}
+
+/**
+ * DEV-only direct-send test for the stored role preview.
+ * Bypasses inbound webhook parsing but uses the exact same sendRoleList_ path.
+ */
+function apiDevSendStoredRolePreviewNow() {
+  if (configValue_('SYSTEM_MODE','') !== 'DEV' ||
+      String(configValue_('WA_SEND_MODE','TEST')).toUpperCase() !== 'TEST') {
+    throw new Error('Direct role preview requires DEV / TEST mode.');
+  }
+
+  const member=configValue_('VPE_MEMBER_NAME','Riyas AF');
+  const phone=normalizePhone_(phoneForMember_(member));
+  if (!phone || !isWhatsAppRecipientAllowed_(phone)) {
+    throw new Error('VPE test recipient is not allowlisted.');
+  }
+
+  const sent=apiDevTrySendPendingRolePreview_(member,phone);
+  if (!sent) {
+    throw new Error('No active stored role preview is available. Run apiDevWhatsAppBridgePreviewTest again first.');
+  }
+
+  const result={
+    ok:true,
+    version:API_V1_VERSION_,
+    member:member,
+    message:'Stored role preview passed directly to the normal sendRoleList_ path.'
+  };
+  console.log(JSON.stringify(result,null,2));
+  return result;
 }
