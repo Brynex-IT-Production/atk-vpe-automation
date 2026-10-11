@@ -6,7 +6,7 @@
  * Existing automation continues to read VPE Weekly Planner.
  */
 
-const API_V1_VERSION_ = '2026-10-11.11';
+const API_V1_VERSION_ = '2026-10-11.12';
 const API_MEETING_ITEMS_SHEET_ = 'API Meeting Items';
 const API_MEETINGS_SHEET_ = 'API Meetings';
 const API_DEFAULT_CLUB_ID_ = 'ATK';
@@ -1363,7 +1363,7 @@ function apiDevWhatsAppBridgePreviewTest() {
       throw new Error('WhatsApp preview template failed: '+String(result && result.error || 'Unknown Meta error'));
     }
 
-    return {
+    const report={
       ok:true,
       version:API_V1_VERSION_,
       message_id:result.messageId || '',
@@ -1372,6 +1372,8 @@ function apiDevWhatsAppBridgePreviewTest() {
       expected_available_roles:available.map(x=>x.code),
       instruction:'Tap View roles in WhatsApp. Do not choose a role; selection is DEV-blocked anyway.'
     };
+    console.log(JSON.stringify(report,null,2));
+    return report;
   } finally {
     if (originalAllow === null) props.deleteProperty(API_ALLOW_LEGACY_SYNC_PROPERTY_);
     else props.setProperty(API_ALLOW_LEGACY_SYNC_PROPERTY_,originalAllow);
