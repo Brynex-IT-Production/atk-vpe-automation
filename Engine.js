@@ -484,6 +484,13 @@ function handleRoleSelection_(member, phone, interaction) {
     return;
   }
 
+  // Controlled DEV booking test uses the real reserveRole_ write, verifies it,
+  // cleans up, and prevents every downstream assignment workflow.
+  if (typeof apiDevHandleRoleBookingSelection_ === 'function' &&
+      apiDevHandleRoleBookingSelection_(member, phone, interaction)) {
+    return;
+  }
+
   // Prevent the controlled DEV preview from booking anything or triggering
   // assignment workflows if a preview role is tapped.
   if (typeof apiDevHandleRolePreviewSelection_ === 'function' &&
