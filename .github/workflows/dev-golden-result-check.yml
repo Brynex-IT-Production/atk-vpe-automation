@@ -1,0 +1,98 @@
+name: DEV Golden Result Check
+
+on:
+  push:
+    branches:
+      - dev-golden-result-check-20261011
+    paths:
+      - '.github/workflows/dev-golden-result-check.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  result:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure Google auth
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os, re, time, urllib.parse, urllib.request
+          from pathlib import Path
+
+          raw=os.environ.get('CLASPRC_JSON','').strip()
+          start=raw.find('{'); end=raw.rfind('}')
+          data=json.loads(raw[start:end+1])
+
+          cred=None
+          tokens=data.get('tokens') or {}
+          if isinstance(tokens,dict):
+              cred=tokens.get('default') or next((v for v in tokens.values() if isinstance(v,dict)),None)
+          if not cred and isinstance(data.get('token'),dict):
+              cred=dict(data['token'])
+              settings=data.get('oauth2ClientSettings') or {}
+              cred.setdefault('client_id',settings.get('clientId'))
+              cred.setdefault('client_secret',settings.get('clientSecret'))
+          if not cred:
+              cred=data
+
+          token=cred.get('access_token')
+          expiry=int(cred.get('expiry_date') or cred.get('exprity_date') or 0)
+          if not token or (expiry and expiry <= int(time.time()*1000)+60000):
+              body=urllib.parse.urlencode({
+                  'client_id':cred['client_id'],
+                  'client_secret':cred['client_secret'],
+                  'refresh_token':cred['refresh_token'],
+                  'grant_type':'refresh_token'
+              }).encode()
+              req=urllib.request.Request('https://oauth2.googleapis.com/token',data=body,headers={'Content-Type':'application/x-www-form-urlencoded'})
+              with urllib.request.urlopen(req,timeout=30) as resp:
+                  token=json.loads(resp.read().decode())['access_token']
+
+          code=Path('Code.js').read_text()
+          m=re.search(r"const VERIFY_TOKEN\s*=\s*'([^']+)'",code)
+          if not m:
+              raise SystemExit('VERIFY_TOKEN not found in Code.js')
+
+          Path('/tmp/google_access_token').write_text(token)
+          Path('/tmp/verify_token').write_text(m.group(1))
+          PY
+
+      - name: Fetch golden result
+        shell: bash
+        run: |
+          token=$(cat /tmp/google_access_token)
+          verify=$(cat /tmp/verify_token)
+          for suffix in dev exec; do
+            code=$(curl --location --silent --show-error \
+              --max-time 120 \
+              --output /tmp/result.json \
+              --write-out '%{http_code}' \
+              --header "Authorization: Bearer $token" \
+              --header 'Content-Type: application/json' \
+              --data "{\"system_action\":\"DEV_WHATSAPP_GOLDEN_RESULT\",\"verify_token\":\"$verify\"}" \
+              "https://script.google.com/macros/s/AKfycbzpNOaOrEtEliLxcCIu9m4hSVhAq-2Tg2pL2tqQztM/$suffix")
+            if [ "$code" = "200" ]; then break; fi
+          done
+          test "$code" = "200"
+          cat /tmp/result.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path('/tmp/result.json').read_text())
+          assert r.get('ok') is True, r
+          assert r.get('version') == '2026-10-11.25', r
+          assert r.get('meeting_no') == 7509, r
+          assert r.get('role') == 'Timer', r
+          assert r.get('booking_status') == 'BOOKED', r
+          assert r.get('planner_verified') is True, r
+          assert r.get('task_verified') is True, r
+          print('GOLDEN_RESULT_VERIFIED')
+          print(json.dumps(r,indent=2))
+          PY
