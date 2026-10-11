@@ -6,7 +6,7 @@
  * Existing automation continues to read VPE Weekly Planner.
  */
 
-const API_V1_VERSION_ = '2026-10-11.6';
+const API_V1_VERSION_ = '2026-10-11.7';
 const API_MEETING_ITEMS_SHEET_ = 'API Meeting Items';
 const API_MEETINGS_SHEET_ = 'API Meetings';
 const API_DEFAULT_CLUB_ID_ = 'ATK';
@@ -1261,9 +1261,9 @@ function apiDevWhatsAppBridgePreviewTest() {
   const allowlist = String(configValue_('WA_TEST_RECIPIENTS',''))
     .split(',').map(normalizePhone_).filter(Boolean);
 
-  if (member !== 'Riyas AF' || !phone || allowlist.length !== 1 ||
-      allowlist[0] !== phone || !isWhatsAppRecipientAllowed_(phone)) {
-    throw new Error('DEV WhatsApp bridge preview requires Riyas as the sole allowlisted recipient.');
+  if (member !== 'Riyas AF' || !phone ||
+      allowlist.indexOf(phone) === -1 || !isWhatsAppRecipientAllowed_(phone)) {
+    throw new Error('DEV WhatsApp bridge preview requires Riyas to be an allowlisted test recipient.');
   }
 
   const props = PropertiesService.getScriptProperties();
