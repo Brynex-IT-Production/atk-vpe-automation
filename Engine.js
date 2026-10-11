@@ -3,6 +3,8 @@
  * All logic is DEV-first and controlled by Automation Config switches.
  */
 
+let DEV_OUTBOUND_CAPTURE_ = null;
+
 const ROLE_DEFS_ = [
   { code: 'TMOD', name: 'Toastmaster of the Day', column: 19 },
   { code: 'GE', name: 'General Evaluator', column: 20 },
@@ -675,6 +677,19 @@ function sendWhatsAppText_(phone, text) {
 
 function sendWhatsAppPayload_(payload) {
   const destination = normalizePhone_(payload && payload.to ? payload.to : '');
+
+  // Same-invocation DEV self-test capture. This is never persisted and therefore
+  // cannot affect scheduled or webhook executions in other Apps Script runs.
+  if (Array.isArray(DEV_OUTBOUND_CAPTURE_)) {
+    DEV_OUTBOUND_CAPTURE_.push(JSON.parse(JSON.stringify(payload || {})));
+    return {
+      ok: true,
+      status: 299,
+      messageId: 'DEV_CAPTURE_' + (DEV_OUTBOUND_CAPTURE_.length),
+      captured: true
+    };
+  }
+
   const sendMode = String(configValue_('WA_SEND_MODE', 'TEST')).toUpperCase();
 
   if (sendMode !== 'LIVE') {
