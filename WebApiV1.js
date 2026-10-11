@@ -6,7 +6,7 @@
  * Existing automation continues to read VPE Weekly Planner.
  */
 
-const API_V1_VERSION_ = '2026-10-11.8';
+const API_V1_VERSION_ = '2026-10-11.9';
 const API_MEETING_ITEMS_SHEET_ = 'API Meeting Items';
 const API_MEETINGS_SHEET_ = 'API Meetings';
 const API_DEFAULT_CLUB_ID_ = 'ATK';
@@ -1393,13 +1393,13 @@ function apiDevTrySendPendingRolePreview_(member,phone) {
 
   const parts=String(p.meetingDate||'').split('-').map(Number);
   const meetingDate=new Date(parts[0],parts[1]-1,parts[2]);
-  sendRoleList_(phone,member,{
+  const sendResult=sendRoleList_(phone,member,{
     meetingNo:Number(p.meetingNo),
     meetingDate:meetingDate,
     available:p.available || [],
     reason:'AVAILABLE'
   });
-  return true;
+  return {handled:true,sendResult:sendResult};
 }
 
 /**
@@ -1512,16 +1512,23 @@ function apiDevSendStoredRolePreviewNow() {
     throw new Error('VPE test recipient is not allowlisted.');
   }
 
-  const sent=apiDevTrySendPendingRolePreview_(member,phone);
-  if (!sent) {
+  const previewResult=apiDevTrySendPendingRolePreview_(member,phone);
+  if (!previewResult || previewResult === false) {
     throw new Error('No active stored role preview is available. Run apiDevWhatsAppBridgePreviewTest again first.');
   }
 
+  const sendResult=previewResult.sendResult || {};
   const result={
-    ok:true,
+    ok:Boolean(sendResult.ok),
     version:API_V1_VERSION_,
     member:member,
-    message:'Stored role preview passed directly to the normal sendRoleList_ path.'
+    meta_status:sendResult.status || null,
+    message_id:sendResult.messageId || '',
+    blocked:Boolean(sendResult.blocked),
+    error:sendResult.error || '',
+    message:sendResult.ok
+      ? 'Meta accepted the role-list message.'
+      : 'Role-list send was not accepted.'
   };
   console.log(JSON.stringify(result,null,2));
   return result;
