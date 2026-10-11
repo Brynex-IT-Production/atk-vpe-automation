@@ -487,18 +487,27 @@ function handleRoleSelection_(member, phone, interaction) {
     return;
   }
 
-  // Controlled DEV booking test uses the real reserveRole_ write, verifies it,
-  // cleans up, and prevents every downstream assignment workflow.
-  if (typeof apiDevHandleRoleBookingSelection_ === 'function' &&
-      apiDevHandleRoleBookingSelection_(member, phone, interaction)) {
-    return;
-  }
+  // Final controlled WhatsApp golden-path test. When this exact short-lived
+  // DEV state is active, allow the real production booking/follow-up path below
+  // to run instead of the earlier preview/booking interceptors.
+  const devGoldenSelection =
+    typeof apiDevIsGoldenRoleSelection_ === 'function' &&
+    apiDevIsGoldenRoleSelection_(member, phone, interaction);
 
-  // Prevent the controlled DEV preview from booking anything or triggering
-  // assignment workflows if a preview role is tapped.
-  if (typeof apiDevHandleRolePreviewSelection_ === 'function' &&
-      apiDevHandleRolePreviewSelection_(member, phone, interaction)) {
-    return;
+  if (!devGoldenSelection) {
+    // Controlled DEV booking test uses the real reserveRole_ write, verifies it,
+    // cleans up, and prevents every downstream assignment workflow.
+    if (typeof apiDevHandleRoleBookingSelection_ === 'function' &&
+        apiDevHandleRoleBookingSelection_(member, phone, interaction)) {
+      return;
+    }
+
+    // Prevent the controlled DEV preview from booking anything or triggering
+    // assignment workflows if a preview role is tapped.
+    if (typeof apiDevHandleRolePreviewSelection_ === 'function' &&
+        apiDevHandleRolePreviewSelection_(member, phone, interaction)) {
+      return;
+    }
   }
 
   const roleDef = ROLE_DEFS_.find(r => r.code === interaction.roleCode);
@@ -547,6 +556,17 @@ function handleRoleSelection_(member, phone, interaction) {
           member,
           roleDef.name,
           phone
+        );
+      }
+
+      if (devGoldenSelection &&
+          typeof apiDevFinalizeGoldenRoleSelection_ === 'function') {
+        apiDevFinalizeGoldenRoleSelection_(
+          member,
+          phone,
+          interaction,
+          roleDef,
+          result
         );
       }
       return;
