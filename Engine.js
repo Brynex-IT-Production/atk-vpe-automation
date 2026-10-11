@@ -350,6 +350,13 @@ function handleRoleMenuRequest_(member, phone) {
     return;
   }
 
+  // Controlled DEV bridge preview: after the approved View roles template is
+  // tapped, show the exact role list captured from the synced temporary row.
+  if (typeof apiDevTrySendPendingRolePreview_ === 'function' &&
+      apiDevTrySendPendingRolePreview_(member, phone)) {
+    return;
+  }
+
   const meeting = findNextRoleSelectionMeeting_(member);
   if (!meeting) {
     sendWhatsAppText_(phone, 'There are no role vacancies currently available for you in the upcoming ATK meetings.');
@@ -457,6 +464,13 @@ function sendRoleList_(phone, member, meeting) {
 function handleRoleSelection_(member, phone, interaction) {
   if (!configBool_('ROLE_SELECTION_ENABLED')) {
     sendWhatsAppText_(phone, 'Role selection is currently unavailable.');
+    return;
+  }
+
+  // Prevent the controlled DEV preview from booking anything or triggering
+  // assignment workflows if a preview role is tapped.
+  if (typeof apiDevHandleRolePreviewSelection_ === 'function' &&
+      apiDevHandleRolePreviewSelection_(member, phone, interaction)) {
     return;
   }
 
