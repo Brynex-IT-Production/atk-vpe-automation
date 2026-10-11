@@ -134,9 +134,13 @@ function syncPhase1Tasks_() {
   const taskSheet = ss.getSheetByName(TASK_SHEET_);
   if (!planner || !taskSheet) throw new Error('Task engine sheets are missing.');
 
+  const introWorkflowEnabled = configBool_('INTRO_WORKFLOW_ENABLED');
   const existing = readExistingTasks_(taskSheet);
   const submissions = readSubmissionIndex_(ss);
-  const plannerRows = planner.getRange(3, 1, Math.min(60, Math.max(0, planner.getLastRow() - 2)), 28).getValues();
+  const plannerRowCount = Math.max(0, planner.getLastRow() - 2);
+  const plannerRows = plannerRowCount
+    ? planner.getRange(3, 1, plannerRowCount, 28).getValues()
+    : [];
 
   const today = startOfDay_(new Date());
   const scanDays = Math.max(7, Number(configValue_('REMINDER_WINDOW_DAYS', '30')) || 30);
