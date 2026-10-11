@@ -1226,7 +1226,7 @@ function sendImmediateAssignmentPrompts_(meetingNo, roleDef, member, phone) {
 function meetingTheme_(meetingNo) {
   const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('VPE Weekly Planner');
   if (!sheet) return '';
-  const lastRow = Math.min(62, sheet.getLastRow());
+  const lastRow = sheet.getLastRow();
   if (lastRow < 3) return '';
   const ids = sheet.getRange(3, 1, lastRow - 2, 1).getValues().flat();
   const idx = ids.findIndex(v => Number(v) === Number(meetingNo));
