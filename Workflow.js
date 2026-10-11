@@ -1575,8 +1575,9 @@ function verifyRoleAssignment_(meetingNo, roleCode, member) {
   const sheet = ss.getSheetByName('VPE Weekly Planner');
   if (!sheet) return { ok: false };
 
-  const lastRow = Math.min(62, sheet.getLastRow());
-  const ids = sheet.getRange(3, 1, Math.max(0, lastRow - 2), 1).getValues().flat();
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 3) return { ok: false };
+  const ids = sheet.getRange(3, 1, lastRow - 2, 1).getValues().flat();
   const idx = ids.findIndex(v => Number(v) === Number(meetingNo));
   if (idx < 0) return { ok: false };
 
@@ -2144,8 +2145,9 @@ function processEvaluatorCoordinationForMeeting_(meetingNo, daysLeft, reminderDa
   const planner = ss.getSheetByName('VPE Weekly Planner');
   if (!planner) return false;
 
-  const lastRow = Math.min(62, planner.getLastRow());
-  const ids = planner.getRange(3, 1, Math.max(0, lastRow - 2), 1).getValues().flat();
+  const lastRow = planner.getLastRow();
+  if (lastRow < 3) return false;
+  const ids = planner.getRange(3, 1, lastRow - 2, 1).getValues().flat();
   const idx = ids.findIndex(v => Number(v) === Number(meetingNo));
   if (idx < 0) return false;
 
