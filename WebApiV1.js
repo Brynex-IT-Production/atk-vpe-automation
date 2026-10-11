@@ -6,7 +6,8 @@
  * Existing automation continues to read VPE Weekly Planner.
  */
 
-const API_V1_VERSION_ = '2026-10-11.21';
+const API_V1_VERSION_ = '2026-10-11.22';
+let DEV_SUPPRESS_TEST_DETAIL_LOGS_ = false;
 const API_MEETING_ITEMS_SHEET_ = 'API Meeting Items';
 const API_MEETINGS_SHEET_ = 'API Meetings';
 const API_DEFAULT_CLUB_ID_ = 'ATK';
@@ -1373,7 +1374,9 @@ function apiDevWhatsAppBridgePreviewTest() {
       expected_available_roles:available.map(x=>x.code),
       instruction:'Tap View roles in WhatsApp. Do not choose a role; selection is DEV-blocked anyway.'
     };
-    console.log(JSON.stringify(report,null,2));
+    if (!DEV_SUPPRESS_TEST_DETAIL_LOGS_) {
+      console.log(JSON.stringify(report,null,2));
+    }
     return report;
   } finally {
     if (originalAllow === null) props.deleteProperty(API_ALLOW_LEGACY_SYNC_PROPERTY_);
@@ -2700,18 +2703,44 @@ function apiDevRoleWorkflowMatrixSelfTest() {
  */
 function apiDevMasterRegressionSuite() {
   const started=Date.now();
-  const results={};
+  const previousSuppress=DEV_SUPPRESS_TEST_DETAIL_LOGS_;
+  DEV_SUPPRESS_TEST_DETAIL_LOGS_=true;
 
-  results.core=apiDevFullEndToEndSelfTest();
-  results.role_workflows=apiDevRoleWorkflowMatrixSelfTest();
+  try {
+    const core=apiDevFullEndToEndSelfTest();
+    const roleWorkflows=apiDevRoleWorkflowMatrixSelfTest();
 
-  const report={
-    ok:Boolean(results.core&&results.core.ok &&
-      results.role_workflows&&results.role_workflows.ok),
-    version:API_V1_VERSION_,
-    duration_ms:Date.now()-started,
-    results:results
-  };
-  console.log(JSON.stringify(report,null,2));
-  return report;
+    const branchSummary={};
+    Object.keys(roleWorkflows.branches||{}).forEach(code=>{
+      const b=roleWorkflows.branches[code]||{};
+      branchSummary[code]={
+        ok:true,
+        captured_outbound_count:Number(b.captured_outbound_count||0),
+        task_count:Number(b.task_count||0)
+      };
+    });
+
+    const report={
+      ok:Boolean(core&&core.ok&&roleWorkflows&&roleWorkflows.ok),
+      version:API_V1_VERSION_,
+      duration_ms:Date.now()-started,
+      core:{
+        ok:Boolean(core&&core.ok),
+        checks_passed:(core&&core.checks||[]).filter(x=>x.ok).length,
+        checks_total:(core&&core.checks||[]).length
+      },
+      role_workflows:{
+        ok:Boolean(roleWorkflows&&roleWorkflows.ok),
+        checks_passed:(roleWorkflows&&roleWorkflows.checks||[]).filter(x=>x.ok).length,
+        checks_total:(roleWorkflows&&roleWorkflows.checks||[]).length,
+        flags:roleWorkflows&&roleWorkflows.flags||{},
+        branches:branchSummary
+      }
+    };
+
+    console.log(JSON.stringify(report,null,2));
+    return report;
+  } finally {
+    DEV_SUPPRESS_TEST_DETAIL_LOGS_=previousSuppress;
+  }
 }
