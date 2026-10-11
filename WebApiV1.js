@@ -6,7 +6,7 @@
  * Existing automation continues to read VPE Weekly Planner.
  */
 
-const API_V1_VERSION_ = '2026-10-11.13';
+const API_V1_VERSION_ = '2026-10-11.14';
 const API_MEETING_ITEMS_SHEET_ = 'API Meeting Items';
 const API_MEETINGS_SHEET_ = 'API Meetings';
 const API_DEFAULT_CLUB_ID_ = 'ATK';
@@ -1233,6 +1233,7 @@ function apiDevControlledLegacySyncTest() {
 
 
 const API_DEV_ROLE_PREVIEW_PROPERTY_ = 'DEV_WEB_ROLE_PREVIEW_V1';
+const API_DEV_ROLE_BOOKING_PROPERTY_ = 'DEV_WEB_ROLE_BOOKING_V1';
 
 /**
  * Sends one real approved "View roles" WhatsApp template to the sole DEV
@@ -1586,4 +1587,201 @@ function apiDevSendStoredRolePreviewNow() {
   };
   console.log(JSON.stringify(result,null,2));
   return result;
+}
+
+
+/**
+ * Controlled DEV booking test:
+ * API meeting -> legacy planner -> WhatsApp role list -> real reserveRole_ write.
+ * Downstream role workflows are intercepted by apiDevHandleRoleBookingSelection_.
+ */
+function apiDevWhatsAppRoleBookingTest() {
+  const clubId=API_DEFAULT_CLUB_ID_;
+  if (configValue_('SYSTEM_MODE','') !== 'DEV' ||
+      String(configValue_('WA_SEND_MODE','TEST')).toUpperCase() !== 'TEST') {
+    throw new Error('Role booking test requires DEV / TEST mode.');
+  }
+  if (!configBool_('ROLE_SELECTION_ENABLED')) {
+    throw new Error('ROLE_SELECTION_ENABLED must be TRUE.');
+  }
+
+  const member=configValue_('VPE_MEMBER_NAME','Riyas AF');
+  const phone=normalizePhone_(phoneForMember_(member));
+  if (!phone || !isWhatsAppRecipientAllowed_(phone)) {
+    throw new Error('VPE test recipient is not allowlisted.');
+  }
+
+  const props=PropertiesService.getScriptProperties();
+  if (String(props.getProperty(API_AUTO_SYNC_PLANNED_PROPERTY_)||'').toUpperCase()==='TRUE') {
+    throw new Error('Keep WEB_API_AUTO_SYNC_PLANNED=FALSE for this controlled test.');
+  }
+
+  const ss=apiSpreadsheet_();
+  const planner=ss.getSheetByName('VPE Weekly Planner');
+  if (!planner) throw new Error('VPE Weekly Planner missing');
+
+  // Clean stale DEV booking rows from previous interrupted runs.
+  const preCount=Math.max(0,planner.getLastRow()-2);
+  if (preCount) {
+    const preRows=planner.getRange(3,1,preCount,28).getValues();
+    preRows.forEach((row,i)=>{
+      const d=row[1];
+      if (String(row[2]||'')==='TEST_BOOKING' && d instanceof Date && d.getFullYear()===2099) {
+        planner.getRange(i+3,1,1,28).clearContent();
+      }
+    });
+  }
+
+  const rows=Math.max(0,planner.getLastRow()-2)
+    ? planner.getRange(3,1,Math.max(0,planner.getLastRow()-2),28).getValues() : [];
+  const maxMeetingNo=rows.reduce((m,r)=>Math.max(m,Number(r[0])||0),0);
+  const meetingNo=maxMeetingNo+3000;
+  const meetingDate=new Date(2099,11,29);
+  const dateText=Utilities.formatDate(meetingDate,configValue_('TIMEZONE','Asia/Kolkata'),'yyyy-MM-dd');
+
+  const tempRow=new Array(28).fill('');
+  tempRow[0]=meetingNo; tempRow[1]=meetingDate; tempRow[2]='TEST_BOOKING';
+  const plannerRowNo=planner.getLastRow()+1;
+  planner.getRange(plannerRowNo,1,1,28).setValues([tempRow]);
+
+  const members=apiListMembers_(clubId).filter(m=>m.name!==member);
+  if (members.length<5) throw new Error('Need five other active members for booking test.');
+
+  const originalAllow=props.getProperty(API_ALLOW_LEGACY_SYNC_PROPERTY_);
+  let tempMeetingId='';
+
+  try {
+    const created=apiCreateMeeting_(clubId,{meeting_date:dateText});
+    tempMeetingId=created.meeting_id;
+    const items=created.items.map(x=>Object.assign({},x));
+    const byCode={}; items.forEach(x=>{byCode[x.code]=x;});
+
+    byCode.TMOD.member_id=members[0].member_id; byCode.TMOD.member_name=members[0].name;
+    byCode.GE.member_id=members[1].member_id; byCode.GE.member_name=members[1].name;
+    byCode.S1.member_id=members[2].member_id; byCode.S1.member_name=members[2].name;
+    byCode.EV1.member_id=members[3].member_id; byCode.EV1.member_name=members[3].name;
+    byCode.S2.member_id=members[4].member_id; byCode.S2.member_name=members[4].name;
+
+    apiSaveMeeting_(clubId,{meeting_id:tempMeetingId,save_mode:'DRAFT',items:items});
+    props.setProperty(API_ALLOW_LEGACY_SYNC_PROPERTY_,'TRUE');
+    const sync=apiSyncMeetingToLegacyPlanner_(clubId,tempMeetingId);
+
+    const syncedRow=planner.getRange(plannerRowNo,1,1,28).getValues()[0];
+    const available=availableRoleDefs_(syncedRow).map(def=>({
+      code:def.code,name:def.name,speakerName:def.speakerName||''
+    }));
+    const codes=available.map(x=>x.code);
+    if (codes.indexOf('Timer')<0) throw new Error('Timer is not available in controlled booking test.');
+
+    const state={
+      member:member,phone:phone,meetingNo:Number(sync.planner_meeting_no),
+      plannerRowNo:plannerRowNo,tempMeetingId:tempMeetingId,
+      available:available,expiresAt:Date.now()+15*60*1000
+    };
+    props.setProperty(API_DEV_ROLE_BOOKING_PROPERTY_,JSON.stringify(state));
+
+    // Reuse the DEV preview hook for the View roles button.
+    props.setProperty(API_DEV_ROLE_PREVIEW_PROPERTY_,JSON.stringify({
+      member:member,phone:phone,meetingNo:state.meetingNo,
+      meetingDate:dateText,available:available,expiresAt:state.expiresAt
+    }));
+
+    const result=sendWhatsAppTemplate_(phone,'atk_role_reminder_v2',[state.meetingNo],'ROLE_MENU');
+    if (!result || !result.ok) throw new Error('Role booking template failed: '+String(result&&result.error||'Unknown Meta error'));
+
+    const report={
+      ok:true,version:API_V1_VERSION_,message_id:result.messageId||'',
+      temporary_meeting_no:state.meetingNo,
+      available_roles:codes,
+      instruction:'Tap View roles, then choose Timer.'
+    };
+    console.log(JSON.stringify(report,null,2));
+    return report;
+  } catch(err) {
+    props.deleteProperty(API_DEV_ROLE_BOOKING_PROPERTY_);
+    props.deleteProperty(API_DEV_ROLE_PREVIEW_PROPERTY_);
+    if (planner.getMaxRows()>=plannerRowNo) planner.getRange(plannerRowNo,1,1,28).clearContent();
+    throw err;
+  } finally {
+    if (originalAllow===null) props.deleteProperty(API_ALLOW_LEGACY_SYNC_PROPERTY_);
+    else props.setProperty(API_ALLOW_LEGACY_SYNC_PROPERTY_,originalAllow);
+  }
+}
+
+function apiDevCleanupRoleBookingState_(state) {
+  if (!state) return;
+  const props=PropertiesService.getScriptProperties();
+  const ss=apiSpreadsheet_();
+  const planner=ss.getSheetByName('VPE Weekly Planner');
+
+  if (planner && Number(state.plannerRowNo)>0 &&
+      planner.getMaxRows()>=Number(state.plannerRowNo)) {
+    planner.getRange(Number(state.plannerRowNo),1,1,28).clearContent();
+  }
+
+  if (state.tempMeetingId) {
+    const sheets=apiEnsureSheets_();
+    const itemLast=sheets.items.getLastRow();
+    if (itemLast>=2) {
+      const all=sheets.items.getRange(2,1,itemLast-1,11).getValues();
+      const kept=all.filter(row=>String(row[1])!==String(state.tempMeetingId));
+      const area=sheets.items.getRange(2,1,itemLast-1,11);
+      area.clearContent();
+      if (kept.length) sheets.items.getRange(2,1,kept.length,11).setValues(kept);
+    }
+    const meetingLast=sheets.meetings.getLastRow();
+    if (meetingLast>=2) {
+      const ids=sheets.meetings.getRange(2,1,meetingLast-1,1).getValues().flat();
+      const idx=ids.findIndex(v=>String(v)===String(state.tempMeetingId));
+      if (idx>=0) sheets.meetings.getRange(idx+2,1,1,7).clearContent();
+    }
+    apiInvalidateMeetingCaches_(API_DEFAULT_CLUB_ID_,String(state.tempMeetingId));
+  }
+
+  props.deleteProperty(API_DEV_ROLE_BOOKING_PROPERTY_);
+  props.deleteProperty(API_DEV_ROLE_PREVIEW_PROPERTY_);
+}
+
+/**
+ * Intercepts only the controlled DEV booking meeting.
+ * Uses the real reserveRole_ write, verifies it, then cleans up and stops all
+ * downstream assignment workflows.
+ */
+function apiDevHandleRoleBookingSelection_(member,phone,interaction) {
+  if (configValue_('SYSTEM_MODE','')!=='DEV' ||
+      String(configValue_('WA_SEND_MODE','TEST')).toUpperCase()!=='TEST') return false;
+
+  const props=PropertiesService.getScriptProperties();
+  const raw=props.getProperty(API_DEV_ROLE_BOOKING_PROPERTY_);
+  if (!raw) return false;
+
+  let state;
+  try { state=JSON.parse(raw); } catch(ignore) { return false; }
+
+  if (Date.now()>Number(state.expiresAt||0)) {
+    apiDevCleanupRoleBookingState_(state);
+    return false;
+  }
+  if (String(member)!==String(state.member) ||
+      normalizePhone_(phone)!==normalizePhone_(state.phone) ||
+      Number(interaction.meetingNo)!==Number(state.meetingNo)) return false;
+
+  const roleDef=ROLE_DEFS_.find(r=>r.code===interaction.roleCode);
+  if (!roleDef) return false;
+
+  const result=reserveRole_(interaction.meetingNo,roleDef,member);
+  let verified=false;
+  if (result && result.status==='BOOKED') {
+    const planner=apiSpreadsheet_().getSheetByName('VPE Weekly Planner');
+    const row=planner.getRange(Number(state.plannerRowNo),1,1,28).getValues()[0];
+    verified=String(row[roleDef.column-1]||'').trim()===member;
+  }
+
+  const message=result && result.status==='BOOKED' && verified
+    ? 'DEV booking test passed ✅ ' + roleDef.name + ' was written correctly to the synced planner row. No downstream workflow was triggered.'
+    : 'DEV booking test failed. Result: ' + String(result && result.status || 'UNKNOWN');
+
+  apiDevCleanupRoleBookingState_(state);
+  sendWhatsAppText_(phone,message);
+  return true;
 }
