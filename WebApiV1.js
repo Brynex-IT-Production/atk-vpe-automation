@@ -6,7 +6,7 @@
  * Existing automation continues to read VPE Weekly Planner.
  */
 
-const API_V1_VERSION_ = '2026-10-11.3';
+const API_V1_VERSION_ = '2026-10-11.4';
 const API_MEETING_ITEMS_SHEET_ = 'API Meeting Items';
 const API_MEETINGS_SHEET_ = 'API Meetings';
 const API_DEFAULT_CLUB_ID_ = 'ATK';
@@ -1093,6 +1093,142 @@ function apiDevSavePerformanceTest() {
     internal_save_ms:ms,
     item_count:saved.items.length
   };
+  console.log(JSON.stringify(report,null,2));
+  return report;
+}
+
+
+/**
+ * Reversible end-to-end bridge test:
+ * API meeting -> actual legacy planner row -> existing role availability logic.
+ *
+ * Safety:
+ * - Uses only a historical Completed/Cancelled planner row.
+ * - Backs up and restores the entire 28-column planner row.
+ * - Temporarily enables legacy sync only inside this invocation and restores
+ *   the original property value in finally.
+ * - Requires WEB_API_AUTO_SYNC_PLANNED to remain FALSE/absent.
+ * - Does not send WhatsApp.
+ * - Deletes the temporary API meeting/items after verification.
+ */
+function apiDevControlledLegacySyncTest() {
+  const clubId = API_DEFAULT_CLUB_ID_;
+  const props = PropertiesService.getScriptProperties();
+  const autoSync = String(props.getProperty(API_AUTO_SYNC_PLANNED_PROPERTY_) || '').toUpperCase() === 'TRUE';
+  if (autoSync) throw new Error('Set WEB_API_AUTO_SYNC_PLANNED to FALSE before running this test.');
+
+  const ss = apiSpreadsheet_();
+  const planner = ss.getSheetByName('VPE Weekly Planner');
+  if (!planner) throw new Error('VPE Weekly Planner missing');
+
+  const rowCount = Math.max(0, Math.min(60, planner.getLastRow() - 2));
+  if (!rowCount) throw new Error('No legacy planner rows available');
+
+  const rows = planner.getRange(3,1,rowCount,28).getValues();
+  let idx = -1;
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const status = String(rows[i][2] || '');
+    if (Number(rows[i][0]) && rows[i][1] instanceof Date &&
+        ['Completed','Cancelled'].indexOf(status) >= 0) {
+      idx = i;
+      break;
+    }
+  }
+  if (idx < 0) throw new Error('No historical Completed/Cancelled planner row is available for a reversible test.');
+
+  const rowNumber = idx + 3;
+  const originalRow = rows[idx].slice();
+  const meetingNo = Number(originalRow[0]);
+  const meetingDate = originalRow[1];
+  const dateText = Utilities.formatDate(
+    meetingDate,
+    configValue_('TIMEZONE','Asia/Kolkata'),
+    'yyyy-MM-dd'
+  );
+
+  const members = apiListMembers_(clubId);
+  if (members.length < 6) throw new Error('Need at least 6 active members for bridge test');
+
+  let tempMeetingId = '';
+  const originalAllow = props.getProperty(API_ALLOW_LEGACY_SYNC_PROPERTY_);
+  let report = null;
+
+  try {
+    // Create a temporary API meeting on the same historical date.
+    const created = apiCreateMeeting_(clubId,{meeting_date:dateText});
+    tempMeetingId = created.meeting_id;
+    const items = created.items.map(x => Object.assign({},x));
+    const byCode = {};
+    items.forEach(x => { byCode[x.code] = x; });
+
+    byCode.TMOD.member_id=members[0].member_id; byCode.TMOD.member_name=members[0].name;
+    byCode.GE.member_id=members[1].member_id; byCode.GE.member_name=members[1].name;
+    byCode.S1.member_id=members[2].member_id; byCode.S1.member_name=members[2].name;
+    byCode.EV1.member_id=members[3].member_id; byCode.EV1.member_name=members[3].name;
+    byCode.S2.member_id=members[4].member_id; byCode.S2.member_name=members[4].name;
+    // Leave TTM/Timer/Ah/GRM/EV2 vacant; S3 vacant means EV3 must stay hidden.
+
+    apiSaveMeeting_(clubId,{
+      meeting_id:tempMeetingId,
+      save_mode:'DRAFT',
+      items:items
+    });
+
+    props.setProperty(API_ALLOW_LEGACY_SYNC_PROPERTY_,'TRUE');
+    const syncResult = apiSyncMeetingToLegacyPlanner_(clubId,tempMeetingId);
+
+    const projectedRow = planner.getRange(rowNumber,1,1,28).getValues()[0];
+    const available = availableRoleDefs_(projectedRow).map(x => x.code);
+
+    const checks = [
+      {name:'synced_to_expected_meeting',ok:Number(syncResult.planner_meeting_no)===meetingNo},
+      {name:'speaker_1_written',ok:String(projectedRow[6]||'')===members[2].name},
+      {name:'speaker_2_written',ok:String(projectedRow[10]||'')===members[4].name},
+      {name:'manual_tmod_written',ok:String(projectedRow[18]||'')===members[0].name},
+      {name:'manual_ge_written',ok:String(projectedRow[19]||'')===members[1].name},
+      {name:'manual_ev1_written',ok:String(projectedRow[25]||'')===members[3].name},
+      {name:'manual_tmod_hidden_from_role_call',ok:available.indexOf('TMOD')<0},
+      {name:'manual_ge_hidden_from_role_call',ok:available.indexOf('GE')<0},
+      {name:'manual_ev1_hidden_from_role_call',ok:available.indexOf('EV1')<0},
+      {name:'vacant_ttm_available',ok:available.indexOf('TTM')>=0},
+      {name:'vacant_timer_available',ok:available.indexOf('Timer')>=0},
+      {name:'vacant_ah_available',ok:available.indexOf('Ah')>=0},
+      {name:'vacant_grammarian_available',ok:available.indexOf('GRM')>=0},
+      {name:'ev2_available_for_s2',ok:available.indexOf('EV2')>=0},
+      {name:'ev3_hidden_without_s3',ok:available.indexOf('EV3')<0}
+    ];
+
+    report = {
+      ok:checks.every(x=>x.ok),
+      version:API_V1_VERSION_,
+      historical_meeting_no:meetingNo,
+      historical_meeting_date:dateText,
+      temporary_api_meeting_id:tempMeetingId,
+      available_roles:available,
+      checks:checks
+    };
+  } finally {
+    // Always restore the original planner row first.
+    planner.getRange(rowNumber,1,1,28).setValues([originalRow]);
+    SpreadsheetApp.flush();
+
+    // Restore the legacy-sync property exactly as it was before the test.
+    if (originalAllow === null) props.deleteProperty(API_ALLOW_LEGACY_SYNC_PROPERTY_);
+    else props.setProperty(API_ALLOW_LEGACY_SYNC_PROPERTY_,originalAllow);
+
+    // Remove temporary API meeting/items.
+    if (tempMeetingId) {
+      const sheets = apiEnsureSheets_();
+      for (let r=sheets.items.getLastRow(); r>=2; r--) {
+        if (String(sheets.items.getRange(r,2).getValue())===tempMeetingId) sheets.items.deleteRow(r);
+      }
+      for (let r=sheets.meetings.getLastRow(); r>=2; r--) {
+        if (String(sheets.meetings.getRange(r,1).getValue())===tempMeetingId) sheets.meetings.deleteRow(r);
+      }
+      apiInvalidateMeetingCaches_(clubId,tempMeetingId);
+    }
+  }
+
   console.log(JSON.stringify(report,null,2));
   return report;
 }
