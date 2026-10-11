@@ -6,7 +6,7 @@
  * Existing automation continues to read VPE Weekly Planner.
  */
 
-const API_V1_VERSION_ = '2026-10-11.22';
+const API_V1_VERSION_ = '2026-10-11.23';
 let DEV_SUPPRESS_TEST_DETAIL_LOGS_ = false;
 const API_MEETING_ITEMS_SHEET_ = 'API Meeting Items';
 const API_MEETINGS_SHEET_ = 'API Meetings';
@@ -1973,7 +1973,9 @@ function apiDevFullEndToEndSelfTest() {
       available_after_timer:afterCodes,
       booking_status:booking.status
     };
-    console.log(JSON.stringify(report,null,2));
+    if (!DEV_SUPPRESS_TEST_DETAIL_LOGS_) {
+      console.log(JSON.stringify(report,null,2));
+    }
     return report;
 
   } catch(err) {
@@ -2349,7 +2351,7 @@ function apiDevPostBookingWorkflowSelfTest() {
  * - GRM: split Word/Idiom grammarian flow
  * - EV2: evaluator pairing/coordination flow
  */
-function apiDevRoleWorkflowMatrixSelfTest() {
+function apiDevRoleWorkflowMatrixSelfTest(forceAllWorkflows) {
   const ss=apiSpreadsheet_();
   const planner=ss.getSheetByName('VPE Weekly Planner');
   const taskSheet=ss.getSheetByName(TASK_SHEET_);
@@ -2381,6 +2383,21 @@ function apiDevRoleWorkflowMatrixSelfTest() {
   const originalBooking=props.getProperty(API_DEV_ROLE_BOOKING_PROPERTY_);
   const originalForceWindow=(typeof DEV_FORCE_SERVICE_WINDOW_ === 'boolean')
     ? DEV_FORCE_SERVICE_WINDOW_ : null;
+
+  const workflowKeys=[
+    'INTRO_WORKFLOW_ENABLED',
+    'TMOD_WORKFLOW_ENABLED',
+    'GRAMMARIAN_WORKFLOW_ENABLED',
+    'EVALUATION_WORKFLOW_ENABLED'
+  ];
+  const originalWorkflowValues={};
+  workflowKeys.forEach(key=>{
+    originalWorkflowValues[key]=props.getProperty(key);
+  });
+
+  if (forceAllWorkflows===true) {
+    workflowKeys.forEach(key=>props.setProperty(key,'TRUE'));
+  }
 
   let plannerRowNo=0;
   const allMeetingNos=[];
@@ -2649,11 +2666,14 @@ function apiDevRoleWorkflowMatrixSelfTest() {
     const report={
       ok:true,
       version:API_V1_VERSION_,
+      mode:forceAllWorkflows===true ? 'FORCED_ENABLED' : 'CONFIGURED',
       flags:flags,
       branches:branches,
       checks:checks
     };
-    console.log(JSON.stringify(report,null,2));
+    if (!DEV_SUPPRESS_TEST_DETAIL_LOGS_) {
+      console.log(JSON.stringify(report,null,2));
+    }
     return report;
 
   } catch(err) {
@@ -2679,6 +2699,12 @@ function apiDevRoleWorkflowMatrixSelfTest() {
 
     if (originalBooking===null) props.deleteProperty(API_DEV_ROLE_BOOKING_PROPERTY_);
     else props.setProperty(API_DEV_ROLE_BOOKING_PROPERTY_,originalBooking);
+
+    workflowKeys.forEach(key=>{
+      const original=originalWorkflowValues[key];
+      if (original===null) props.deleteProperty(key);
+      else props.setProperty(key,original);
+    });
 
     if (plannerRowNo && planner.getMaxRows()>=plannerRowNo) {
       planner.getRange(plannerRowNo,1,1,28).clearContent();
@@ -2708,20 +2734,30 @@ function apiDevMasterRegressionSuite() {
 
   try {
     const core=apiDevFullEndToEndSelfTest();
-    const roleWorkflows=apiDevRoleWorkflowMatrixSelfTest();
+    const configured=apiDevRoleWorkflowMatrixSelfTest(false);
+    const enabled=apiDevRoleWorkflowMatrixSelfTest(true);
 
-    const branchSummary={};
-    Object.keys(roleWorkflows.branches||{}).forEach(code=>{
-      const b=roleWorkflows.branches[code]||{};
-      branchSummary[code]={
-        ok:true,
-        captured_outbound_count:Number(b.captured_outbound_count||0),
-        task_count:Number(b.task_count||0)
+    function summarizeMatrix_(matrix) {
+      const branchSummary={};
+      Object.keys(matrix.branches||{}).forEach(code=>{
+        const b=matrix.branches[code]||{};
+        branchSummary[code]={
+          ok:true,
+          captured_outbound_count:Number(b.captured_outbound_count||0),
+          task_count:Number(b.task_count||0)
+        };
+      });
+      return {
+        ok:Boolean(matrix&&matrix.ok),
+        checks_passed:(matrix&&matrix.checks||[]).filter(x=>x.ok).length,
+        checks_total:(matrix&&matrix.checks||[]).length,
+        flags:matrix&&matrix.flags||{},
+        branches:branchSummary
       };
-    });
+    }
 
     const report={
-      ok:Boolean(core&&core.ok&&roleWorkflows&&roleWorkflows.ok),
+      ok:Boolean(core&&core.ok&&configured&&configured.ok&&enabled&&enabled.ok),
       version:API_V1_VERSION_,
       duration_ms:Date.now()-started,
       core:{
@@ -2729,13 +2765,8 @@ function apiDevMasterRegressionSuite() {
         checks_passed:(core&&core.checks||[]).filter(x=>x.ok).length,
         checks_total:(core&&core.checks||[]).length
       },
-      role_workflows:{
-        ok:Boolean(roleWorkflows&&roleWorkflows.ok),
-        checks_passed:(roleWorkflows&&roleWorkflows.checks||[]).filter(x=>x.ok).length,
-        checks_total:(roleWorkflows&&roleWorkflows.checks||[]).length,
-        flags:roleWorkflows&&roleWorkflows.flags||{},
-        branches:branchSummary
-      }
+      configured_workflows:summarizeMatrix_(configured),
+      forced_enabled_workflows:summarizeMatrix_(enabled)
     };
 
     console.log(JSON.stringify(report,null,2));
