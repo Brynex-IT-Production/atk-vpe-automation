@@ -6,7 +6,7 @@
  * Existing automation continues to read VPE Weekly Planner.
  */
 
-const API_V1_VERSION_ = '2026-10-11.5';
+const API_V1_VERSION_ = '2026-10-11.6';
 const API_MEETING_ITEMS_SHEET_ = 'API Meeting Items';
 const API_MEETINGS_SHEET_ = 'API Meetings';
 const API_DEFAULT_CLUB_ID_ = 'ATK';
@@ -1229,4 +1229,194 @@ function apiDevControlledLegacySyncTest() {
 
   console.log(JSON.stringify(report,null,2));
   return report;
+}
+
+
+const API_DEV_ROLE_PREVIEW_PROPERTY_ = 'DEV_WEB_ROLE_PREVIEW_V1';
+
+/**
+ * Sends one real approved "View roles" WhatsApp template to the sole DEV
+ * test recipient. The role list behind it is generated from a temporary API
+ * meeting that is actually synced through the legacy bridge first.
+ *
+ * The temporary API/planner records are removed before this function returns.
+ * A short-lived projection is kept only so the test recipient can tap
+ * "View roles" and see the exact list. Role booking is intercepted in DEV.
+ */
+function apiDevWhatsAppBridgePreviewTest() {
+  const clubId = API_DEFAULT_CLUB_ID_;
+  if (configValue_('SYSTEM_MODE','') !== 'DEV' ||
+      String(configValue_('WA_SEND_MODE','TEST')).toUpperCase() !== 'TEST') {
+    throw new Error('WhatsApp bridge preview requires SYSTEM_MODE=DEV and WA_SEND_MODE=TEST.');
+  }
+  if (!configBool_('ROLE_SELECTION_ENABLED')) {
+    throw new Error('ROLE_SELECTION_ENABLED must be TRUE for this preview.');
+  }
+  if (!isApprovedTemplate_('atk_role_reminder_v2')) {
+    throw new Error('atk_role_reminder_v2 is not marked APPROVED.');
+  }
+
+  const member = configValue_('VPE_MEMBER_NAME','Riyas AF');
+  const phone = normalizePhone_(phoneForMember_(member));
+  const allowlist = String(configValue_('WA_TEST_RECIPIENTS',''))
+    .split(',').map(normalizePhone_).filter(Boolean);
+
+  if (member !== 'Riyas AF' || !phone || allowlist.length !== 1 ||
+      allowlist[0] !== phone || !isWhatsAppRecipientAllowed_(phone)) {
+    throw new Error('DEV WhatsApp bridge preview requires Riyas as the sole allowlisted recipient.');
+  }
+
+  const props = PropertiesService.getScriptProperties();
+  const autoSync = String(props.getProperty(API_AUTO_SYNC_PLANNED_PROPERTY_) || '').toUpperCase() === 'TRUE';
+  if (autoSync) throw new Error('Keep WEB_API_AUTO_SYNC_PLANNED=FALSE for this controlled test.');
+
+  const ss = apiSpreadsheet_();
+  const planner = ss.getSheetByName('VPE Weekly Planner');
+  if (!planner) throw new Error('VPE Weekly Planner missing');
+
+  const members = apiListMembers_(clubId).filter(m => m.name !== member);
+  if (members.length < 5) throw new Error('Need at least five other active members for preview.');
+
+  const existingCount = Math.max(0, planner.getLastRow() - 2);
+  const existingRows = existingCount ? planner.getRange(3,1,existingCount,28).getValues() : [];
+  const maxMeetingNo = existingRows.reduce((m,r)=>Math.max(m,Number(r[0])||0),0);
+  const meetingNo = maxMeetingNo + 2000;
+
+  // Deliberately unique/non-live date: this is only a preview payload and cannot
+  // collide with an actual ATK meeting during bridge sync.
+  const meetingDate = new Date(2099,11,30);
+  const dateText = Utilities.formatDate(meetingDate,configValue_('TIMEZONE','Asia/Kolkata'),'yyyy-MM-dd');
+  const tempPlannerRow = new Array(28).fill('');
+  tempPlannerRow[0]=meetingNo;
+  tempPlannerRow[1]=meetingDate;
+  tempPlannerRow[2]='TEST';
+  const plannerRowNo=planner.getLastRow()+1;
+  planner.getRange(plannerRowNo,1,1,28).setValues([tempPlannerRow]);
+
+  const originalAllow=props.getProperty(API_ALLOW_LEGACY_SYNC_PROPERTY_);
+  let tempMeetingId='';
+  let preview=null;
+
+  try {
+    const created=apiCreateMeeting_(clubId,{meeting_date:dateText});
+    tempMeetingId=created.meeting_id;
+    const items=created.items.map(x=>Object.assign({},x));
+    const byCode={}; items.forEach(x=>{byCode[x.code]=x;});
+
+    // Fixed assignments; expected vacancies:
+    // TTM, Timer, Ah, GRM and EV2. S3 is vacant, so EV3 must not appear.
+    byCode.TMOD.member_id=members[0].member_id; byCode.TMOD.member_name=members[0].name;
+    byCode.GE.member_id=members[1].member_id; byCode.GE.member_name=members[1].name;
+    byCode.S1.member_id=members[2].member_id; byCode.S1.member_name=members[2].name;
+    byCode.EV1.member_id=members[3].member_id; byCode.EV1.member_name=members[3].name;
+    byCode.S2.member_id=members[4].member_id; byCode.S2.member_name=members[4].name;
+
+    apiSaveMeeting_(clubId,{meeting_id:tempMeetingId,save_mode:'DRAFT',items:items});
+    props.setProperty(API_ALLOW_LEGACY_SYNC_PROPERTY_,'TRUE');
+    const sync=apiSyncMeetingToLegacyPlanner_(clubId,tempMeetingId);
+
+    const syncedRow=planner.getRange(plannerRowNo,1,1,28).getValues()[0];
+    const available=availableRoleDefs_(syncedRow).map(def=>({
+      code:def.code,
+      name:def.name,
+      speakerName:def.speakerName || ''
+    }));
+
+    preview={
+      member:member,
+      phone:phone,
+      meetingNo:Number(sync.planner_meeting_no),
+      meetingDate:dateText,
+      available:available,
+      expiresAt:Date.now()+15*60*1000
+    };
+    props.setProperty(API_DEV_ROLE_PREVIEW_PROPERTY_,JSON.stringify(preview));
+
+    const result=sendWhatsAppTemplate_(
+      phone,'atk_role_reminder_v2',[preview.meetingNo],'ROLE_MENU'
+    );
+    if (!result || !result.ok) {
+      props.deleteProperty(API_DEV_ROLE_PREVIEW_PROPERTY_);
+      throw new Error('WhatsApp preview template failed: '+String(result && result.error || 'Unknown Meta error'));
+    }
+
+    return {
+      ok:true,
+      version:API_V1_VERSION_,
+      message_id:result.messageId || '',
+      test_recipient:member,
+      temporary_meeting_no:preview.meetingNo,
+      expected_available_roles:available.map(x=>x.code),
+      instruction:'Tap View roles in WhatsApp. Do not choose a role; selection is DEV-blocked anyway.'
+    };
+  } finally {
+    if (originalAllow === null) props.deleteProperty(API_ALLOW_LEGACY_SYNC_PROPERTY_);
+    else props.setProperty(API_ALLOW_LEGACY_SYNC_PROPERTY_,originalAllow);
+
+    if (tempMeetingId) {
+      const sheets=apiEnsureSheets_();
+      for (let r=sheets.items.getLastRow();r>=2;r--) {
+        if (String(sheets.items.getRange(r,2).getValue())===tempMeetingId) sheets.items.deleteRow(r);
+      }
+      for (let r=sheets.meetings.getLastRow();r>=2;r--) {
+        if (String(sheets.meetings.getRange(r,1).getValue())===tempMeetingId) sheets.meetings.deleteRow(r);
+      }
+      apiInvalidateMeetingCaches_(clubId,tempMeetingId);
+    }
+    if (planner.getLastRow() >= plannerRowNo) planner.deleteRow(plannerRowNo);
+  }
+}
+
+/**
+ * DEV-only hook used by Engine.js after the approved View roles button is
+ * pressed. Returns true only for the short-lived controlled preview.
+ */
+function apiDevTrySendPendingRolePreview_(member,phone) {
+  if (configValue_('SYSTEM_MODE','') !== 'DEV' ||
+      String(configValue_('WA_SEND_MODE','TEST')).toUpperCase() !== 'TEST') return false;
+
+  const props=PropertiesService.getScriptProperties();
+  const raw=props.getProperty(API_DEV_ROLE_PREVIEW_PROPERTY_);
+  if (!raw) return false;
+
+  let p;
+  try { p=JSON.parse(raw); } catch(ignore) {
+    props.deleteProperty(API_DEV_ROLE_PREVIEW_PROPERTY_);
+    return false;
+  }
+  if (Date.now()>Number(p.expiresAt||0)) {
+    props.deleteProperty(API_DEV_ROLE_PREVIEW_PROPERTY_);
+    return false;
+  }
+  if (String(p.member)!==String(member) ||
+      normalizePhone_(p.phone)!==normalizePhone_(phone)) return false;
+
+  const parts=String(p.meetingDate||'').split('-').map(Number);
+  const meetingDate=new Date(parts[0],parts[1]-1,parts[2]);
+  sendRoleList_(phone,member,{
+    meetingNo:Number(p.meetingNo),
+    meetingDate:meetingDate,
+    available:p.available || [],
+    reason:'AVAILABLE'
+  });
+  return true;
+}
+
+/**
+ * DEV-only booking guard for role-list preview rows.
+ */
+function apiDevHandleRolePreviewSelection_(member,phone,interaction) {
+  if (configValue_('SYSTEM_MODE','') !== 'DEV' ||
+      String(configValue_('WA_SEND_MODE','TEST')).toUpperCase() !== 'TEST') return false;
+  const raw=PropertiesService.getScriptProperties().getProperty(API_DEV_ROLE_PREVIEW_PROPERTY_);
+  if (!raw) return false;
+  let p; try { p=JSON.parse(raw); } catch(ignore) { return false; }
+  if (Date.now()>Number(p.expiresAt||0) ||
+      Number(interaction.meetingNo)!==Number(p.meetingNo) ||
+      String(member)!==String(p.member) ||
+      normalizePhone_(phone)!==normalizePhone_(p.phone)) return false;
+
+  sendWhatsAppText_(phone,
+    'DEV preview only ✅ No role was booked and no assignment workflow was triggered.');
+  return true;
 }
