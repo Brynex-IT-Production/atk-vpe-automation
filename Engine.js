@@ -71,16 +71,19 @@ function processInboundWhatsAppMessage_(message) {
     return;
   }
 
-  if (configBool_('TASK_ENGINE_ENABLED')) {
-    syncPhase1Tasks_();
-  }
-
   if (message.type === 'image') {
     handleGrammarImage_(member, phone, message);
     return;
   }
 
   const interaction = parseInteraction_(message);
+
+  // Fast-path role interactions. These do not need a task rebuild before they
+  // can be answered, and avoiding it prevents inbound button clicks from being
+  // delayed by concurrent spreadsheet work from Meta status webhooks.
+  if (configBool_('TASK_ENGINE_ENABLED')) {
+    syncPhase1Tasks_();
+  }
 
   if (interaction.kind === 'VPE_PROGRAMME_REVIEW') {
     handleVpeProgrammeReviewAction_(member, phone, interaction);
