@@ -80,6 +80,16 @@ function processInboundWhatsAppMessage_(message) {
 
   // Fast-path role interactions before any task rebuild. These replies should
   // be near-immediate and do not depend on regenerated task rows.
+  if (interaction.kind === 'ROLE_SELECTION') {
+    handleRoleSelection_(member, phone, interaction);
+    return;
+  }
+
+  if (interaction.kind === 'ROLE_MENU') {
+    handleRoleMenuRequest_(member, phone);
+    return;
+  }
+
   if (configBool_('TASK_ENGINE_ENABLED')) {
     syncPhase1Tasks_();
   }
