@@ -6,7 +6,7 @@
  * Existing automation continues to read VPE Weekly Planner.
  */
 
-const API_V1_VERSION_ = '2026-10-11.20';
+const API_V1_VERSION_ = '2026-10-11.21';
 const API_MEETING_ITEMS_SHEET_ = 'API Meeting Items';
 const API_MEETINGS_SHEET_ = 'API Meetings';
 const API_DEFAULT_CLUB_ID_ = 'ATK';
@@ -764,7 +764,7 @@ function apiDashboard_(clubId) {
 
   const today = startOfDay_(new Date());
   const rows = planner.getLastRow() >= 3
-    ? planner.getRange(3,1,Math.min(60,planner.getLastRow()-2),28).getValues() : [];
+    ? planner.getRange(3,1,Math.max(0, planner.getLastRow() - 2),28).getValues() : [];
   const taskRows = tasks && tasks.getLastRow() >= 2
     ? tasks.getRange(2,1,tasks.getLastRow()-1,18).getValues() : [];
 
