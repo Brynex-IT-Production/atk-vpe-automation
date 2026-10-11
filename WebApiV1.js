@@ -6,7 +6,7 @@
  * Existing automation continues to read VPE Weekly Planner.
  */
 
-const API_V1_VERSION_ = '2026-10-11.24';
+const API_V1_VERSION_ = '2026-10-11.25';
 let DEV_SUPPRESS_TEST_DETAIL_LOGS_ = false;
 const API_MEETING_ITEMS_SHEET_ = 'API Meeting Items';
 const API_MEETINGS_SHEET_ = 'API Meetings';
@@ -1235,6 +1235,8 @@ function apiDevControlledLegacySyncTest() {
 
 const API_DEV_ROLE_PREVIEW_PROPERTY_ = 'DEV_WEB_ROLE_PREVIEW_V1';
 const API_DEV_ROLE_BOOKING_PROPERTY_ = 'DEV_WEB_ROLE_BOOKING_V1';
+const API_DEV_GOLDEN_PROPERTY_ = 'DEV_WEB_GOLDEN_ROLE_V1';
+const API_DEV_GOLDEN_RESULT_PROPERTY_ = 'DEV_WEB_GOLDEN_ROLE_RESULT_V1';
 
 /**
  * Sends one real approved "View roles" WhatsApp template to the sole DEV
@@ -2783,4 +2785,405 @@ function apiDevMasterRegressionSuite() {
   } finally {
     DEV_SUPPRESS_TEST_DETAIL_LOGS_=previousSuppress;
   }
+}
+
+
+/**
+ * Final real-device WhatsApp golden-path test.
+ *
+ * Sends the approved role-reminder template to the configured DEV recipient,
+ * serves a role list from a temporary bridged API meeting, and permits exactly
+ * one Timer selection to pass through the real production role-booking handler.
+ *
+ * Current configured downstream workflows are used. Nothing is force-enabled.
+ */
+function apiDevWhatsAppGoldenPathTest() {
+  const clubId=API_DEFAULT_CLUB_ID_;
+  if (configValue_('SYSTEM_MODE','')!=='DEV' ||
+      String(configValue_('WA_SEND_MODE','TEST')).toUpperCase()!=='TEST') {
+    throw new Error('Golden-path test requires SYSTEM_MODE=DEV and WA_SEND_MODE=TEST.');
+  }
+  if (!configBool_('ROLE_SELECTION_ENABLED')) {
+    throw new Error('ROLE_SELECTION_ENABLED must be TRUE.');
+  }
+  if (!configBool_('TASK_ENGINE_ENABLED')) {
+    throw new Error('TASK_ENGINE_ENABLED must be TRUE.');
+  }
+  if (!isApprovedTemplate_('atk_role_reminder_v2')) {
+    throw new Error('atk_role_reminder_v2 must be APPROVED.');
+  }
+
+  const member=configValue_('VPE_MEMBER_NAME','Riyas AF');
+  const phone=normalizePhone_(phoneForMember_(member));
+  if (!phone || !isWhatsAppRecipientAllowed_(phone)) {
+    throw new Error('VPE DEV test recipient is not allowlisted.');
+  }
+
+  const props=PropertiesService.getScriptProperties();
+  if (String(props.getProperty(API_AUTO_SYNC_PLANNED_PROPERTY_)||'').toUpperCase()==='TRUE') {
+    throw new Error('Keep WEB_API_AUTO_SYNC_PLANNED=FALSE for the golden-path test.');
+  }
+
+  // Do not let older controlled tests intercept the final golden path.
+  props.deleteProperty(API_DEV_ROLE_BOOKING_PROPERTY_);
+  props.deleteProperty(API_DEV_ROLE_PREVIEW_PROPERTY_);
+  props.deleteProperty(API_DEV_GOLDEN_PROPERTY_);
+  props.deleteProperty(API_DEV_GOLDEN_RESULT_PROPERTY_);
+
+  const ss=apiSpreadsheet_();
+  const planner=ss.getSheetByName('VPE Weekly Planner');
+  if (!planner) throw new Error('VPE Weekly Planner missing.');
+
+  const members=apiListMembers_(clubId).filter(m=>m.name!==member);
+  if (members.length<5) throw new Error('Need five active non-VPE members.');
+
+  const existingCount=Math.max(0,planner.getLastRow()-2);
+  const existing=existingCount
+    ? planner.getRange(3,1,existingCount,28).getValues()
+    : [];
+
+  // Use a unique future date inside both the role and task-engine windows.
+  const today=startOfDay_(new Date());
+  const roleWindow=Math.max(
+    1,Number(configValue_('ROLE_SELECTION_WINDOW_DAYS','14'))||14
+  );
+  const taskWindow=Math.max(
+    7,Number(configValue_('REMINDER_WINDOW_DAYS','30'))||30
+  );
+  const maxOffset=Math.max(1,Math.min(roleWindow,taskWindow)-1);
+  const usedDates=new Set(existing
+    .filter(r=>r[1] instanceof Date)
+    .map(r=>Utilities.formatDate(
+      r[1],configValue_('TIMEZONE','Asia/Kolkata'),'yyyy-MM-dd'
+    )));
+
+  let meetingDate=null;
+  let dateText='';
+  for (let offset=maxOffset;offset>=1;offset--) {
+    const candidate=new Date(today.getTime()+offset*86400000);
+    const key=Utilities.formatDate(
+      candidate,configValue_('TIMEZONE','Asia/Kolkata'),'yyyy-MM-dd'
+    );
+    if (!usedDates.has(key)) {
+      meetingDate=candidate;
+      dateText=key;
+      break;
+    }
+  }
+  if (!meetingDate) throw new Error('No unused date is available inside the controlled test window.');
+
+  const maxMeetingNo=existing.reduce(
+    (m,row)=>Math.max(m,Number(row[0])||0),0
+  );
+  const meetingNo=maxMeetingNo+7000;
+
+  const tempRow=new Array(28).fill('');
+  tempRow[0]=meetingNo;
+  tempRow[1]=meetingDate;
+  tempRow[2]='SELF_TEST_GOLDEN';
+  const plannerRowNo=planner.getLastRow()+1;
+  planner.getRange(plannerRowNo,1,1,28).setValues([tempRow]);
+
+  const originalAllow=props.getProperty(API_ALLOW_LEGACY_SYNC_PROPERTY_);
+  let tempMeetingId='';
+
+  try {
+    const created=apiCreateMeeting_(clubId,{meeting_date:dateText});
+    tempMeetingId=created.meeting_id;
+    const items=created.items.map(x=>Object.assign({},x));
+    const byCode={}; items.forEach(x=>{byCode[x.code]=x;});
+
+    // Leave TTM/Timer/Ah/GRM/EV2 open. S3 stays vacant, so EV3 is hidden.
+    byCode.TMOD.member_id=members[0].member_id;
+    byCode.TMOD.member_name=members[0].name;
+    byCode.GE.member_id=members[1].member_id;
+    byCode.GE.member_name=members[1].name;
+    byCode.S1.member_id=members[2].member_id;
+    byCode.S1.member_name=members[2].name;
+    byCode.EV1.member_id=members[3].member_id;
+    byCode.EV1.member_name=members[3].name;
+    byCode.S2.member_id=members[4].member_id;
+    byCode.S2.member_name=members[4].name;
+
+    apiSaveMeeting_(clubId,{
+      meeting_id:tempMeetingId,
+      save_mode:'DRAFT',
+      items:items
+    });
+
+    props.setProperty(API_ALLOW_LEGACY_SYNC_PROPERTY_,'TRUE');
+    const sync=apiSyncMeetingToLegacyPlanner_(clubId,tempMeetingId);
+
+    const synced=planner.getRange(plannerRowNo,1,1,28).getValues()[0];
+    if (Number(sync.planner_meeting_no)!==meetingNo ||
+        String(synced[18]||'')!==members[0].name ||
+        String(synced[19]||'')!==members[1].name ||
+        String(synced[6]||'')!==members[2].name ||
+        String(synced[25]||'')!==members[3].name ||
+        String(synced[10]||'')!==members[4].name) {
+      throw new Error('Golden-path bridge verification failed.');
+    }
+
+    // The bridge does not own the theme column. Add one so the live Timer path
+    // proves both confirmation and configured theme handoff on WhatsApp.
+    planner.getRange(plannerRowNo,4).setValue('E2E GOLDEN TEST THEME');
+
+    const row=planner.getRange(plannerRowNo,1,1,28).getValues()[0];
+    const available=availableRoleDefs_(row).map(def=>({
+      code:def.code,
+      name:def.name,
+      speakerName:def.speakerName||''
+    }));
+    const codes=available.map(x=>x.code);
+    if (JSON.stringify(codes)!==JSON.stringify(['TTM','Timer','Ah','GRM','EV2'])) {
+      throw new Error('Unexpected golden-path vacancies: '+JSON.stringify(codes));
+    }
+
+    const expiresAt=Date.now()+15*60*1000;
+    const state={
+      member:member,
+      phone:phone,
+      meetingNo:meetingNo,
+      meetingDate:dateText,
+      plannerRowNo:plannerRowNo,
+      tempMeetingId:tempMeetingId,
+      expectedRole:'Timer',
+      expiresAt:expiresAt
+    };
+    props.setProperty(API_DEV_GOLDEN_PROPERTY_,JSON.stringify(state));
+    props.setProperty(API_DEV_ROLE_PREVIEW_PROPERTY_,JSON.stringify({
+      member:member,
+      phone:phone,
+      meetingNo:meetingNo,
+      meetingDate:dateText,
+      available:available,
+      expiresAt:expiresAt
+    }));
+
+    const result=sendWhatsAppTemplate_(
+      phone,'atk_role_reminder_v2',[meetingNo],'ROLE_MENU'
+    );
+    if (!result || !result.ok) {
+      throw new Error(
+        'Golden-path template failed: '+
+        String(result&&result.error||'Unknown Meta error')
+      );
+    }
+
+    const report={
+      ok:true,
+      version:API_V1_VERSION_,
+      temporary_meeting_no:meetingNo,
+      available_roles:codes,
+      expected_selection:'Timer',
+      expected_live_messages:[
+        'Timer booking confirmation',
+        'E2E GOLDEN TEST THEME handoff'
+      ],
+      expires_in_minutes:15
+    };
+    console.log(JSON.stringify(report,null,2));
+    return report;
+
+  } catch(err) {
+    const state={
+      plannerRowNo:plannerRowNo,
+      tempMeetingId:tempMeetingId,
+      meetingNo:meetingNo
+    };
+    apiDevCleanupGoldenRoleState_(state);
+    throw err;
+  } finally {
+    if (originalAllow===null) props.deleteProperty(API_ALLOW_LEGACY_SYNC_PROPERTY_);
+    else props.setProperty(API_ALLOW_LEGACY_SYNC_PROPERTY_,originalAllow);
+  }
+}
+
+function apiDevIsGoldenRoleSelection_(member,phone,interaction) {
+  if (configValue_('SYSTEM_MODE','')!=='DEV' ||
+      String(configValue_('WA_SEND_MODE','TEST')).toUpperCase()!=='TEST') {
+    return false;
+  }
+
+  const raw=PropertiesService.getScriptProperties()
+    .getProperty(API_DEV_GOLDEN_PROPERTY_);
+  if (!raw) return false;
+
+  let state;
+  try { state=JSON.parse(raw); } catch(ignore) { return false; }
+
+  return Date.now()<=Number(state.expiresAt||0) &&
+    String(member)===String(state.member) &&
+    normalizePhone_(phone)===normalizePhone_(state.phone) &&
+    Number(interaction.meetingNo)===Number(state.meetingNo) &&
+    String(interaction.roleCode)===String(state.expectedRole);
+}
+
+function apiDevFinalizeGoldenRoleSelection_(member,phone,interaction,roleDef,result) {
+  const props=PropertiesService.getScriptProperties();
+  const raw=props.getProperty(API_DEV_GOLDEN_PROPERTY_);
+  if (!raw) return false;
+
+  let state;
+  try { state=JSON.parse(raw); } catch(ignore) { return false; }
+
+  const ss=apiSpreadsheet_();
+  const planner=ss.getSheetByName('VPE Weekly Planner');
+  let plannerVerified=false;
+  let taskVerified=false;
+
+  if (planner &&
+      Number(state.plannerRowNo)>0 &&
+      planner.getMaxRows()>=Number(state.plannerRowNo)) {
+    const row=planner.getRange(
+      Number(state.plannerRowNo),1,1,28
+    ).getValues()[0];
+    plannerVerified=
+      String(row[roleDef.column-1]||'').trim()===String(member);
+  }
+
+  const taskSheet=ss.getSheetByName(TASK_SHEET_);
+  if (taskSheet && taskSheet.getLastRow()>=2) {
+    const rows=taskSheet.getRange(
+      2,1,taskSheet.getLastRow()-1,18
+    ).getValues();
+    taskVerified=rows.some(r=>
+      Number(r[1])===Number(state.meetingNo) &&
+      String(r[2])==='VACANT_ROLE' &&
+      String(r[3])===String(member) &&
+      String(r[4])===String(roleDef.code) &&
+      String(r[5])==='Completed'
+    );
+  }
+
+  const report={
+    ok:Boolean(
+      result &&
+      result.status==='BOOKED' &&
+      plannerVerified &&
+      taskVerified
+    ),
+    version:API_V1_VERSION_,
+    meeting_no:Number(state.meetingNo),
+    role:String(roleDef.code),
+    booking_status:String(result&&result.status||''),
+    planner_verified:plannerVerified,
+    task_verified:taskVerified,
+    completed_at:new Date().toISOString()
+  };
+
+  props.setProperty(
+    API_DEV_GOLDEN_RESULT_PROPERTY_,
+    JSON.stringify(report)
+  );
+
+  logAutomation_(
+    'DEV Golden Path',
+    state.meetingNo,
+    member,
+    'Real WhatsApp Timer golden-path verification',
+    report.ok ? 'Success' : 'Error',
+    JSON.stringify(report)
+  );
+
+  apiDevCleanupGoldenRoleState_(state);
+  return report.ok;
+}
+
+function apiDevCleanupGoldenRoleState_(state) {
+  const props=PropertiesService.getScriptProperties();
+  state=state||{};
+
+  const ss=apiSpreadsheet_();
+  const planner=ss.getSheetByName('VPE Weekly Planner');
+  if (planner &&
+      Number(state.plannerRowNo)>0 &&
+      planner.getMaxRows()>=Number(state.plannerRowNo)) {
+    planner.getRange(Number(state.plannerRowNo),1,1,28).clearContent();
+  }
+
+  const meetingNo=Number(state.meetingNo||0);
+  const taskSheet=ss.getSheetByName(TASK_SHEET_);
+  if (meetingNo && taskSheet && taskSheet.getLastRow()>=2) {
+    const count=taskSheet.getLastRow()-1;
+    const rows=taskSheet.getRange(2,1,count,18).getValues();
+    const kept=rows.filter(r=>Number(r[1])!==meetingNo);
+    const area=taskSheet.getRange(2,1,count,18);
+    area.clearContent();
+    if (kept.length) {
+      taskSheet.getRange(2,1,kept.length,18).setValues(kept);
+    }
+  }
+
+  const outbox=ss.getSheetByName('WA Outbox');
+  if (meetingNo && outbox && outbox.getLastRow()>=2) {
+    const width=Math.max(16,outbox.getLastColumn());
+    const count=outbox.getLastRow()-1;
+    const rows=outbox.getRange(2,1,count,width).getValues();
+    const kept=rows.filter(r=>Number(r[10])!==meetingNo);
+    const area=outbox.getRange(2,1,count,width);
+    area.clearContent();
+    if (kept.length) {
+      outbox.getRange(2,1,kept.length,width).setValues(kept);
+    }
+  }
+
+  if (state.tempMeetingId) {
+    const sheets=apiEnsureSheets_();
+
+    const itemLast=sheets.items.getLastRow();
+    if (itemLast>=2) {
+      const rows=sheets.items.getRange(2,1,itemLast-1,11).getValues();
+      const kept=rows.filter(r=>String(r[1])!==String(state.tempMeetingId));
+      const area=sheets.items.getRange(2,1,itemLast-1,11);
+      area.clearContent();
+      if (kept.length) {
+        sheets.items.getRange(2,1,kept.length,11).setValues(kept);
+      }
+    }
+
+    const meetingLast=sheets.meetings.getLastRow();
+    if (meetingLast>=2) {
+      const rows=sheets.meetings.getRange(2,1,meetingLast-1,7).getValues();
+      const kept=rows.filter(r=>String(r[0])!==String(state.tempMeetingId));
+      const area=sheets.meetings.getRange(2,1,meetingLast-1,7);
+      area.clearContent();
+      if (kept.length) {
+        sheets.meetings.getRange(2,1,kept.length,7).setValues(kept);
+      }
+    }
+
+    apiInvalidateMeetingCaches_(
+      API_DEFAULT_CLUB_ID_,
+      String(state.tempMeetingId)
+    );
+  }
+
+  props.deleteProperty(API_DEV_GOLDEN_PROPERTY_);
+  props.deleteProperty(API_DEV_ROLE_PREVIEW_PROPERTY_);
+  props.deleteProperty(API_DEV_ROLE_BOOKING_PROPERTY_);
+}
+
+function apiDevGoldenPathResult() {
+  const raw=PropertiesService.getScriptProperties()
+    .getProperty(API_DEV_GOLDEN_RESULT_PROPERTY_);
+  if (!raw) {
+    return {
+      ok:false,
+      version:API_V1_VERSION_,
+      status:'NO_RESULT',
+      message:'No completed golden-path result is stored.'
+    };
+  }
+  let result;
+  try { result=JSON.parse(raw); }
+  catch(ignore) {
+    return {
+      ok:false,
+      version:API_V1_VERSION_,
+      status:'INVALID_RESULT'
+    };
+  }
+  console.log(JSON.stringify(result,null,2));
+  return result;
 }
