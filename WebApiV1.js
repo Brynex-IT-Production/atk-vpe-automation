@@ -6,7 +6,7 @@
  * Existing automation continues to read VPE Weekly Planner.
  */
 
-const API_V1_VERSION_ = '2026-10-11.19';
+const API_V1_VERSION_ = '2026-10-11.20';
 const API_MEETING_ITEMS_SHEET_ = 'API Meeting Items';
 const API_MEETINGS_SHEET_ = 'API Meetings';
 const API_DEFAULT_CLUB_ID_ = 'ATK';
@@ -2332,4 +2332,386 @@ function apiDevPostBookingWorkflowSelfTest() {
       apiInvalidateMeetingCaches_(clubId,tempMeetingId);
     }
   }
+}
+
+
+/**
+ * Regression matrix for the four materially different role-booking branches.
+ * Uses the real handleRoleSelection_ handler and captures outbound WhatsApp
+ * payloads in memory. No Meta message is sent.
+ *
+ * Branches:
+ * - Timer: normal role-player flow
+ * - TMOD: theme-request flow
+ * - GRM: split Word/Idiom grammarian flow
+ * - EV2: evaluator pairing/coordination flow
+ */
+function apiDevRoleWorkflowMatrixSelfTest() {
+  const ss=apiSpreadsheet_();
+  const planner=ss.getSheetByName('VPE Weekly Planner');
+  const taskSheet=ss.getSheetByName(TASK_SHEET_);
+  const outbox=ss.getSheetByName('WA Outbox');
+  const automationLog=ss.getSheetByName('Automation Log');
+  if (!planner || !taskSheet || !outbox) {
+    throw new Error('Planner, Automation Tasks and WA Outbox are required.');
+  }
+  if (!configBool_('ROLE_SELECTION_ENABLED')) {
+    throw new Error('ROLE_SELECTION_ENABLED must be TRUE.');
+  }
+  if (!configBool_('TASK_ENGINE_ENABLED')) {
+    throw new Error('TASK_ENGINE_ENABLED must be TRUE.');
+  }
+
+  const vpe=configValue_('VPE_MEMBER_NAME','Riyas AF');
+  const phone=normalizePhone_(phoneForMember_(vpe));
+  if (!phone || !isWhatsAppRecipientAllowed_(phone)) {
+    throw new Error('VPE must be an allowlisted DEV test recipient.');
+  }
+
+  const members=apiListMembers_(API_DEFAULT_CLUB_ID_).filter(m=>m.name!==vpe);
+  if (members.length<5) throw new Error('Need at least five active non-VPE members.');
+
+  const props=PropertiesService.getScriptProperties();
+  const convKey=conversationKey_(phone);
+  const originalConversation=props.getProperty(convKey);
+  const originalPreview=props.getProperty(API_DEV_ROLE_PREVIEW_PROPERTY_);
+  const originalBooking=props.getProperty(API_DEV_ROLE_BOOKING_PROPERTY_);
+  const originalForceWindow=(typeof DEV_FORCE_SERVICE_WINDOW_ === 'boolean')
+    ? DEV_FORCE_SERVICE_WINDOW_ : null;
+
+  let plannerRowNo=0;
+  const allMeetingNos=[];
+  const checks=[];
+  const branches={};
+
+  const flags={
+    intro_workflow_enabled:configBool_('INTRO_WORKFLOW_ENABLED'),
+    tmod_workflow_enabled:configBool_('TMOD_WORKFLOW_ENABLED'),
+    grammarian_workflow_enabled:configBool_('GRAMMARIAN_WORKFLOW_ENABLED'),
+    evaluation_workflow_enabled:configBool_('EVALUATION_WORKFLOW_ENABLED')
+  };
+
+  function check(name,ok,detail) {
+    checks.push({name:name,ok:Boolean(ok),detail:detail||''});
+    if (!ok) {
+      const err=new Error('Role workflow matrix failed: '+name+
+        (detail ? ' — '+detail : ''));
+      err.selfTestChecks=checks.slice();
+      throw err;
+    }
+  }
+
+  function payloadText_(captures) {
+    return captures.map(p=>JSON.stringify(p)).join('\n');
+  }
+
+  function taskRowsFor_(meetingNo) {
+    if (taskSheet.getLastRow()<2) return [];
+    return taskSheet.getRange(2,1,taskSheet.getLastRow()-1,18).getValues()
+      .filter(r=>Number(r[1])===Number(meetingNo));
+  }
+
+  function task_(rows,type,related,member) {
+    return rows.find(r=>
+      String(r[2])===String(type) &&
+      (related===undefined || String(r[4])===String(related)) &&
+      (member===undefined || String(r[3])===String(member))
+    );
+  }
+
+  function removeByMeetingNos_(sheet,width,meetingColumnIndex) {
+    if (!sheet || sheet.getLastRow()<2 || !allMeetingNos.length) return;
+    const set=new Set(allMeetingNos.map(Number));
+    const count=sheet.getLastRow()-1;
+    const values=sheet.getRange(2,1,count,width).getValues();
+    const kept=values.filter(r=>!set.has(Number(r[meetingColumnIndex])));
+    const area=sheet.getRange(2,1,count,width);
+    area.clearContent();
+    if (kept.length) sheet.getRange(2,1,kept.length,width).setValues(kept);
+  }
+
+  function resetConversation_() {
+    props.deleteProperty(convKey);
+  }
+
+  function basePlannerRow_(meetingNo,date,theme) {
+    const row=new Array(28).fill('');
+    row[0]=meetingNo;
+    row[1]=date;
+    row[2]='SELF_TEST_MATRIX';
+    row[3]=theme||'';
+
+    // Speakers.
+    row[6]=members[2].name;
+    row[8]='Planned';
+    row[10]=members[4].name;
+    row[12]='Planned';
+
+    // Standard roles. Tested role is blanked per branch below.
+    row[18]=members[0].name; // TMOD
+    row[19]=members[1].name; // GE
+    row[20]=members[3].name; // TTM
+    row[21]=members[0].name; // Timer
+    row[22]=members[1].name; // Ah
+    row[23]=members[3].name; // GRM
+    row[25]=members[1].name; // EV1
+    row[26]=members[0].name; // EV2
+    return row;
+  }
+
+  function runBranch_(code,date,meetingNo) {
+    resetConversation_();
+    props.deleteProperty(API_DEV_ROLE_PREVIEW_PROPERTY_);
+    props.deleteProperty(API_DEV_ROLE_BOOKING_PROPERTY_);
+
+    const theme=(code==='TMOD' || code==='GRM') ? '' : 'E2E REGRESSION THEME';
+    const row=basePlannerRow_(meetingNo,date,theme);
+    const def=ROLE_DEFS_.find(x=>x.code===code);
+    if (!def) throw new Error('Unknown role branch '+code);
+    row[def.column-1]='';
+
+    // EV2 requires Speaker 2, which is populated in the base row.
+    planner.getRange(plannerRowNo,1,1,28).setValues([row]);
+
+    const captures=[];
+    DEV_OUTBOUND_CAPTURE_=captures;
+    DEV_FORCE_SERVICE_WINDOW_=true;
+
+    handleRoleSelection_(vpe,phone,{
+      kind:'ROLE_SELECTION',
+      meetingNo:meetingNo,
+      roleCode:code,
+      text:def.name
+    });
+
+    DEV_OUTBOUND_CAPTURE_=null;
+
+    const after=planner.getRange(plannerRowNo,1,1,28).getValues()[0];
+    const tasks=taskRowsFor_(meetingNo);
+    const text=payloadText_(captures);
+    const vacancy=task_(tasks,'VACANT_ROLE',code);
+
+    check(code+'_planner_write',
+      String(after[def.column-1]||'').trim()===vpe,
+      String(after[def.column-1]||''));
+
+    if (!def.evaluatorSlot) {
+      check(code+'_vacancy_task_exists',Boolean(vacancy));
+      check(code+'_vacancy_task_completed',
+        Boolean(vacancy) &&
+        String(vacancy[3]||'')===vpe &&
+        String(vacancy[5]||'')==='Completed',
+        vacancy ? JSON.stringify({member:vacancy[3],state:vacancy[5]}) : 'missing');
+    }
+
+    if (code!=='GRM') {
+      check(code+'_confirmation_generated',
+        text.indexOf('Confirmed')>=0 && text.indexOf(def.name)>=0,
+        'captured='+captures.length);
+    } else {
+      check('GRM_no_redundant_generic_confirmation',
+        text.indexOf('Confirmed')<0,
+        'captured='+captures.length);
+    }
+
+    if (code==='Timer') {
+      const intro=task_(tasks,'INTRO','Timer',vpe);
+      if (flags.intro_workflow_enabled) {
+        check('Timer_intro_task_pending',
+          Boolean(intro) && String(intro[5])==='Pending',
+          intro ? String(intro[5]) : 'missing');
+        check('Timer_intro_prompt_generated',
+          text.toLowerCase().indexOf('introduction')>=0,
+          'captured='+captures.length);
+      } else {
+        check('Timer_intro_disabled_no_task',!intro);
+      }
+      check('Timer_theme_message_generated',
+        text.indexOf('E2E REGRESSION THEME')>=0,
+        'captured='+captures.length);
+    }
+
+    if (code==='TMOD') {
+      const themeTask=task_(tasks,'THEME','TMOD',vpe);
+      check('TMOD_theme_task_exists',Boolean(themeTask));
+      check('TMOD_theme_task_pending',
+        Boolean(themeTask) && String(themeTask[5])==='Pending',
+        themeTask ? String(themeTask[5]) : 'missing');
+      if (flags.tmod_workflow_enabled) {
+        check('TMOD_theme_prompt_generated',
+          text.toLowerCase().indexOf('theme for atk meeting')>=0,
+          'captured='+captures.length);
+      } else {
+        check('TMOD_theme_prompt_suppressed_when_disabled',
+          text.toLowerCase().indexOf('theme for atk meeting')<0,
+          'captured='+captures.length);
+      }
+    }
+
+    if (code==='GRM') {
+      const grammar=task_(tasks,'GRAMMAR','GRM',vpe);
+      check('GRM_task_exists',Boolean(grammar));
+      check('GRM_task_pending',
+        Boolean(grammar) && String(grammar[5])==='Pending',
+        grammar ? String(grammar[5]) : 'missing');
+      if (flags.grammarian_workflow_enabled) {
+        check('GRM_word_prompt_generated',
+          captures.length>=2 && text.toLowerCase().indexOf('word')>=0,
+          'captured='+captures.length);
+        const state=activeConversation_(phone);
+        check('GRM_conversation_started',
+          Boolean(state) &&
+          state.kind==='GRAMMAR' &&
+          Number(state.meetingNo)===meetingNo &&
+          String(state.step||'').toUpperCase()==='WORD',
+          state ? JSON.stringify(state) : 'missing');
+      } else {
+        check('GRM_prompt_suppressed_when_disabled',
+          captures.length===0,
+          'captured='+captures.length);
+      }
+    }
+
+    if (code==='EV2') {
+      const assignment=task_(tasks,'EVALUATOR_ASSIGNMENT','S2');
+      const coordination=task_(tasks,'EVALUATOR_COORDINATION','S2');
+      check('EV2_assignment_task_completed',
+        Boolean(assignment) && String(assignment[5])==='Completed',
+        assignment ? String(assignment[5]) : 'missing');
+      check('EV2_coordination_task_exists',Boolean(coordination));
+
+      if (flags.evaluation_workflow_enabled) {
+        check('EV2_pairing_message_generated',
+          text.toLowerCase().indexOf('you will be evaluating')>=0 &&
+          text.indexOf(members[4].name)>=0,
+          'captured='+captures.length);
+      } else {
+        check('EV2_pairing_suppressed_when_disabled',
+          text.toLowerCase().indexOf('you will be evaluating')<0,
+          'captured='+captures.length);
+      }
+
+      check('EV2_theme_message_generated',
+        text.indexOf('E2E REGRESSION THEME')>=0,
+        'captured='+captures.length);
+    }
+
+    branches[code]={
+      meeting_no:meetingNo,
+      captured_outbound_count:captures.length,
+      captured_types:captures.map(p=>String(p.type||'')),
+      task_count:tasks.length
+    };
+
+    resetConversation_();
+  }
+
+  try {
+    const today=startOfDay_(new Date());
+    const scanDays=Math.max(7,Number(configValue_('REMINDER_WINDOW_DAYS','30'))||30);
+    const existingCount=Math.max(0,planner.getLastRow()-2);
+    const existing=existingCount
+      ? planner.getRange(3,1,existingCount,28).getValues()
+      : [];
+    const usedDates=new Set(existing
+      .filter(r=>r[1] instanceof Date)
+      .map(r=>Utilities.formatDate(
+        r[1],configValue_('TIMEZONE','Asia/Kolkata'),'yyyy-MM-dd'
+      )));
+
+    let testDate=null;
+    for (let offset=Math.min(scanDays-1,20);offset>=1;offset--) {
+      const candidate=new Date(today.getTime()+offset*86400000);
+      const text=Utilities.formatDate(
+        candidate,configValue_('TIMEZONE','Asia/Kolkata'),'yyyy-MM-dd'
+      );
+      if (!usedDates.has(text)) { testDate=candidate; break; }
+    }
+    check('matrix_unused_date_found',Boolean(testDate));
+
+    const maxMeetingNo=existing.reduce(
+      (m,row)=>Math.max(m,Number(row[0])||0),0
+    );
+
+    plannerRowNo=planner.getLastRow()+1;
+    planner.getRange(plannerRowNo,1,1,28).clearContent();
+
+    const branchCodes=['Timer','TMOD','GRM','EV2'];
+    branchCodes.forEach((code,index)=>{
+      const n=maxMeetingNo+6001+index;
+      allMeetingNos.push(n);
+      runBranch_(code,testDate,n);
+    });
+
+    const report={
+      ok:true,
+      version:API_V1_VERSION_,
+      flags:flags,
+      branches:branches,
+      checks:checks
+    };
+    console.log(JSON.stringify(report,null,2));
+    return report;
+
+  } catch(err) {
+    console.error(JSON.stringify({
+      ok:false,
+      version:API_V1_VERSION_,
+      error:String(err&&err.message||err),
+      flags:flags,
+      branches:branches,
+      checks:(err&&err.selfTestChecks)||checks
+    },null,2));
+    throw err;
+
+  } finally {
+    DEV_OUTBOUND_CAPTURE_=null;
+    DEV_FORCE_SERVICE_WINDOW_=originalForceWindow;
+
+    if (originalConversation===null) props.deleteProperty(convKey);
+    else props.setProperty(convKey,originalConversation);
+
+    if (originalPreview===null) props.deleteProperty(API_DEV_ROLE_PREVIEW_PROPERTY_);
+    else props.setProperty(API_DEV_ROLE_PREVIEW_PROPERTY_,originalPreview);
+
+    if (originalBooking===null) props.deleteProperty(API_DEV_ROLE_BOOKING_PROPERTY_);
+    else props.setProperty(API_DEV_ROLE_BOOKING_PROPERTY_,originalBooking);
+
+    if (plannerRowNo && planner.getMaxRows()>=plannerRowNo) {
+      planner.getRange(plannerRowNo,1,1,28).clearContent();
+    }
+
+    removeByMeetingNos_(taskSheet,18,1);
+    removeByMeetingNos_(outbox,Math.max(16,outbox.getLastColumn()),10);
+    if (automationLog) {
+      removeByMeetingNos_(automationLog,Math.max(7,automationLog.getLastColumn()),2);
+    }
+  }
+}
+
+
+/**
+ * One-button internal regression suite.
+ *
+ * This is the function to run before asking for any manual WhatsApp testing.
+ * It combines:
+ * 1) API meeting -> bridge -> vacancy -> booking integrity
+ * 2) the four distinct post-booking workflow branches
+ */
+function apiDevMasterRegressionSuite() {
+  const started=Date.now();
+  const results={};
+
+  results.core=apiDevFullEndToEndSelfTest();
+  results.role_workflows=apiDevRoleWorkflowMatrixSelfTest();
+
+  const report={
+    ok:Boolean(results.core&&results.core.ok &&
+      results.role_workflows&&results.role_workflows.ok),
+    version:API_V1_VERSION_,
+    duration_ms:Date.now()-started,
+    results:results
+  };
+  console.log(JSON.stringify(report,null,2));
+  return report;
 }
