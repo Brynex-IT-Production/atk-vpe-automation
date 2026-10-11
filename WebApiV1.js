@@ -6,7 +6,7 @@
  * Existing automation continues to read VPE Weekly Planner.
  */
 
-const API_V1_VERSION_ = '2026-10-11.9';
+const API_V1_VERSION_ = '2026-10-11.10';
 const API_MEETING_ITEMS_SHEET_ = 'API Meeting Items';
 const API_MEETINGS_SHEET_ = 'API Meetings';
 const API_DEFAULT_CLUB_ID_ = 'ATK';
@@ -1355,15 +1355,44 @@ function apiDevWhatsAppBridgePreviewTest() {
 
     if (tempMeetingId) {
       const sheets=apiEnsureSheets_();
-      for (let r=sheets.items.getLastRow();r>=2;r--) {
-        if (String(sheets.items.getRange(r,2).getValue())===tempMeetingId) sheets.items.deleteRow(r);
+
+      // Bulk cleanup only. Avoid per-row Spreadsheet calls because Meta delivery
+      // webhooks can arrive concurrently with this DEV test.
+      const itemLast=sheets.items.getLastRow();
+      if (itemLast>=2) {
+        const itemIds=sheets.items.getRange(2,2,itemLast-1,1).getValues().flat();
+        const itemRows=[];
+        itemIds.forEach((v,i)=>{ if (String(v)===tempMeetingId) itemRows.push(i+2); });
+        if (itemRows.length) {
+          const first=itemRows[0];
+          const contiguous=itemRows.every((v,i)=>i===0 || v===itemRows[i-1]+1);
+          if (contiguous) {
+            sheets.items.getRange(first,1,itemRows.length,11).clearContent();
+          } else {
+            // Extremely unlikely for this temporary record; one bulk rewrite is
+            // still safer than hundreds of row-by-row calls.
+            const all=sheets.items.getRange(2,1,itemLast-1,11).getValues();
+            const kept=all.filter(row=>String(row[1])!==tempMeetingId);
+            const area=sheets.items.getRange(2,1,itemLast-1,11);
+            area.clearContent();
+            if (kept.length) sheets.items.getRange(2,1,kept.length,11).setValues(kept);
+          }
+        }
       }
-      for (let r=sheets.meetings.getLastRow();r>=2;r--) {
-        if (String(sheets.meetings.getRange(r,1).getValue())===tempMeetingId) sheets.meetings.deleteRow(r);
+
+      const meetingLast=sheets.meetings.getLastRow();
+      if (meetingLast>=2) {
+        const ids=sheets.meetings.getRange(2,1,meetingLast-1,1).getValues().flat();
+        const idx=ids.findIndex(v=>String(v)===tempMeetingId);
+        if (idx>=0) sheets.meetings.getRange(idx+2,1,1,7).clearContent();
       }
       apiInvalidateMeetingCaches_(clubId,tempMeetingId);
     }
-    if (planner.getLastRow() >= plannerRowNo) planner.deleteRow(plannerRowNo);
+
+    // Clear, rather than structurally delete, the temporary planner row.
+    if (planner.getMaxRows() >= plannerRowNo) {
+      planner.getRange(plannerRowNo,1,1,28).clearContent();
+    }
   }
 }
 
