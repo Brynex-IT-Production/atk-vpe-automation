@@ -404,7 +404,8 @@ function findNextRoleSelectionMeeting_(member) {
   const windowDays = Math.max(1, Number(configValue_('ROLE_SELECTION_WINDOW_DAYS', '14')) || 14);
   const today = startOfDay_(new Date());
   const latest = new Date(today.getTime() + windowDays * 86400000);
-  const values = sheet.getRange(3, 1, Math.min(60, Math.max(0, sheet.getLastRow() - 2)), 28).getValues();
+  const rowCount = Math.max(0, sheet.getLastRow() - 2);
+  const values = rowCount ? sheet.getRange(3, 1, rowCount, 28).getValues() : [];
 
   for (let i = 0; i < values.length; i++) {
     const row = values[i];
@@ -587,8 +588,11 @@ function handleRoleSelection_(member, phone, interaction) {
 function reserveRole_(meetingNo, roleDef, member) {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const sheet = ss.getSheetByName('VPE Weekly Planner');
-  const lastRow = Math.min(62, sheet.getLastRow());
-  const meetingNos = sheet.getRange(3, 1, Math.max(0, lastRow - 2), 1).getValues().flat();
+  const lastRow = sheet.getLastRow();
+  const rowCount = Math.max(0, lastRow - 2);
+  const meetingNos = rowCount
+    ? sheet.getRange(3, 1, rowCount, 1).getValues().flat()
+    : [];
 
   const index = meetingNos.findIndex(v => Number(v) === Number(meetingNo));
   if (index < 0) return { status: 'NOT_FOUND' };
@@ -629,7 +633,8 @@ function reserveRole_(meetingNo, roleDef, member) {
 function findMeetingForRoleList_(meetingNo, member) {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const sheet = ss.getSheetByName('VPE Weekly Planner');
-  const values = sheet.getRange(3, 1, Math.min(60, Math.max(0, sheet.getLastRow() - 2)), 28).getValues();
+  const rowCount = Math.max(0, sheet.getLastRow() - 2);
+  const values = rowCount ? sheet.getRange(3, 1, rowCount, 28).getValues() : [];
 
   for (let i = 0; i < values.length; i++) {
     const row = values[i];
