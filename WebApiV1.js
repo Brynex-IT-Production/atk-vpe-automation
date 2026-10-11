@@ -6,7 +6,7 @@
  * Existing automation continues to read VPE Weekly Planner.
  */
 
-const API_V1_VERSION_ = '2026-10-11.17';
+const API_V1_VERSION_ = '2026-10-11.18';
 const API_MEETING_ITEMS_SHEET_ = 'API Meeting Items';
 const API_MEETINGS_SHEET_ = 'API Meetings';
 const API_DEFAULT_CLUB_ID_ = 'ATK';
@@ -1991,6 +1991,322 @@ function apiDevFullEndToEndSelfTest() {
     }
 
     // Clean API test records in bulk.
+    if (tempMeetingId) {
+      const sheets=apiEnsureSheets_();
+
+      const itemLast=sheets.items.getLastRow();
+      if (itemLast>=2) {
+        const all=sheets.items.getRange(2,1,itemLast-1,11).getValues();
+        const kept=all.filter(r=>String(r[1])!==String(tempMeetingId));
+        const area=sheets.items.getRange(2,1,itemLast-1,11);
+        area.clearContent();
+        if (kept.length) sheets.items.getRange(2,1,kept.length,11).setValues(kept);
+      }
+
+      const meetingLast=sheets.meetings.getLastRow();
+      if (meetingLast>=2) {
+        const rows=sheets.meetings.getRange(2,1,meetingLast-1,7).getValues();
+        const kept=rows.filter(r=>String(r[0])!==String(tempMeetingId));
+        const area=sheets.meetings.getRange(2,1,meetingLast-1,7);
+        area.clearContent();
+        if (kept.length) sheets.meetings.getRange(2,1,kept.length,7).setValues(kept);
+      }
+
+      apiInvalidateMeetingCaches_(clubId,tempMeetingId);
+    }
+  }
+}
+
+
+/**
+ * Full dry-run post-booking workflow test.
+ *
+ * Uses the real handleRoleSelection_ path, including reserveRole_, task sync,
+ * immediate assignment prompt branching and theme handoff. All WhatsApp payloads
+ * are captured in-memory by DEV_OUTBOUND_CAPTURE_, so nothing is sent to Meta.
+ *
+ * A temporary API meeting and planner row are created on an unused date inside
+ * the current task-engine scan window. Test records are cleaned afterwards.
+ */
+function apiDevPostBookingWorkflowSelfTest() {
+  const clubId=API_DEFAULT_CLUB_ID_;
+  const props=PropertiesService.getScriptProperties();
+  const ss=apiSpreadsheet_();
+  const planner=ss.getSheetByName('VPE Weekly Planner');
+  const taskSheet=ss.getSheetByName(TASK_SHEET_);
+  const outbox=ss.getSheetByName('WA Outbox');
+  if (!planner || !taskSheet || !outbox) {
+    throw new Error('Planner, Automation Tasks and WA Outbox are required.');
+  }
+
+  if (!configBool_('ROLE_SELECTION_ENABLED')) {
+    throw new Error('ROLE_SELECTION_ENABLED must be TRUE.');
+  }
+  if (!configBool_('TASK_ENGINE_ENABLED')) {
+    throw new Error('TASK_ENGINE_ENABLED must be TRUE.');
+  }
+  if (String(props.getProperty(API_AUTO_SYNC_PLANNED_PROPERTY_)||'').toUpperCase()==='TRUE') {
+    throw new Error('Keep WEB_API_AUTO_SYNC_PLANNED=FALSE for this controlled self-test.');
+  }
+
+  const vpe=configValue_('VPE_MEMBER_NAME','Riyas AF');
+  const phone=normalizePhone_(phoneForMember_(vpe));
+  if (!phone) throw new Error('VPE WhatsApp number not found.');
+  if (!isWhatsAppRecipientAllowed_(phone)) {
+    throw new Error('VPE must be an allowlisted DEV recipient for post-booking workflow validation.');
+  }
+
+  const members=apiListMembers_(clubId).filter(m=>m.name!==vpe);
+  if (members.length<5) throw new Error('Need five active non-VPE members.');
+
+  const originalAllow=props.getProperty(API_ALLOW_LEGACY_SYNC_PROPERTY_);
+  const originalPreview=props.getProperty(API_DEV_ROLE_PREVIEW_PROPERTY_);
+  const originalBooking=props.getProperty(API_DEV_ROLE_BOOKING_PROPERTY_);
+  const convKey=conversationKey_(phone);
+  const originalConversation=props.getProperty(convKey);
+
+  let tempMeetingId='';
+  let plannerRowNo=0;
+  let meetingNo=0;
+  let testDateText='';
+  const checks=[];
+  const captures=[];
+  const introEnabled=configBool_('INTRO_WORKFLOW_ENABLED');
+
+  function check(name,ok,detail) {
+    checks.push({name:name,ok:Boolean(ok),detail:detail||''});
+    if (!ok) {
+      const err=new Error('Post-booking self-test failed: '+name+
+        (detail ? ' — '+detail : ''));
+      err.selfTestChecks=checks.slice();
+      throw err;
+    }
+  }
+
+  function removeMeetingRows_(sheet,meetingNoValue,width) {
+    if (!sheet || sheet.getLastRow()<2) return;
+    const rowCount=sheet.getLastRow()-1;
+    const values=sheet.getRange(2,1,rowCount,width).getValues();
+    const kept=values.filter(row=>Number(row[1])!==Number(meetingNoValue));
+    const area=sheet.getRange(2,1,rowCount,width);
+    area.clearContent();
+    if (kept.length) sheet.getRange(2,1,kept.length,width).setValues(kept);
+  }
+
+  try {
+    // Ensure old controlled preview state cannot intercept this handler call.
+    props.deleteProperty(API_DEV_ROLE_PREVIEW_PROPERTY_);
+    props.deleteProperty(API_DEV_ROLE_BOOKING_PROPERTY_);
+    props.deleteProperty(convKey);
+
+    const today=startOfDay_(new Date());
+    const scanDays=Math.max(
+      7,
+      Number(configValue_('REMINDER_WINDOW_DAYS','30')) || 30
+    );
+
+    const existingCount=Math.max(0,planner.getLastRow()-2);
+    const existingRows=existingCount
+      ? planner.getRange(3,1,existingCount,28).getValues()
+      : [];
+    const usedDates=new Set(
+      existingRows
+        .filter(r=>r[1] instanceof Date)
+        .map(r=>Utilities.formatDate(
+          r[1],configValue_('TIMEZONE','Asia/Kolkata'),'yyyy-MM-dd'
+        ))
+    );
+
+    let testDate=null;
+    for (let offset=Math.min(scanDays-1,20);offset>=1;offset--) {
+      const candidate=new Date(today.getTime()+offset*86400000);
+      const text=Utilities.formatDate(
+        candidate,configValue_('TIMEZONE','Asia/Kolkata'),'yyyy-MM-dd'
+      );
+      if (!usedDates.has(text)) {
+        testDate=candidate;
+        testDateText=text;
+        break;
+      }
+    }
+    check('unused_test_date_found',Boolean(testDate),testDateText);
+
+    const maxMeetingNo=existingRows.reduce(
+      (m,row)=>Math.max(m,Number(row[0])||0),0
+    );
+    meetingNo=maxMeetingNo+5000;
+
+    const tempPlannerRow=new Array(28).fill('');
+    tempPlannerRow[0]=meetingNo;
+    tempPlannerRow[1]=testDate;
+    tempPlannerRow[2]='SELF_TEST_POST';
+    tempPlannerRow[3]='E2E SELF TEST THEME';
+    plannerRowNo=planner.getLastRow()+1;
+    planner.getRange(plannerRowNo,1,1,28).setValues([tempPlannerRow]);
+
+    // Build a genuine API meeting and push it through the real bridge first.
+    const created=apiCreateMeeting_(clubId,{meeting_date:testDateText});
+    tempMeetingId=created.meeting_id;
+    const items=created.items.map(x=>Object.assign({},x));
+    const byCode={}; items.forEach(x=>{byCode[x.code]=x;});
+
+    byCode.TMOD.member_id=members[0].member_id; byCode.TMOD.member_name=members[0].name;
+    byCode.GE.member_id=members[1].member_id; byCode.GE.member_name=members[1].name;
+    byCode.S1.member_id=members[2].member_id; byCode.S1.member_name=members[2].name;
+    byCode.EV1.member_id=members[3].member_id; byCode.EV1.member_name=members[3].name;
+    byCode.S2.member_id=members[4].member_id; byCode.S2.member_name=members[4].name;
+
+    apiSaveMeeting_(clubId,{
+      meeting_id:tempMeetingId,
+      save_mode:'DRAFT',
+      items:items
+    });
+
+    props.setProperty(API_ALLOW_LEGACY_SYNC_PROPERTY_,'TRUE');
+    const sync=apiSyncMeetingToLegacyPlanner_(clubId,tempMeetingId);
+    check('bridge_synced',Boolean(sync&&sync.synced),JSON.stringify(sync));
+    check('bridge_target_correct',
+      Number(sync.planner_meeting_no)===meetingNo,
+      String(sync.planner_meeting_no));
+
+    // The bridge intentionally doesn't own the theme column. Keep our test theme.
+    planner.getRange(plannerRowNo,4).setValue('E2E SELF TEST THEME');
+
+    const before=planner.getRange(plannerRowNo,1,1,28).getValues()[0];
+    check('timer_initially_vacant',
+      !String(before[21]||'').trim(),
+      String(before[21]||''));
+
+    // Capture every outbound payload from the real handler in-memory.
+    DEV_OUTBOUND_CAPTURE_=captures;
+
+    handleRoleSelection_(vpe,phone,{
+      kind:'ROLE_SELECTION',
+      meetingNo:meetingNo,
+      roleCode:'Timer',
+      text:'Timer'
+    });
+
+    const after=planner.getRange(plannerRowNo,1,1,28).getValues()[0];
+    check('timer_written',
+      String(after[21]||'').trim()===vpe,
+      String(after[21]||''));
+
+    const payloadText=captures.map(x=>JSON.stringify(x));
+    check('confirmation_generated',
+      payloadText.some(x=>x.indexOf('Confirmed')>=0 && x.indexOf('Timer')>=0),
+      'captured='+captures.length);
+
+    check('theme_message_generated',
+      payloadText.some(x=>x.indexOf('E2E SELF TEST THEME')>=0),
+      'captured='+captures.length);
+
+    // Task engine should mark the Timer vacancy completed for Riyas.
+    const taskRows=taskSheet.getLastRow()>=2
+      ? taskSheet.getRange(2,1,taskSheet.getLastRow()-1,18).getValues()
+      : [];
+    const timerVacancy=taskRows.find(r=>
+      Number(r[1])===meetingNo &&
+      String(r[2])==='VACANT_ROLE' &&
+      String(r[4])==='Timer'
+    );
+    check('timer_task_exists',Boolean(timerVacancy));
+    check('timer_task_completed',
+      Boolean(timerVacancy) &&
+      String(timerVacancy[3]||'')===vpe &&
+      String(timerVacancy[5]||'')==='Completed',
+      timerVacancy ? JSON.stringify({
+        member:timerVacancy[3],state:timerVacancy[5]
+      }) : 'missing');
+
+    const introTask=taskRows.find(r=>
+      Number(r[1])===meetingNo &&
+      String(r[2])==='INTRO' &&
+      String(r[3])===vpe &&
+      String(r[4])==='Timer'
+    );
+
+    if (introEnabled) {
+      check('intro_task_created',Boolean(introTask));
+      check('intro_task_pending',
+        Boolean(introTask) && String(introTask[5])==='Pending',
+        introTask ? String(introTask[5]) : 'missing');
+      check('intro_prompt_generated',
+        payloadText.some(x=>x.toLowerCase().indexOf('introduction')>=0),
+        'captured='+captures.length);
+    } else {
+      check('intro_task_not_created_when_disabled',!introTask);
+      check('intro_prompt_not_generated_when_disabled',
+        !payloadText.some(x=>x.toLowerCase().indexOf('introduction')>=0),
+        'captured='+captures.length);
+    }
+
+    // No evaluator workflow should run for Timer.
+    check('no_evaluator_specific_message',
+      !payloadText.some(x=>
+        x.indexOf('Evaluator 2')>=0 ||
+        x.indexOf('EVAL_COORD')>=0 ||
+        x.indexOf('evaluator coordination')>=0
+      ),
+      'captured='+captures.length);
+
+    const expectedMinimum=introEnabled ? 3 : 2;
+    check('expected_outbound_count',
+      captures.length>=expectedMinimum,
+      'captured='+captures.length+', expected_at_least='+expectedMinimum);
+
+    const report={
+      ok:true,
+      version:API_V1_VERSION_,
+      temporary_meeting_id:tempMeetingId,
+      temporary_meeting_no:meetingNo,
+      temporary_meeting_date:testDateText,
+      intro_workflow_enabled:introEnabled,
+      captured_outbound_count:captures.length,
+      captured_types:captures.map(p=>String(p.type||'')),
+      checks:checks
+    };
+    console.log(JSON.stringify(report,null,2));
+    return report;
+
+  } catch(err) {
+    console.error(JSON.stringify({
+      ok:false,
+      version:API_V1_VERSION_,
+      error:String(err&&err.message||err),
+      intro_workflow_enabled:introEnabled,
+      captured_outbound_count:captures.length,
+      checks:(err&&err.selfTestChecks)||checks
+    },null,2));
+    throw err;
+
+  } finally {
+    DEV_OUTBOUND_CAPTURE_=null;
+
+    // Restore the VPE's prior guided-conversation state exactly.
+    if (originalConversation===null) props.deleteProperty(convKey);
+    else props.setProperty(convKey,originalConversation);
+
+    if (originalPreview===null) props.deleteProperty(API_DEV_ROLE_PREVIEW_PROPERTY_);
+    else props.setProperty(API_DEV_ROLE_PREVIEW_PROPERTY_,originalPreview);
+
+    if (originalBooking===null) props.deleteProperty(API_DEV_ROLE_BOOKING_PROPERTY_);
+    else props.setProperty(API_DEV_ROLE_BOOKING_PROPERTY_,originalBooking);
+
+    if (originalAllow===null) props.deleteProperty(API_ALLOW_LEGACY_SYNC_PROPERTY_);
+    else props.setProperty(API_ALLOW_LEGACY_SYNC_PROPERTY_,originalAllow);
+
+    if (plannerRowNo && planner.getMaxRows()>=plannerRowNo) {
+      planner.getRange(plannerRowNo,1,1,28).clearContent();
+    }
+
+    // Remove only this test meeting's generated task/outbox rows.
+    if (meetingNo) {
+      removeMeetingRows_(taskSheet,meetingNo,18);
+      removeMeetingRows_(outbox,meetingNo,Math.max(16,outbox.getLastColumn()));
+    }
+
+    // Remove temporary API records.
     if (tempMeetingId) {
       const sheets=apiEnsureSheets_();
 
