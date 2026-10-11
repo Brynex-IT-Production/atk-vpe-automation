@@ -169,7 +169,7 @@ function syncProgrammeSlots_() {
   });
 
   const plannerRows = planner.getRange(
-    3, 1, Math.min(60, Math.max(0, planner.getLastRow() - 2)), 28
+    3, 1, Math.max(0, planner.getLastRow() - 2), 28
   ).getValues();
 
   plannerRows.forEach(row => {
@@ -425,7 +425,7 @@ function getProgrammeReviewData(token) {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const planner = ss.getSheetByName('VPE Weekly Planner');
   const rows = planner.getRange(
-    3, 1, Math.min(60, Math.max(0, planner.getLastRow() - 2)), 28
+    3, 1, Math.max(0, planner.getLastRow() - 2), 28
   ).getValues();
   const slotMap = readProgrammeSlots_();
   const tz = configValue_('TIMEZONE', 'Asia/Kolkata');
@@ -559,7 +559,7 @@ function saveProgrammeReview(token, actions) {
 function requestSpeakerMove_(meetingNo, slot, speaker) {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const planner = ss.getSheetByName('VPE Weekly Planner');
-  const ids = planner.getRange(3, 1, Math.max(0, Math.min(60, planner.getLastRow() - 2)), 1)
+  const ids = planner.getRange(3, 1, Math.max(0, planner.getLastRow() - 2), 1)
     .getValues().flat();
   const idx = ids.findIndex(v => Number(v) === Number(meetingNo));
   if (idx < 0) return {ok:false,error:'Meeting not found.'};
@@ -677,7 +677,7 @@ function moveProtectedSpeaker_(oldMeetingNo, oldSlot, newMeetingNo, member) {
 
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const planner = ss.getSheetByName('VPE Weekly Planner');
-  const rows = planner.getRange(3,1,Math.min(60,Math.max(0,planner.getLastRow()-2)),28).getValues();
+  const rows = planner.getRange(3,1,Math.max(0, planner.getLastRow() - 2),28).getValues();
   const oldIdx = rows.findIndex(r => Number(r[0]) === oldMeetingNo);
   const newIdx = rows.findIndex(r => Number(r[0]) === newMeetingNo);
   if (oldIdx < 0 || newIdx < 0) return {ok:false,error:'One of the meeting dates is no longer available.'};
