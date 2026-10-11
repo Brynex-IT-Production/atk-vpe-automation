@@ -6,7 +6,7 @@
  * Existing automation continues to read VPE Weekly Planner.
  */
 
-const API_V1_VERSION_ = '2026-10-11.2';
+const API_V1_VERSION_ = '2026-10-11.3';
 const API_MEETING_ITEMS_SHEET_ = 'API Meeting Items';
 const API_MEETINGS_SHEET_ = 'API Meetings';
 const API_DEFAULT_CLUB_ID_ = 'ATK';
@@ -391,21 +391,53 @@ function apiReplaceMeetingItems_(sheet,clubId,meetingId,items) {
     const e = new Error('Every meeting item requires a label'); e.apiCode='BAD_REQUEST'; throw e;
   }
 
-  // One bulk read + one bulk write. Avoid row-by-row deleteRow()/appendRow(),
-  // which is the main Sheets I/O bottleneck during meeting saves.
-  const existing = sheet.getLastRow() >= 2
-    ? sheet.getRange(2,1,sheet.getLastRow()-1,11).getValues()
-    : [];
-  const kept = existing.filter(r => String(r[1]) !== meetingId);
   const added = normalized.map(x => [
     x.item_id,meetingId,clubId,x.position,x.type,x.code,x.label,
     x.member_id,x.member_name,now,now
   ]);
-  const next = kept.concat(added);
 
-  const oldDataRows = Math.max(0,sheet.getLastRow()-1);
-  if (oldDataRows) sheet.getRange(2,1,oldDataRows,11).clearContent();
-  if (next.length) sheet.getRange(2,1,next.length,11).setValues(next);
+  // Targeted update: touch only this meeting's rows instead of rewriting
+  // the entire API Meeting Items sheet on every save.
+  const lastRow = sheet.getLastRow();
+  const existing = lastRow >= 2
+    ? sheet.getRange(2,1,lastRow-1,11).getValues()
+    : [];
+  const rowNumbers = [];
+  existing.forEach((r,i) => {
+    if (String(r[1]) === meetingId && String(r[2]) === clubId) rowNumbers.push(i + 2);
+  });
+
+  if (!rowNumbers.length) {
+    if (added.length) {
+      sheet.getRange(sheet.getLastRow()+1,1,added.length,11).setValues(added);
+    }
+  } else {
+    const contiguous = rowNumbers.every((r,i) => i === 0 || r === rowNumbers[i-1] + 1);
+
+    if (contiguous && added.length <= rowNumbers.length) {
+      // Fast path for normal edits/deletions: overwrite existing block once,
+      // then clear only any surplus old rows.
+      if (added.length) {
+        sheet.getRange(rowNumbers[0],1,added.length,11).setValues(added);
+      }
+      const surplus = rowNumbers.length - added.length;
+      if (surplus > 0) {
+        sheet.getRange(rowNumbers[0] + added.length,1,surplus,11).clearContent();
+      }
+    } else {
+      // If more rows are needed (e.g. custom session added), clear the old
+      // meeting rows only and append the new block once at the bottom.
+      if (contiguous) {
+        sheet.getRange(rowNumbers[0],1,rowNumbers.length,11).clearContent();
+      } else {
+        // Legacy/test data may be fragmented; clear only matched rows.
+        rowNumbers.forEach(r => sheet.getRange(r,1,1,11).clearContent());
+      }
+      if (added.length) {
+        sheet.getRange(sheet.getLastRow()+1,1,added.length,11).setValues(added);
+      }
+    }
+  }
 
   apiInvalidateMeetingCaches_(clubId,meetingId);
   return normalized;
@@ -1030,6 +1062,36 @@ function apiDevPerformanceTest() {
     ok:true,
     version:API_V1_VERSION_,
     timings:[coldMembers,warmMembers,coldMeetings,warmMeetings,settings].concat(meetingTimings)
+  };
+  console.log(JSON.stringify(report,null,2));
+  return report;
+}
+
+
+/**
+ * Measures internal save-path time without HTTP/redirect overhead.
+ * Uses an existing DEV API meeting and does not touch legacy planner/WhatsApp.
+ */
+function apiDevSavePerformanceTest() {
+  const clubId = API_DEFAULT_CLUB_ID_;
+  const meetings = apiListMeetings_(clubId);
+  if (!meetings.length) throw new Error('No API meetings available for save performance test');
+
+  const meeting = apiGetMeeting_(clubId,meetings[0].meeting_id);
+  const before = Date.now();
+  const saved = apiSaveMeeting_(clubId,{
+    meeting_id:meeting.meeting_id,
+    save_mode:meeting.status === 'PLANNED' ? 'CONFIRMED' : 'DRAFT',
+    items:meeting.items
+  });
+  const ms = Date.now()-before;
+
+  const report = {
+    ok:true,
+    version:API_V1_VERSION_,
+    meeting_id:saved.meeting_id,
+    internal_save_ms:ms,
+    item_count:saved.items.length
   };
   console.log(JSON.stringify(report,null,2));
   return report;
