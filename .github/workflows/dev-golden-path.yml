@@ -86,15 +86,14 @@ jobs:
           test -f /tmp/atk-vpe-dev/Code.js
           test -f /tmp/atk-vpe-dev/WebApiV1.js
 
-      - name: Push 2026-10-11.25 to Apps Script DEV
+      - name: Refresh Apps Script HEAD and verify deployed .25
         shell: bash
         run: |
           cd /tmp/atk-vpe-dev
           clasp push --force
           clasp list-deployments | tee /tmp/atk-deployments.txt
           grep -q "$ATK_DEV_WEBAPP_DEPLOYMENT_ID" /tmp/atk-deployments.txt
-          clasp update-deployment "$ATK_DEV_WEBAPP_DEPLOYMENT_ID" \
-            --description "DEV golden path $GITHUB_SHA"
+          grep -q "8390a5d533f58cc9e062e342ea0725a2deb063d5" /tmp/atk-deployments.txt
 
       - name: Run master regression gate
         shell: bash
