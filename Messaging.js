@@ -7,6 +7,7 @@
  */
 
 let WA_INBOUND_CACHE_ = null;
+let DEV_FORCE_SERVICE_WINDOW_ = null;
 
 function getLastInboundMap_() {
   if (WA_INBOUND_CACHE_) return WA_INBOUND_CACHE_;
@@ -34,6 +35,9 @@ function getLastInboundMap_() {
 }
 
 function hasOpenWhatsAppServiceWindow_(phone) {
+  if (typeof DEV_FORCE_SERVICE_WINDOW_ === 'boolean') {
+    return DEV_FORCE_SERVICE_WINDOW_;
+  }
   const destination = normalizePhone_(phone);
   const lastInbound = getLastInboundMap_()[destination];
   if (!(lastInbound instanceof Date)) return false;
