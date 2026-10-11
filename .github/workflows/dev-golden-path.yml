@@ -95,52 +95,20 @@ jobs:
           grep -q "$ATK_DEV_WEBAPP_DEPLOYMENT_ID" /tmp/atk-deployments.txt
           grep -q "8390a5d533f58cc9e062e342ea0725a2deb063d5" /tmp/atk-deployments.txt
 
-      - name: Run master regression gate
+      - name: Run master regression gate through DEV HEAD
         shell: bash
         run: |
-          cd /tmp/atk-vpe-dev
-          clasp run-function apiDevMasterRegressionSuite | tee /tmp/master.txt
+          response=$(curl --location --fail-with-body --silent --show-error \
+            --max-time 330 \
+            --header 'Content-Type: application/json' \
+            --data '{"system_action":"DEV_MASTER_REGRESSION","verify_token":"ATK_VPE_VERIFY_2026_X7K9M4P2"}' \
+            'https://script.google.com/macros/s/AKfycbzpNOaOrEtEliLxcCIu9m4hSVhAq-2Tg2pL2tqQztM/exec')
+          printf '%s' "$response" | tee /tmp/master.json
           python3 - <<'PY'
           import json
           from pathlib import Path
 
-          raw=Path('/tmp/master.txt').read_text()
-
-          def candidates(value):
-              out=[]
-              if isinstance(value,dict):
-                  out.append(value)
-                  for v in value.values():
-                      out.extend(candidates(v))
-              elif isinstance(value,list):
-                  for v in value:
-                      out.extend(candidates(v))
-              elif isinstance(value,str):
-                  s=value.strip()
-                  if s.startswith('{') and s.endswith('}'):
-                      try: out.extend(candidates(json.loads(s)))
-                      except Exception: pass
-              return out
-
-          parsed=None
-          for start in [i for i,c in enumerate(raw) if c=='{']:
-              try:
-                  obj=json.loads(raw[start:raw.rfind('}')+1])
-                  parsed=obj
-                  break
-              except Exception:
-                  continue
-          if parsed is None:
-              raise SystemExit('Could not parse master regression output.')
-
-          reports=[
-              x for x in candidates(parsed)
-              if isinstance(x,dict) and 'core' in x and 'forced_enabled_workflows' in x
-          ]
-          if not reports:
-              raise SystemExit('Master regression report not found.')
-          report=reports[0]
-
+          report=json.loads(Path('/tmp/master.json').read_text())
           assert report.get('ok') is True, report
           assert report.get('version')=='2026-10-11.25', report
           assert report.get('core',{}).get('ok') is True, report
@@ -155,56 +123,25 @@ jobs:
               'evaluation_workflow_enabled'
           ):
               assert flags.get(key) is True, (key, flags)
-          print(json.dumps(report,indent=2))
+          print('\nMASTER_REGRESSION_OK')
           PY
 
-      - name: Start real WhatsApp golden path
+      - name: Start real WhatsApp golden path through DEV HEAD
         shell: bash
         run: |
-          cd /tmp/atk-vpe-dev
-          clasp run-function apiDevWhatsAppGoldenPathTest | tee /tmp/golden.txt
+          response=$(curl --location --fail-with-body --silent --show-error \
+            --max-time 120 \
+            --header 'Content-Type: application/json' \
+            --data '{"system_action":"DEV_WHATSAPP_GOLDEN_START","verify_token":"ATK_VPE_VERIFY_2026_X7K9M4P2"}' \
+            'https://script.google.com/macros/s/AKfycbzpNOaOrEtEliLxcCIu9m4hSVhAq-2Tg2pL2tqQztM/exec')
+          printf '%s' "$response" | tee /tmp/golden.json
           python3 - <<'PY'
           import json
           from pathlib import Path
-
-          raw=Path('/tmp/golden.txt').read_text()
-
-          def scan(value):
-              if isinstance(value,dict):
-                  if 'expected_selection' in value and 'available_roles' in value:
-                      return value
-                  for v in value.values():
-                      found=scan(v)
-                      if found: return found
-              elif isinstance(value,list):
-                  for v in value:
-                      found=scan(v)
-                      if found: return found
-              elif isinstance(value,str):
-                  s=value.strip()
-                  if s.startswith('{') and s.endswith('}'):
-                      try:
-                          found=scan(json.loads(s))
-                          if found: return found
-                      except Exception:
-                          pass
-              return None
-
-          parsed=None
-          for start in [i for i,c in enumerate(raw) if c=='{']:
-              try:
-                  parsed=json.loads(raw[start:raw.rfind('}')+1])
-                  break
-              except Exception:
-                  continue
-          if parsed is None:
-              raise SystemExit('Could not parse golden-path output.')
-
-          report=scan(parsed)
-          if not report:
-              raise SystemExit('Golden-path report not found.')
+          report=json.loads(Path('/tmp/golden.json').read_text())
           assert report.get('ok') is True, report
           assert report.get('version')=='2026-10-11.25', report
           assert report.get('expected_selection')=='Timer', report
+          print('\nGOLDEN_PATH_STARTED')
           print(json.dumps(report,indent=2))
           PY
