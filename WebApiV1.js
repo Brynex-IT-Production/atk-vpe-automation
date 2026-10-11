@@ -6,7 +6,7 @@
  * Existing automation continues to read VPE Weekly Planner.
  */
 
-const API_V1_VERSION_ = '2026-10-11.23';
+const API_V1_VERSION_ = '2026-10-11.24';
 let DEV_SUPPRESS_TEST_DETAIL_LOGS_ = false;
 const API_MEETING_ITEMS_SHEET_ = 'API Meeting Items';
 const API_MEETINGS_SHEET_ = 'API Meetings';
@@ -2390,13 +2390,18 @@ function apiDevRoleWorkflowMatrixSelfTest(forceAllWorkflows) {
     'GRAMMARIAN_WORKFLOW_ENABLED',
     'EVALUATION_WORKFLOW_ENABLED'
   ];
-  const originalWorkflowValues={};
-  workflowKeys.forEach(key=>{
-    originalWorkflowValues[key]=props.getProperty(key);
-  });
+
+  // Automation switches come from the Automation Config sheet via CONFIG_CACHE_.
+  // For the forced-enabled branch, override only this invocation's in-memory
+  // cache. The sheet and Script Properties are never changed.
+  const originalConfigCache = CONFIG_CACHE_
+    ? Object.assign({}, CONFIG_CACHE_)
+    : null;
 
   if (forceAllWorkflows===true) {
-    workflowKeys.forEach(key=>props.setProperty(key,'TRUE'));
+    const forcedConfig=Object.assign({}, getConfigMap_());
+    workflowKeys.forEach(key=>{ forcedConfig[key]='TRUE'; });
+    CONFIG_CACHE_=forcedConfig;
   }
 
   let plannerRowNo=0;
@@ -2410,6 +2415,14 @@ function apiDevRoleWorkflowMatrixSelfTest(forceAllWorkflows) {
     grammarian_workflow_enabled:configBool_('GRAMMARIAN_WORKFLOW_ENABLED'),
     evaluation_workflow_enabled:configBool_('EVALUATION_WORKFLOW_ENABLED')
   };
+
+  if (forceAllWorkflows===true &&
+      !(flags.intro_workflow_enabled &&
+        flags.tmod_workflow_enabled &&
+        flags.grammarian_workflow_enabled &&
+        flags.evaluation_workflow_enabled)) {
+    throw new Error('Forced workflow override did not take effect.');
+  }
 
   function check(name,ok,detail) {
     checks.push({name:name,ok:Boolean(ok),detail:detail||''});
@@ -2700,11 +2713,7 @@ function apiDevRoleWorkflowMatrixSelfTest(forceAllWorkflows) {
     if (originalBooking===null) props.deleteProperty(API_DEV_ROLE_BOOKING_PROPERTY_);
     else props.setProperty(API_DEV_ROLE_BOOKING_PROPERTY_,originalBooking);
 
-    workflowKeys.forEach(key=>{
-      const original=originalWorkflowValues[key];
-      if (original===null) props.deleteProperty(key);
-      else props.setProperty(key,original);
-    });
+    CONFIG_CACHE_=originalConfigCache;
 
     if (plannerRowNo && planner.getMaxRows()>=plannerRowNo) {
       planner.getRange(plannerRowNo,1,1,28).clearContent();
