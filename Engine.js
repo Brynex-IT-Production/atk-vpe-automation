@@ -352,9 +352,11 @@ function handleRoleMenuRequest_(member, phone) {
 
   // Controlled DEV bridge preview: after the approved View roles template is
   // tapped, show the exact role list captured from the synced temporary row.
-  if (typeof apiDevTrySendPendingRolePreview_ === 'function' &&
-      apiDevTrySendPendingRolePreview_(member, phone)) {
-    return;
+  if (typeof apiDevTrySendPendingRolePreview_ === 'function') {
+    const previewResult = apiDevTrySendPendingRolePreview_(member, phone);
+    if (previewResult && (previewResult === true || previewResult.handled)) {
+      return;
+    }
   }
 
   const meeting = findNextRoleSelectionMeeting_(member);
@@ -459,6 +461,7 @@ function sendRoleList_(phone, member, meeting) {
 
   const result = sendWhatsAppPayload_(payload);
   logAutomation_('Role Selection', meeting.meetingNo, member, 'Role menu sent', result.ok ? 'Sent' : 'Error', result.messageId || result.error || '');
+  return result;
 }
 
 function handleRoleSelection_(member, phone, interaction) {
