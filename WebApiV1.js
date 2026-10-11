@@ -2083,11 +2083,12 @@ function apiDevPostBookingWorkflowSelfTest() {
     }
   }
 
-  function removeMeetingRows_(sheet,meetingNoValue,width) {
+  function removeMeetingRows_(sheet,meetingNoValue,width,meetingColumnIndex) {
     if (!sheet || sheet.getLastRow()<2) return;
     const rowCount=sheet.getLastRow()-1;
     const values=sheet.getRange(2,1,rowCount,width).getValues();
-    const kept=values.filter(row=>Number(row[1])!==Number(meetingNoValue));
+    const idx=Number(meetingColumnIndex)||0;
+    const kept=values.filter(row=>Number(row[idx])!==Number(meetingNoValue));
     const area=sheet.getRange(2,1,rowCount,width);
     area.clearContent();
     if (kept.length) sheet.getRange(2,1,kept.length,width).setValues(kept);
@@ -2302,8 +2303,8 @@ function apiDevPostBookingWorkflowSelfTest() {
 
     // Remove only this test meeting's generated task/outbox rows.
     if (meetingNo) {
-      removeMeetingRows_(taskSheet,meetingNo,18);
-      removeMeetingRows_(outbox,meetingNo,Math.max(16,outbox.getLastColumn()));
+      removeMeetingRows_(taskSheet,meetingNo,18,1);
+      removeMeetingRows_(outbox,meetingNo,Math.max(16,outbox.getLastColumn()),10);
     }
 
     // Remove temporary API records.
