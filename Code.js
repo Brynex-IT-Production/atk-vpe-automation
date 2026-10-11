@@ -138,6 +138,34 @@ function doPost(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
 
+    // DEV-only HTTP bridge for the final API/WhatsApp regression gate.
+    // This exists because Apps Script Execution API calls are unreliable from
+    // GitHub Actions for this project. The shared verify token plus DEV mode
+    // prevents these helpers from being callable in LIVE.
+    if (payload && payload.system_action === 'DEV_MASTER_REGRESSION' &&
+        payload.verify_token === VERIFY_TOKEN &&
+        configValue_('SYSTEM_MODE','') === 'DEV') {
+      return ContentService
+        .createTextOutput(JSON.stringify(apiDevMasterRegressionSuite()))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (payload && payload.system_action === 'DEV_WHATSAPP_GOLDEN_START' &&
+        payload.verify_token === VERIFY_TOKEN &&
+        configValue_('SYSTEM_MODE','') === 'DEV') {
+      return ContentService
+        .createTextOutput(JSON.stringify(apiDevWhatsAppGoldenPathTest()))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (payload && payload.system_action === 'DEV_WHATSAPP_GOLDEN_RESULT' &&
+        payload.verify_token === VERIFY_TOKEN &&
+        configValue_('SYSTEM_MODE','') === 'DEV') {
+      return ContentService
+        .createTextOutput(JSON.stringify(apiDevGoldenPathResult()))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
     logWhatsAppWebhook_(payload);
     if (!processAgendaDecisionButton_(payload) &&
         !processAgendaApprovalButton_(payload) &&
