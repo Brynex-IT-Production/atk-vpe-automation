@@ -6,7 +6,7 @@
  * Existing automation continues to read VPE Weekly Planner.
  */
 
-const API_V1_VERSION_ = '2026-10-11.10';
+const API_V1_VERSION_ = '2026-10-11.11';
 const API_MEETING_ITEMS_SHEET_ = 'API Meeting Items';
 const API_MEETINGS_SHEET_ = 'API Meetings';
 const API_DEFAULT_CLUB_ID_ = 'ATK';
@@ -1277,13 +1277,26 @@ function apiDevWhatsAppBridgePreviewTest() {
   const members = apiListMembers_(clubId).filter(m => m.name !== member);
   if (members.length < 5) throw new Error('Need at least five other active members for preview.');
 
+  // Remove any leftover DEV preview rows from an interrupted earlier test.
+  // These are identifiable by status TEST and a far-future 2099 date.
+  const preCount = Math.max(0, planner.getLastRow() - 2);
+  if (preCount) {
+    const preRows = planner.getRange(3,1,preCount,28).getValues();
+    preRows.forEach((row,i) => {
+      const d=row[1];
+      if (String(row[2]||'')==='TEST' && d instanceof Date && d.getFullYear()===2099) {
+        planner.getRange(i+3,1,1,28).clearContent();
+      }
+    });
+  }
+
   const existingCount = Math.max(0, planner.getLastRow() - 2);
   const existingRows = existingCount ? planner.getRange(3,1,existingCount,28).getValues() : [];
   const maxMeetingNo = existingRows.reduce((m,r)=>Math.max(m,Number(r[0])||0),0);
   const meetingNo = maxMeetingNo + 2000;
 
-  // Deliberately unique/non-live date: this is only a preview payload and cannot
-  // collide with an actual ATK meeting during bridge sync.
+  // Far-future DEV-only date. Leftover 2099 TEST rows are cleared above first,
+  // so the date match used by the real bridge is unambiguous.
   const meetingDate = new Date(2099,11,30);
   const dateText = Utilities.formatDate(meetingDate,configValue_('TIMEZONE','Asia/Kolkata'),'yyyy-MM-dd');
   const tempPlannerRow = new Array(28).fill('');
@@ -1316,6 +1329,16 @@ function apiDevWhatsAppBridgePreviewTest() {
     const sync=apiSyncMeetingToLegacyPlanner_(clubId,tempMeetingId);
 
     const syncedRow=planner.getRange(plannerRowNo,1,1,28).getValues()[0];
+
+    // Fail closed if the bridge did not write to the exact temporary row.
+    if (String(syncedRow[18]||'') !== members[0].name ||
+        String(syncedRow[19]||'') !== members[1].name ||
+        String(syncedRow[6]||'') !== members[2].name ||
+        String(syncedRow[25]||'') !== members[3].name ||
+        String(syncedRow[10]||'') !== members[4].name) {
+      throw new Error('Controlled bridge preview did not update the expected temporary planner row.');
+    }
+
     const available=availableRoleDefs_(syncedRow).map(def=>({
       code:def.code,
       name:def.name,
