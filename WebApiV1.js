@@ -6,7 +6,7 @@
  * Existing automation continues to read VPE Weekly Planner.
  */
 
-const API_V1_VERSION_ = '2026-10-11.15';
+const API_V1_VERSION_ = '2026-10-11.16';
 const API_MEETING_ITEMS_SHEET_ = 'API Meeting Items';
 const API_MEETINGS_SHEET_ = 'API Meetings';
 const API_DEFAULT_CLUB_ID_ = 'ATK';
@@ -1784,4 +1784,235 @@ function apiDevHandleRoleBookingSelection_(member,phone,interaction) {
   apiDevCleanupRoleBookingState_(state);
   sendWhatsAppText_(phone,message);
   return true;
+}
+
+
+/**
+ * Full internal end-to-end integration self-test.
+ *
+ * Covers:
+ * API meeting creation -> save -> legacy bridge -> role availability ->
+ * WhatsApp interaction parsing -> real reserveRole_ booking -> planner write ->
+ * updated availability -> cleanup.
+ *
+ * It does NOT send WhatsApp and does NOT use a live meeting.
+ */
+function apiDevFullEndToEndSelfTest() {
+  const clubId=API_DEFAULT_CLUB_ID_;
+  const props=PropertiesService.getScriptProperties();
+  const ss=apiSpreadsheet_();
+  const planner=ss.getSheetByName('VPE Weekly Planner');
+  if (!planner) throw new Error('VPE Weekly Planner missing');
+
+  if (String(props.getProperty(API_AUTO_SYNC_PLANNED_PROPERTY_)||'').toUpperCase()==='TRUE') {
+    throw new Error('Set WEB_API_AUTO_SYNC_PLANNED=FALSE before running the self-test.');
+  }
+
+  const vpe=configValue_('VPE_MEMBER_NAME','Riyas AF');
+  const members=apiListMembers_(clubId).filter(m=>m.name!==vpe);
+  if (members.length<5) throw new Error('Need at least five active non-VPE members.');
+
+  // Clear stale self-test rows from interrupted prior runs.
+  const preCount=Math.max(0,planner.getLastRow()-2);
+  if (preCount) {
+    const pre=planner.getRange(3,1,preCount,28).getValues();
+    pre.forEach((row,i)=>{
+      const d=row[1];
+      if (String(row[2]||'')==='SELF_TEST' && d instanceof Date && d.getFullYear()===2099) {
+        planner.getRange(i+3,1,1,28).clearContent();
+      }
+    });
+  }
+
+  const currentCount=Math.max(0,planner.getLastRow()-2);
+  const currentRows=currentCount ? planner.getRange(3,1,currentCount,28).getValues() : [];
+  const maxMeetingNo=currentRows.reduce((m,r)=>Math.max(m,Number(r[0])||0),0);
+  const meetingNo=maxMeetingNo+4000;
+
+  const meetingDate=new Date(2099,11,28);
+  const dateText=Utilities.formatDate(
+    meetingDate,configValue_('TIMEZONE','Asia/Kolkata'),'yyyy-MM-dd'
+  );
+
+  const row=new Array(28).fill('');
+  row[0]=meetingNo;
+  row[1]=meetingDate;
+  row[2]='SELF_TEST';
+  const plannerRowNo=planner.getLastRow()+1;
+  planner.getRange(plannerRowNo,1,1,28).setValues([row]);
+
+  const originalAllow=props.getProperty(API_ALLOW_LEGACY_SYNC_PROPERTY_);
+  let tempMeetingId='';
+  const checks=[];
+
+  function check(name,ok,detail) {
+    checks.push({name:name,ok:Boolean(ok),detail:detail||''});
+    if (!ok) {
+      const e=new Error('Self-test failed: '+name+(detail ? ' — '+detail : ''));
+      e.selfTestChecks=checks.slice();
+      throw e;
+    }
+  }
+
+  try {
+    // 1. API meeting creation.
+    const created=apiCreateMeeting_(clubId,{meeting_date:dateText});
+    tempMeetingId=created.meeting_id;
+    check('meeting_created',Boolean(tempMeetingId),tempMeetingId);
+
+    // 2. Plan assignments. Leave TTM/Timer/Ah/GRM/EV2 vacant; S3 vacant.
+    const items=created.items.map(x=>Object.assign({},x));
+    const byCode={}; items.forEach(x=>{byCode[x.code]=x;});
+    byCode.TMOD.member_id=members[0].member_id; byCode.TMOD.member_name=members[0].name;
+    byCode.GE.member_id=members[1].member_id; byCode.GE.member_name=members[1].name;
+    byCode.S1.member_id=members[2].member_id; byCode.S1.member_name=members[2].name;
+    byCode.EV1.member_id=members[3].member_id; byCode.EV1.member_name=members[3].name;
+    byCode.S2.member_id=members[4].member_id; byCode.S2.member_name=members[4].name;
+
+    const saved=apiSaveMeeting_(clubId,{
+      meeting_id:tempMeetingId,
+      save_mode:'DRAFT',
+      items:items
+    });
+    check('meeting_saved',saved.status==='DRAFT',saved.status);
+
+    // 3. Real legacy bridge.
+    props.setProperty(API_ALLOW_LEGACY_SYNC_PROPERTY_,'TRUE');
+    const sync=apiSyncMeetingToLegacyPlanner_(clubId,tempMeetingId);
+    check('bridge_synced',Boolean(sync&&sync.synced),JSON.stringify(sync));
+    check('bridge_meeting_number',Number(sync.planner_meeting_no)===meetingNo,
+      String(sync.planner_meeting_no));
+
+    const synced=planner.getRange(plannerRowNo,1,1,28).getValues()[0];
+    check('tmod_written',String(synced[18]||'')===members[0].name);
+    check('ge_written',String(synced[19]||'')===members[1].name);
+    check('speaker1_written',String(synced[6]||'')===members[2].name);
+    check('evaluator1_written',String(synced[25]||'')===members[3].name);
+    check('speaker2_written',String(synced[10]||'')===members[4].name);
+
+    // 4. Availability from the same production function used by WhatsApp.
+    const availableBefore=availableRoleDefs_(synced);
+    const beforeCodes=availableBefore.map(x=>x.code);
+    const expected=['TTM','Timer','Ah','GRM','EV2'];
+    check('vacancies_exact',
+      JSON.stringify(beforeCodes)===JSON.stringify(expected),
+      'got '+JSON.stringify(beforeCodes));
+
+    // 5. Parse the real template quick-reply shape.
+    const menuInteraction=parseInteraction_({
+      type:'button',
+      button:{payload:'ROLE_MENU',text:'View roles'}
+    });
+    check('view_roles_parsed',
+      menuInteraction&&menuInteraction.kind==='ROLE_MENU',
+      JSON.stringify(menuInteraction));
+
+    // Also verify visible-text fallback.
+    const menuFallback=parseInteraction_({
+      type:'button',
+      button:{payload:'',text:'View roles'}
+    });
+    check('view_roles_text_fallback',
+      menuFallback&&menuFallback.kind==='ROLE_MENU',
+      JSON.stringify(menuFallback));
+
+    // 6. Parse the same list-reply shape used when Timer is tapped.
+    const timerInteraction=parseInteraction_({
+      type:'interactive',
+      interactive:{
+        list_reply:{
+          id:'ROLE|'+meetingNo+'|Timer',
+          title:'Timer'
+        }
+      }
+    });
+    check('timer_selection_parsed',
+      timerInteraction&&timerInteraction.kind==='ROLE_SELECTION' &&
+      timerInteraction.roleCode==='Timer' &&
+      Number(timerInteraction.meetingNo)===meetingNo,
+      JSON.stringify(timerInteraction));
+
+    // 7. Real booking function.
+    const timerDef=ROLE_DEFS_.find(x=>x.code==='Timer');
+    const booking=reserveRole_(meetingNo,timerDef,vpe);
+    check('timer_booking_result',
+      booking&&booking.status==='BOOKED',
+      JSON.stringify(booking));
+
+    const bookedRow=planner.getRange(plannerRowNo,1,1,28).getValues()[0];
+    check('timer_written_to_planner',
+      String(bookedRow[timerDef.column-1]||'').trim()===vpe,
+      String(bookedRow[timerDef.column-1]||''));
+
+    // 8. Availability immediately after booking.
+    const afterCodes=availableRoleDefs_(bookedRow).map(x=>x.code);
+    check('timer_removed_after_booking',
+      afterCodes.indexOf('Timer')<0,
+      JSON.stringify(afterCodes));
+    check('remaining_vacancies_correct',
+      JSON.stringify(afterCodes)===JSON.stringify(['TTM','Ah','GRM','EV2']),
+      JSON.stringify(afterCodes));
+
+    // 9. Same member cannot take a second role in the same meeting.
+    const ahDef=ROLE_DEFS_.find(x=>x.code==='Ah');
+    const secondBooking=reserveRole_(meetingNo,ahDef,vpe);
+    check('duplicate_member_role_blocked',
+      secondBooking&&secondBooking.status==='ALREADY_ASSIGNED',
+      JSON.stringify(secondBooking));
+
+    const report={
+      ok:true,
+      version:API_V1_VERSION_,
+      temporary_meeting_id:tempMeetingId,
+      temporary_meeting_no:meetingNo,
+      checks:checks,
+      available_before:beforeCodes,
+      available_after_timer:afterCodes,
+      booking_status:booking.status
+    };
+    console.log(JSON.stringify(report,null,2));
+    return report;
+
+  } catch(err) {
+    console.error(JSON.stringify({
+      ok:false,
+      version:API_V1_VERSION_,
+      error:String(err&&err.message||err),
+      checks:(err&&err.selfTestChecks)||checks
+    },null,2));
+    throw err;
+  } finally {
+    if (originalAllow===null) props.deleteProperty(API_ALLOW_LEGACY_SYNC_PROPERTY_);
+    else props.setProperty(API_ALLOW_LEGACY_SYNC_PROPERTY_,originalAllow);
+
+    // Clean planner test row.
+    if (planner.getMaxRows()>=plannerRowNo) {
+      planner.getRange(plannerRowNo,1,1,28).clearContent();
+    }
+
+    // Clean API test records in bulk.
+    if (tempMeetingId) {
+      const sheets=apiEnsureSheets_();
+
+      const itemLast=sheets.items.getLastRow();
+      if (itemLast>=2) {
+        const all=sheets.items.getRange(2,1,itemLast-1,11).getValues();
+        const kept=all.filter(r=>String(r[1])!==String(tempMeetingId));
+        const area=sheets.items.getRange(2,1,itemLast-1,11);
+        area.clearContent();
+        if (kept.length) sheets.items.getRange(2,1,kept.length,11).setValues(kept);
+      }
+
+      const meetingLast=sheets.meetings.getLastRow();
+      if (meetingLast>=2) {
+        const rows=sheets.meetings.getRange(2,1,meetingLast-1,7).getValues();
+        const kept=rows.filter(r=>String(r[0])!==String(tempMeetingId));
+        const area=sheets.meetings.getRange(2,1,meetingLast-1,7);
+        area.clearContent();
+        if (kept.length) sheets.meetings.getRange(2,1,kept.length,7).setValues(kept);
+      }
+
+      apiInvalidateMeetingCaches_(clubId,tempMeetingId);
+    }
+  }
 }
