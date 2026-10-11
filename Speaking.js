@@ -22,7 +22,7 @@ function processSpeakingSlotTargeting_() {
   const rows = planner.getRange(
     3,
     1,
-    Math.min(60, Math.max(0, planner.getLastRow() - 2)),
+    Math.max(0, planner.getLastRow() - 2),
     28
   ).getValues();
 
@@ -194,7 +194,7 @@ function reserveSpeechSlot_(meetingNo, member) {
   const sheet = ss.getSheetByName('VPE Weekly Planner');
   if (!sheet) return { status: 'NOT_FOUND' };
 
-  const lastRow = Math.min(62, sheet.getLastRow());
+  const lastRow = sheet.getLastRow();
   const ids = sheet.getRange(3, 1, Math.max(0, lastRow - 2), 1).getValues().flat();
   const idx = ids.findIndex(v => Number(v) === Number(meetingNo));
   if (idx < 0) return { status: 'NOT_FOUND' };
@@ -291,7 +291,7 @@ function getSpeechPriorityCandidates_(targetMeetingNo, stage) {
     }))
     .filter(x => x.name && x.phone);
 
-  const plannerRows = planner.getRange(3, 1, Math.min(60, Math.max(0, planner.getLastRow() - 2)), 28).getValues();
+  const plannerRows = planner.getRange(3, 1, Math.max(0, planner.getLastRow() - 2), 28).getValues();
   const targetRow = plannerRows.find(r => Number(r[0]) === Number(targetMeetingNo));
   if (!targetRow) return [];
 
@@ -481,7 +481,7 @@ function availableSpeechMeetings_() {
   const planner = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('VPE Weekly Planner');
   if (!planner || planner.getLastRow() < 3) return [];
   const rows = planner.getRange(3, 1,
-    Math.min(60, planner.getLastRow() - 2), 28).getValues();
+    Math.max(0, planner.getLastRow() - 2), 28).getValues();
   const today = startOfDay_(new Date());
   const bookingEnd = speechBookingWindowEnd_(today);
   return rows.filter(row => Number(row[0]) && row[1] instanceof Date &&
