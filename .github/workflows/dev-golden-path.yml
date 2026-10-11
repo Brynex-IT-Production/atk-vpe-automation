@@ -1,0 +1,211 @@
+name: DEV 2026-10-11.25 Golden Path
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/dev-golden-path.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atk-vpe-dev
+  cancel-in-progress: false
+
+env:
+  ATK_DEV_SCRIPT_ID: 1LS3HabXjXOainAMiNLVVlRX5LEaA-o5Y7Kf31Fg-JQJZsR4ZKHI5zHUN
+  ATK_DEV_WEBAPP_DEPLOYMENT_ID: AKfycbwzHdJptr44J1aWN4UqHp6qN435kwFPbG8ngYGEYABqypF2urE0Jyd0hLd63M-wYVVE
+  EXPECTED_VERSION: 2026-10-11.25
+
+jobs:
+  golden-path:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Validate JavaScript
+        shell: bash
+        run: |
+          files=$(find . -maxdepth 1 -type f -name '*.js' -print)
+          test -n "$files"
+          while IFS= read -r file; do
+            node --check "$file"
+          done <<< "$files"
+
+      - name: Install clasp
+        run: npm install --global @google/clasp@3.4.1
+
+      - name: Configure clasp authentication
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          raw=os.environ.get('CLASPRC_JSON','').strip()
+          start=raw.find('{'); end=raw.rfind('}')
+          if start < 0 or end < start:
+              raise SystemExit('CLASPRC_JSON does not contain a JSON object.')
+          parsed=json.loads(raw[start:end+1])
+          target=Path.home()/'.clasprc.json'
+          target.write_text(json.dumps(parsed))
+          target.chmod(0o600)
+          PY
+
+      - name: Verify DEV target
+        shell: bash
+        run: |
+          grep -q "$ATK_DEV_SCRIPT_ID" .clasp.json
+          grep -q "const API_V1_VERSION_ = '$EXPECTED_VERSION'" WebApiV1.js
+
+      - name: Build isolated DEV workspace
+        shell: bash
+        run: |
+          rm -rf /tmp/atk-vpe-dev
+          mkdir -p /tmp/atk-vpe-dev
+          cp .clasp.json /tmp/atk-vpe-dev/.clasp.json
+          cd /tmp/atk-vpe-dev
+          clasp pull
+          find . -maxdepth 1 -type f \
+            \( -name '*.js' -o -name '*.gs' -o -name '*.html' \) \
+            -delete
+          find "$GITHUB_WORKSPACE" -maxdepth 1 -type f \
+            \( -name '*.js' -o -name '*.gs' -o -name '*.html' \) \
+            -exec cp {} /tmp/atk-vpe-dev/ \;
+          test -f /tmp/atk-vpe-dev/Code.js
+          test -f /tmp/atk-vpe-dev/WebApiV1.js
+
+      - name: Push 2026-10-11.25 to Apps Script DEV
+        shell: bash
+        run: |
+          cd /tmp/atk-vpe-dev
+          clasp push --force
+          clasp list-deployments | tee /tmp/atk-deployments.txt
+          grep -q "$ATK_DEV_WEBAPP_DEPLOYMENT_ID" /tmp/atk-deployments.txt
+          clasp update-deployment "$ATK_DEV_WEBAPP_DEPLOYMENT_ID" \
+            --description "DEV golden path $GITHUB_SHA"
+
+      - name: Run master regression gate
+        shell: bash
+        run: |
+          cd /tmp/atk-vpe-dev
+          clasp run-function apiDevMasterRegressionSuite | tee /tmp/master.txt
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          raw=Path('/tmp/master.txt').read_text()
+
+          def candidates(value):
+              out=[]
+              if isinstance(value,dict):
+                  out.append(value)
+                  for v in value.values():
+                      out.extend(candidates(v))
+              elif isinstance(value,list):
+                  for v in value:
+                      out.extend(candidates(v))
+              elif isinstance(value,str):
+                  s=value.strip()
+                  if s.startswith('{') and s.endswith('}'):
+                      try: out.extend(candidates(json.loads(s)))
+                      except Exception: pass
+              return out
+
+          parsed=None
+          for start in [i for i,c in enumerate(raw) if c=='{']:
+              try:
+                  obj=json.loads(raw[start:raw.rfind('}')+1])
+                  parsed=obj
+                  break
+              except Exception:
+                  continue
+          if parsed is None:
+              raise SystemExit('Could not parse master regression output.')
+
+          reports=[
+              x for x in candidates(parsed)
+              if isinstance(x,dict) and 'core' in x and 'forced_enabled_workflows' in x
+          ]
+          if not reports:
+              raise SystemExit('Master regression report not found.')
+          report=reports[0]
+
+          assert report.get('ok') is True, report
+          assert report.get('version')=='2026-10-11.25', report
+          assert report.get('core',{}).get('ok') is True, report
+          assert report.get('configured_workflows',{}).get('ok') is True, report
+          forced=report.get('forced_enabled_workflows',{})
+          assert forced.get('ok') is True, report
+          flags=forced.get('flags',{})
+          for key in (
+              'intro_workflow_enabled',
+              'tmod_workflow_enabled',
+              'grammarian_workflow_enabled',
+              'evaluation_workflow_enabled'
+          ):
+              assert flags.get(key) is True, (key, flags)
+          print(json.dumps(report,indent=2))
+          PY
+
+      - name: Start real WhatsApp golden path
+        shell: bash
+        run: |
+          cd /tmp/atk-vpe-dev
+          clasp run-function apiDevWhatsAppGoldenPathTest | tee /tmp/golden.txt
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          raw=Path('/tmp/golden.txt').read_text()
+
+          def scan(value):
+              if isinstance(value,dict):
+                  if 'expected_selection' in value and 'available_roles' in value:
+                      return value
+                  for v in value.values():
+                      found=scan(v)
+                      if found: return found
+              elif isinstance(value,list):
+                  for v in value:
+                      found=scan(v)
+                      if found: return found
+              elif isinstance(value,str):
+                  s=value.strip()
+                  if s.startswith('{') and s.endswith('}'):
+                      try:
+                          found=scan(json.loads(s))
+                          if found: return found
+                      except Exception:
+                          pass
+              return None
+
+          parsed=None
+          for start in [i for i,c in enumerate(raw) if c=='{']:
+              try:
+                  parsed=json.loads(raw[start:raw.rfind('}')+1])
+                  break
+              except Exception:
+                  continue
+          if parsed is None:
+              raise SystemExit('Could not parse golden-path output.')
+
+          report=scan(parsed)
+          if not report:
+              raise SystemExit('Golden-path report not found.')
+          assert report.get('ok') is True, report
+          assert report.get('version')=='2026-10-11.25', report
+          assert report.get('expected_selection')=='Timer', report
+          print(json.dumps(report,indent=2))
+          PY
