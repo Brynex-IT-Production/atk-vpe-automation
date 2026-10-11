@@ -78,9 +78,8 @@ function processInboundWhatsAppMessage_(message) {
 
   const interaction = parseInteraction_(message);
 
-  // Fast-path role interactions. These do not need a task rebuild before they
-  // can be answered, and avoiding it prevents inbound button clicks from being
-  // delayed by concurrent spreadsheet work from Meta status webhooks.
+  // Fast-path role interactions before any task rebuild. These replies should
+  // be near-immediate and do not depend on regenerated task rows.
   if (configBool_('TASK_ENGINE_ENABLED')) {
     syncPhase1Tasks_();
   }
@@ -263,7 +262,8 @@ function parseInteraction_(message) {
       if (id === 'ADMIN_EXCEPTIONS') {
         return { kind: 'ADMIN_EXCEPTIONS', text: String(reply.title || '') };
       }
-      if (id === 'ROLE_MENU') {
+      if (id === 'ROLE_MENU' ||
+          String(reply.title || '').trim().toLowerCase() === 'view roles') {
         return { kind: 'ROLE_MENU', text: String(reply.title || '') };
       }
     }
@@ -336,7 +336,8 @@ function parseInteraction_(message) {
         text: String(message.button.text || '')
       };
     }
-    if (payload === 'ROLE_MENU') {
+    if (payload === 'ROLE_MENU' ||
+        String(message.button.text || '').trim().toLowerCase() === 'view roles') {
       return { kind: 'ROLE_MENU', text: String(message.button.text || '') };
     }
   }
