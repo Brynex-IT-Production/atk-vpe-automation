@@ -12,7 +12,7 @@ function updateControlCenterReadiness_() {
   const plannerRows = planner.getRange(
     3,
     1,
-    Math.min(60, Math.max(0, planner.getLastRow() - 2)),
+    Math.max(0, planner.getLastRow() - 2),
     28
   ).getValues();
 
@@ -115,7 +115,7 @@ function buildVpeExceptionDigest_() {
   const plannerRows = planner.getRange(
     3,
     1,
-    Math.min(60, Math.max(0, planner.getLastRow() - 2)),
+    Math.max(0, planner.getLastRow() - 2),
     28
   ).getValues();
   const taskRows = tasks.getLastRow() >= 2
