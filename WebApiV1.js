@@ -6,7 +6,7 @@
  * Existing automation continues to read VPE Weekly Planner.
  */
 
-const API_V1_VERSION_ = '2026-10-09.6';
+const API_V1_VERSION_ = '2026-10-11.1';
 const API_MEETING_ITEMS_SHEET_ = 'API Meeting Items';
 const API_MEETINGS_SHEET_ = 'API Meetings';
 const API_DEFAULT_CLUB_ID_ = 'ATK';
@@ -14,6 +14,56 @@ const API_ALLOW_LEGACY_SYNC_PROPERTY_ = 'WEB_API_ALLOW_LEGACY_SYNC';
 const API_AUTO_SYNC_PLANNED_PROPERTY_ = 'WEB_API_AUTO_SYNC_PLANNED';
 const API_CLUB_SETTINGS_SHEET_ = 'API Club Settings';
 const API_EXCOM_SHEET_ = 'API ExCom';
+const API_CACHE_SECONDS_ = 900;
+let API_SS_CACHE_ = null;
+
+function apiSpreadsheet_() {
+  if (!API_SS_CACHE_) API_SS_CACHE_ = SpreadsheetApp.openById(SPREADSHEET_ID);
+  return API_SS_CACHE_;
+}
+
+function apiCache_() {
+  return CacheService.getScriptCache();
+}
+
+function apiCacheKey_(kind,clubId,suffix) {
+  return ['VPE_API_V1',kind,String(clubId || ''),String(suffix || '')].join('|');
+}
+
+function apiCacheGetJson_(key) {
+  try {
+    const raw = apiCache_().get(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch (ignore) {
+    return null;
+  }
+}
+
+function apiCachePutJson_(key,value,seconds) {
+  try {
+    apiCache_().put(key,JSON.stringify(value),seconds || API_CACHE_SECONDS_);
+  } catch (ignore) {}
+}
+
+function apiCacheRemove_(keys) {
+  try { apiCache_().removeAll(keys); } catch (ignore) {}
+}
+
+function apiInvalidateClubReadCaches_(clubId) {
+  apiCacheRemove_([
+    apiCacheKey_('members',clubId),
+    apiCacheKey_('settings',clubId),
+    apiCacheKey_('excom',clubId),
+    apiCacheKey_('meetings',clubId)
+  ]);
+}
+
+function apiInvalidateMeetingCaches_(clubId,meetingId) {
+  apiCacheRemove_([
+    apiCacheKey_('meetings',clubId),
+    apiCacheKey_('meeting',clubId,meetingId)
+  ]);
+}
 
 function apiJson_(status, data, error) {
   return ContentService.createTextOutput(JSON.stringify({
@@ -101,10 +151,13 @@ function apiPublicMember_(m) {
 function apiListMembers_(clubId) {
   // V1 reads the existing Member Master. Multi-club storage comes next.
   if (clubId !== API_DEFAULT_CLUB_ID_) throw new Error('Club not provisioned: '+clubId);
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  const sh = ss.getSheetByName('Member Master');
+  const cacheKey = apiCacheKey_('members',clubId);
+  const cached = apiCacheGetJson_(cacheKey);
+  if (cached) return cached;
+
+  const sh = apiSpreadsheet_().getSheetByName('Member Master');
   if (!sh || sh.getLastRow() < 2) return [];
-  return sh.getRange(2,1,sh.getLastRow()-1,4).getValues()
+  const members = sh.getRange(2,1,sh.getLastRow()-1,4).getValues()
     .filter(r => String(r[3] || '').trim() === 'Active')
     .map(r => ({
       member_id:String(r[0] || '').trim(),
@@ -113,12 +166,15 @@ function apiListMembers_(clubId) {
       status:String(r[3] || '').trim()
     }))
     .filter(m => m.member_id && m.name);
+
+  apiCachePutJson_(cacheKey,members);
+  return members;
 }
 
 
 function apiSaveMember_(clubId,payload) {
   if (clubId !== API_DEFAULT_CLUB_ID_) throw new Error('Club not provisioned: '+clubId);
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const ss = apiSpreadsheet_();
   const sh = ss.getSheetByName('Member Master');
   if (!sh) throw new Error('Member Master missing');
   const memberId = String(payload.member_id || '').trim() || apiNewId_('MEM');
@@ -132,11 +188,12 @@ function apiSaveMember_(clubId,payload) {
   if (idx >= 0) sh.getRange(idx+2,1,1,4).setValues([[memberId,name,whatsapp,status]]);
   else sh.appendRow([memberId,name,whatsapp,status]);
   SpreadsheetApp.flush();
+  apiInvalidateClubReadCaches_(clubId);
   return {member_id:memberId,name:name,status:status};
 }
 
 function apiEnsureOnboardingSheets_() {
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const ss = apiSpreadsheet_();
   let settings = ss.getSheetByName(API_CLUB_SETTINGS_SHEET_);
   if (!settings) {
     settings = ss.insertSheet(API_CLUB_SETTINGS_SHEET_);
@@ -153,13 +210,20 @@ function apiEnsureOnboardingSheets_() {
 }
 
 function apiGetClubSettings_(clubId) {
+  const cacheKey = apiCacheKey_('settings',clubId);
+  const cached = apiCacheGetJson_(cacheKey);
+  if (cached) return cached;
+
   const sheets = apiEnsureOnboardingSheets_();
   const rows = sheets.settings.getLastRow() >= 2
     ? sheets.settings.getRange(2,1,sheets.settings.getLastRow()-1,5).getValues() : [];
   const row = rows.find(r => String(r[0]) === clubId);
-  return row ? {club_id:clubId,name:String(row[1]),timezone:String(row[2]),meeting_time:String(row[3])}
+  const settings = row
+    ? {club_id:clubId,name:String(row[1]),timezone:String(row[2]),meeting_time:String(row[3])}
     : {club_id:clubId,name:clubId === API_DEFAULT_CLUB_ID_ ? 'ATK' : clubId,
        timezone:configValue_('TIMEZONE','Asia/Kolkata'),meeting_time:''};
+  apiCachePutJson_(cacheKey,settings);
+  return settings;
 }
 
 function apiSaveClubSettings_(clubId,payload) {
@@ -176,15 +240,25 @@ function apiSaveClubSettings_(clubId,payload) {
   const values = [[clubId,name,timezone,meetingTime,new Date()]];
   if (idx >= 0) sheets.settings.getRange(idx+2,1,1,5).setValues(values);
   else sheets.settings.appendRow(values[0]);
+  apiInvalidateClubReadCaches_(clubId);
   return apiGetClubSettings_(clubId);
 }
 
 function apiListExCom_(clubId) {
+  const cacheKey = apiCacheKey_('excom',clubId);
+  const cached = apiCacheGetJson_(cacheKey);
+  if (cached) return cached;
+
   const sheets = apiEnsureOnboardingSheets_();
-  if (sheets.excom.getLastRow() < 2) return [];
-  return sheets.excom.getRange(2,1,sheets.excom.getLastRow()-1,5).getValues()
+  if (sheets.excom.getLastRow() < 2) {
+    apiCachePutJson_(cacheKey,[]);
+    return [];
+  }
+  const excom = sheets.excom.getRange(2,1,sheets.excom.getLastRow()-1,5).getValues()
     .filter(r => String(r[0]) === clubId)
     .map(r => ({officer_role:String(r[1]),member_id:String(r[2]),member_name:String(r[3])}));
+  apiCachePutJson_(cacheKey,excom);
+  return excom;
 }
 
 function apiSaveExCom_(clubId,payload) {
@@ -200,6 +274,7 @@ function apiSaveExCom_(clubId,payload) {
   const values = [[clubId,role,memberId,member.name,new Date()]];
   if (idx >= 0) sheets.excom.getRange(idx+2,1,1,5).setValues(values);
   else sheets.excom.appendRow(values[0]);
+  apiInvalidateClubReadCaches_(clubId);
   return {officer_role:role,member_id:memberId,member_name:member.name};
 }
 
@@ -233,7 +308,7 @@ function apiDefaultMeetingTemplate_(clubId) {
 }
 
 function apiEnsureSheets_() {
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const ss = apiSpreadsheet_();
   let meetings = ss.getSheetByName(API_MEETINGS_SHEET_);
   if (!meetings) {
     meetings = ss.insertSheet(API_MEETINGS_SHEET_);
@@ -260,6 +335,7 @@ function apiCreateMeeting_(clubId,payload) {
   const id = apiNewId_('MTG');
   const now = new Date();
   sheets.meetings.appendRow([id,clubId,dateText,'DRAFT',now,now,'']);
+  apiInvalidateMeetingCaches_(clubId,id);
   const defaults = apiDefaultMeetingTemplate_(clubId).items;
   apiReplaceMeetingItems_(sheets.items,clubId,id,defaults);
   return apiGetMeeting_(clubId,id);
@@ -280,14 +356,23 @@ function apiReplaceMeetingItems_(sheet,clubId,meetingId,items) {
     const e = new Error('Every meeting item requires a label'); e.apiCode='BAD_REQUEST'; throw e;
   }
 
-  // Remove prior rows for this meeting, bottom-up.
-  for (let r=sheet.getLastRow(); r>=2; r--) {
-    if (String(sheet.getRange(r,2).getValue()) === meetingId) sheet.deleteRow(r);
-  }
-  normalized.forEach(x => sheet.appendRow([
+  // One bulk read + one bulk write. Avoid row-by-row deleteRow()/appendRow(),
+  // which is the main Sheets I/O bottleneck during meeting saves.
+  const existing = sheet.getLastRow() >= 2
+    ? sheet.getRange(2,1,sheet.getLastRow()-1,11).getValues()
+    : [];
+  const kept = existing.filter(r => String(r[1]) !== meetingId);
+  const added = normalized.map(x => [
     x.item_id,meetingId,clubId,x.position,x.type,x.code,x.label,
     x.member_id,x.member_name,now,now
-  ]));
+  ]);
+  const next = kept.concat(added);
+
+  const oldDataRows = Math.max(0,sheet.getLastRow()-1);
+  if (oldDataRows) sheet.getRange(2,1,oldDataRows,11).clearContent();
+  if (next.length) sheet.getRange(2,1,next.length,11).setValues(next);
+
+  apiInvalidateMeetingCaches_(clubId,meetingId);
   return normalized;
 }
 
@@ -324,9 +409,16 @@ function apiGetMeeting_(clubId,meetingId) {
 
 
 function apiListMeetings_(clubId) {
+  const cacheKey = apiCacheKey_('meetings',clubId);
+  const cached = apiCacheGetJson_(cacheKey);
+  if (cached) return cached;
+
   const sheets = apiEnsureSheets_();
-  if (sheets.meetings.getLastRow() < 2) return [];
-  return sheets.meetings.getRange(2,1,sheets.meetings.getLastRow()-1,7).getValues()
+  if (sheets.meetings.getLastRow() < 2) {
+    apiCachePutJson_(cacheKey,[]);
+    return [];
+  }
+  const meetings = sheets.meetings.getRange(2,1,sheets.meetings.getLastRow()-1,7).getValues()
     .filter(r => String(r[1]) === clubId)
     .map(r => ({
       meeting_id:String(r[0]),
@@ -337,6 +429,8 @@ function apiListMeetings_(clubId) {
       updated_at:r[5] instanceof Date ? r[5].toISOString() : String(r[5] || '')
     }))
     .sort((a,b)=>a.meeting_date.localeCompare(b.meeting_date));
+  apiCachePutJson_(cacheKey,meetings,300);
+  return meetings;
 }
 
 function apiMeetingDetail_(clubId,meetingId) {
@@ -418,6 +512,7 @@ function apiSaveMeeting_(clubId,payload) {
       break;
     }
   }
+  apiInvalidateMeetingCaches_(clubId,meetingId);
   if (saveMode === 'CONFIRMED') apiBridgePlannedMeetingIfEnabled_(clubId,meetingId);
   return apiGetMeeting_(clubId,meetingId);
 }
@@ -504,7 +599,7 @@ function apiSyncMeetingToLegacyPlanner_(clubId, meetingId) {
   }
   if (clubId !== API_DEFAULT_CLUB_ID_) throw new Error('Legacy adapter currently supports ATK only');
   const meeting = apiGetMeeting_(clubId, meetingId);
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const ss = apiSpreadsheet_();
   const planner = ss.getSheetByName('VPE Weekly Planner');
   if (!planner) throw new Error('VPE Weekly Planner missing');
 
@@ -562,7 +657,7 @@ function apiPendingActionLabel_(type,member,related,state) {
 }
 
 function apiPendingActionsForMeeting_(meetingNo) {
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const ss = apiSpreadsheet_();
   const tasks = ss.getSheetByName(TASK_SHEET_);
   if (!tasks || tasks.getLastRow() < 2) return [];
   return tasks.getRange(2,1,tasks.getLastRow()-1,18).getValues()
@@ -581,7 +676,7 @@ function apiPendingActionsForMeeting_(meetingNo) {
 
 function apiDashboard_(clubId) {
   if (clubId !== API_DEFAULT_CLUB_ID_) throw new Error('Club not provisioned: '+clubId);
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const ss = apiSpreadsheet_();
   const planner = ss.getSheetByName('VPE Weekly Planner');
   const tasks = ss.getSheetByName(TASK_SHEET_);
   if (!planner) return {club_id:clubId,meetings:[],pending_actions:[]};
@@ -846,6 +941,35 @@ function apiDevBackendReadinessTest() {
     ok: sections.every(x => x.ok),
     version: API_V1_VERSION_,
     sections: sections
+  };
+  console.log(JSON.stringify(report,null,2));
+  return report;
+}
+
+
+/**
+ * DEV-only internal timing check. Does not send WhatsApp or write the legacy planner.
+ * It times backend operations only; browser->Apps Script redirect latency is not included.
+ */
+function apiDevPerformanceTest() {
+  const clubId = API_DEFAULT_CLUB_ID_;
+  const time = (name,fn) => {
+    const start = Date.now();
+    const value = fn();
+    return {name:name,ms:Date.now()-start,value:value};
+  };
+
+  apiInvalidateClubReadCaches_(clubId);
+  const coldMembers = time('members_cold',()=>apiListMembers_(clubId).length);
+  const warmMembers = time('members_cached',()=>apiListMembers_(clubId).length);
+  const coldMeetings = time('meetings_cold',()=>apiListMeetings_(clubId).length);
+  const warmMeetings = time('meetings_cached',()=>apiListMeetings_(clubId).length);
+  const settings = time('club_settings',()=>apiGetClubSettings_(clubId).club_id);
+
+  const report = {
+    ok:true,
+    version:API_V1_VERSION_,
+    timings:[coldMembers,warmMembers,coldMeetings,warmMeetings,settings]
   };
   console.log(JSON.stringify(report,null,2));
   return report;
