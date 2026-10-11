@@ -521,7 +521,7 @@ function processVacantRoleReminders_() {
     .map(v => Number(String(v).trim()))
     .filter(v => Number.isFinite(v) && v >= 0);
 
-  const plannerRows = planner.getRange(3, 1, Math.min(60, Math.max(0, planner.getLastRow() - 2)), 28).getValues();
+  const plannerRows = planner.getRange(3, 1, Math.max(0, planner.getLastRow() - 2), 28).getValues();
   const memberRows = members.getRange(2, 1, Math.max(0, members.getLastRow() - 1), 4).getValues();
 
   plannerRows.forEach(row => {
@@ -637,7 +637,7 @@ function processReadyIntroductionBundles_() {
   const rows = planner.getRange(
     3,
     1,
-    Math.min(60, Math.max(0, planner.getLastRow() - 2)),
+    Math.max(0, planner.getLastRow() - 2),
     24
   ).getValues();
 
@@ -717,7 +717,7 @@ function processAgendaApprovalAutomation_() {
   const previewMeetingNo = Number(preview.getRange('B4').getValue());
   if (!previewMeetingNo) return;
 
-  const ids = planner.getRange(3,1,Math.max(0,Math.min(60,planner.getLastRow()-2)),1)
+  const ids = planner.getRange(3,1,Math.max(0, planner.getLastRow() - 2),1)
     .getValues().flat();
   const idx = ids.findIndex(v => Number(v) === previewMeetingNo);
   if (idx < 0) return;
