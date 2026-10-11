@@ -699,7 +699,7 @@ function grammarHandoffRecipients_(meetingNo) {
   const planner = ss.getSheetByName('VPE Weekly Planner');
   const recipients = [];
   if (planner && planner.getLastRow() >= 3) {
-    const ids = planner.getRange(3, 1, Math.min(60, planner.getLastRow() - 2), 1).getValues().flat();
+    const ids = planner.getRange(3, 1, Math.max(0, planner.getLastRow() - 2), 1).getValues().flat();
     const idx = ids.findIndex(v => Number(v) === Number(meetingNo));
     if (idx >= 0) {
       const row = planner.getRange(idx + 3, 1, 1, 28).getValues()[0];
@@ -1282,7 +1282,7 @@ function sendMeetingThemeToAssignedRoles_(meetingNo) {
   const sheet = ss.getSheetByName('VPE Weekly Planner');
   if (!sheet) return false;
 
-  const lastRow = Math.min(62, sheet.getLastRow());
+  const lastRow = sheet.getLastRow();
   if (lastRow < 3) return false;
   const ids = sheet.getRange(3, 1, lastRow - 2, 1).getValues().flat();
   const idx = ids.findIndex(v => Number(v) === Number(meetingNo));
@@ -1316,7 +1316,7 @@ function sendThemeAndTmodToVppr_(meetingNo) {
   const planner = ss.getSheetByName('VPE Weekly Planner');
   if (!planner || planner.getLastRow() < 3) return false;
 
-  const ids = planner.getRange(3, 1, Math.min(60, planner.getLastRow() - 2), 1)
+  const ids = planner.getRange(3, 1, Math.max(0, planner.getLastRow() - 2), 1)
     .getValues().flat();
   const idx = ids.findIndex(v => Number(v) === Number(meetingNo));
   if (idx < 0) return false;
@@ -1386,7 +1386,7 @@ function processVpprThemeHandoffs_() {
 
   const today = startOfDay_(new Date());
   const rows = planner.getRange(
-    3, 1, Math.min(60, planner.getLastRow() - 2), 28
+    3, 1, Math.max(0, planner.getLastRow() - 2), 28
   ).getValues();
 
   rows.forEach(row => {
@@ -1682,7 +1682,7 @@ function sendConsolidatedIntroductionsIfReady_(meetingNo) {
   if (!planner || !submissions) return false;
 
   const ids = planner.getRange(
-    3, 1, Math.max(0, Math.min(60, planner.getLastRow() - 2)), 1
+    3, 1, Math.max(0, planner.getLastRow() - 2), 1
   ).getValues().flat();
   const index = ids.findIndex(v => Number(v) === Number(meetingNo));
   if (index < 0) return false;
@@ -1881,7 +1881,7 @@ function verifySpeakerAssignment_(meetingNo, slotRef, member) {
   const sheet = ss.getSheetByName('VPE Weekly Planner');
   if (!sheet) return { ok: false };
 
-  const lastRow = Math.min(62, sheet.getLastRow());
+  const lastRow = sheet.getLastRow();
   const ids = sheet.getRange(3, 1, Math.max(0, lastRow - 2), 1).getValues().flat();
   const idx = ids.findIndex(v => Number(v) === Number(meetingNo));
   if (idx < 0) return { ok: false };
@@ -2117,7 +2117,7 @@ function processEvaluatorNotifications_() {
   const rows = planner.getRange(
     3,
     1,
-    Math.min(60, Math.max(0, planner.getLastRow() - 2)),
+    Math.max(0, planner.getLastRow() - 2),
     28
   ).getValues();
 
@@ -2323,7 +2323,7 @@ function handleEvaluatorCoordinationCheckReply_(member, phone, interaction) {
   let counterpart = '';
   const planner = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('VPE Weekly Planner');
   if (planner) {
-    const ids = planner.getRange(3, 1, Math.max(0, Math.min(60, planner.getLastRow() - 2)), 1)
+    const ids = planner.getRange(3, 1, Math.max(0, planner.getLastRow() - 2), 1)
       .getValues().flat();
     const idx = ids.findIndex(v => Number(v) === meetingNo);
     if (idx >= 0) {
@@ -2690,7 +2690,7 @@ function processThemeRequestReminder_() {
 function sendSpeakerDetailsToTmod_(meetingNo, member, slotRef, parts) {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const planner = ss.getSheetByName('VPE Weekly Planner');
-  const ids = planner.getRange(3, 1, Math.max(0, Math.min(60, planner.getLastRow() - 2)), 1)
+  const ids = planner.getRange(3, 1, Math.max(0, planner.getLastRow() - 2), 1)
     .getValues().flat();
   const idx = ids.findIndex(v => Number(v) === Number(meetingNo));
   if (idx < 0) return;
