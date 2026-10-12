@@ -2566,7 +2566,17 @@ function processDevTmodThemeTestOnce_() {
   if (!assignment.ok) return false;
 
   const active = activeConversation_(phone);
-  if (active) return false;
+  logAutomation_(
+    'TMOD Theme', meetingNo, member,
+    'DEV theme trial preflight',
+    'Info',
+    'window=' + hasOpenWhatsAppServiceWindow_(phone) +
+      ' | active=' + (active ? String(active.kind || 'UNKNOWN') : 'NONE')
+  );
+
+  // This is a DEV-only immediate trial. Clear stale guided state left from an
+  // earlier test so it cannot block the real TMOD theme request.
+  if (active) clearConversation_(phone);
 
   const request = startGuidedRequest_(
     member, phone, 'THEME', meetingNo, 'TMOD', 'Toastmaster of the Day'
