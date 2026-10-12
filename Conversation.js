@@ -136,8 +136,8 @@ function handleGuidedReply_(member, phone, text, messageId) {
     }
 
     const rawStage = String(state.step || grammarStageForMember_(n, member)).toUpperCase();
-    const stage = rawStage.indexOf('IDIOM') === 0 ? 'IDIOM' :
-      rawStage.indexOf('WORD') === 0 ? 'WORD' : '';
+    const stage = rawStage.indexOf('IDIOM') !== -1 ? 'IDIOM' :
+      rawStage.indexOf('WORD') !== -1 ? 'WORD' : '';
 
     if (!stage) {
       clearConversation_(phone);
