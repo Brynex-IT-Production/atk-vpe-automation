@@ -18,19 +18,15 @@ function phase1ScheduledTick() {
   try {
     ensureProgrammePlanningSetup_();
     syncProgrammeSlots_();
-    ensureProgrammePlanningTemplates_();
   } catch (error) {
     logAutomation_('Programme Planning', '', '', 'Programme bootstrap', 'Error', String(error));
   }
 
+  // Template creation/submission is intentionally NEVER automatic.
+  // The VPE must review and explicitly approve exact template content first.
+  // Scheduled ticks may only read/sync approval status for templates that
+  // have already been submitted manually.
   try {
-    const agendaTemplateStatus = String(configValue_('WA_TEMPLATE_AGENDA_APPROVAL_STATUS', '')).toUpperCase();
-    if (agendaTemplateStatus !== 'SUBMITTED' && agendaTemplateStatus !== 'APPROVED') {
-      const templateResult = createAtkWhatsAppTemplates_();
-      logAutomation_('WhatsApp Templates', '', '', 'Agenda approval template submission',
-        templateResult && templateResult.ok ? 'Success' : 'Error',
-        JSON.stringify(templateResult || {}));
-    }
     syncAtkTemplateApprovalStatus_();
   } catch (error) {
     logAutomation_('WhatsApp Templates', '', '', 'Approval status sync', 'Error', String(error));
