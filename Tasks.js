@@ -572,7 +572,7 @@ function processVacantRoleReminders_() {
               body: {text: text},
               action: {buttons: [{type: 'reply', reply: {id: 'ROLE_MENU', title: 'View roles'}}]}
             }
-          }, [meetingNo], 'ROLE_MENU')
+          }, [meetingNo], 'ROLE_MENU|' + meetingNo)
         : sendAutomatedText_(member.phone, 'ROLE_REMINDER', text,
             [member.name, meetingNo, roleNames]);
       recordReminderSend_(idempotency, member, meetingNo, result, text);
@@ -735,7 +735,7 @@ function sendDevRoleReminderForNextVacancy_() {
   }
 
   const result = sendWhatsAppTemplate_(
-    phone, templateName, [meeting.meetingNo], 'ROLE_MENU');
+    phone, templateName, [meeting.meetingNo], 'ROLE_MENU|' + meeting.meetingNo);
 
   logAutomation_('Role Selection', meeting.meetingNo, member,
     'DEV role reminder test sent',
