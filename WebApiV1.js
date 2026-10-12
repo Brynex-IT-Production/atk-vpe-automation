@@ -619,17 +619,56 @@ function apiActivateMeeting_(clubId,meetingId) {
   }
   if (meeting.status === 'ACTIVE') return meeting;
 
-  // Safety: API V1 activation does NOT send WhatsApp. It only marks the web plan
-  // ready for the legacy-planner adapter. Messaging is enabled after adapter tests.
   const sheets = apiEnsureSheets_();
+  let meetingRow = 0;
   for (let r=2;r<=sheets.meetings.getLastRow();r++) {
     if (String(sheets.meetings.getRange(r,1).getValue())===meetingId &&
         String(sheets.meetings.getRange(r,2).getValue())===clubId) {
-      sheets.meetings.getRange(r,4,1,3).setValues([['READY_FOR_SYNC',sheets.meetings.getRange(r,5).getValue(),new Date()]]);
+      meetingRow = r;
+      sheets.meetings.getRange(r,4,1,3).setValues([[
+        'READY_FOR_SYNC',
+        sheets.meetings.getRange(r,5).getValue(),
+        new Date()
+      ]]);
       apiInvalidateMeetingCaches_(clubId,meetingId);
       break;
     }
   }
+  if (!meetingRow) {
+    const err = new Error('Meeting not found during activation');
+    err.apiCode = 'NOT_FOUND';
+    throw err;
+  }
+
+  // During DEV UI integration, Activate is one atomic backend operation:
+  // API plan -> legacy planner -> programme/tasks -> ACTIVE.
+  // Keep LIVE on the previous READY_FOR_SYNC safety boundary until explicit
+  // production approval.
+  if (configValue_('SYSTEM_MODE','') === 'DEV') {
+    const props = PropertiesService.getScriptProperties();
+    const originalAllow = props.getProperty(API_ALLOW_LEGACY_SYNC_PROPERTY_);
+    try {
+      props.setProperty(API_ALLOW_LEGACY_SYNC_PROPERTY_,'TRUE');
+      const synced = apiSyncMeetingToLegacyPlanner_(clubId,meetingId);
+
+      if (typeof syncProgrammeSlots_ === 'function') syncProgrammeSlots_();
+      if (typeof syncPhase1Tasks_ === 'function' && configBool_('TASK_ENGINE_ENABLED')) {
+        syncPhase1Tasks_();
+      }
+
+      sheets.meetings.getRange(meetingRow,4).setValue('ACTIVE');
+      sheets.meetings.getRange(meetingRow,6).setValue(new Date());
+      if (synced && synced.planner_meeting_no) {
+        sheets.meetings.getRange(meetingRow,7).setValue(synced.planner_meeting_no);
+      }
+      SpreadsheetApp.flush();
+      apiInvalidateMeetingCaches_(clubId,meetingId);
+    } finally {
+      if (originalAllow===null) props.deleteProperty(API_ALLOW_LEGACY_SYNC_PROPERTY_);
+      else props.setProperty(API_ALLOW_LEGACY_SYNC_PROPERTY_,originalAllow);
+    }
+  }
+
   return apiGetMeeting_(clubId,meetingId);
 }
 
