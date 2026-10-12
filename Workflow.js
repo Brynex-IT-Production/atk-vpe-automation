@@ -334,6 +334,7 @@ function grammarStageForMember_(meetingNo, member) {
   let legacyDone = false;
   let wordDone = false;
   let idiomDone = false;
+  let confirmed = false;
 
   rows.forEach(row => {
     if (Number(row[1]) !== Number(meetingNo) ||
@@ -344,9 +345,11 @@ function grammarStageForMember_(meetingNo, member) {
     if (type === 'GRAMMAR') legacyDone = true;
     if (type === 'GRAMMAR_WORD') wordDone = true;
     if (type === 'GRAMMAR_IDIOM') idiomDone = true;
+    if (type === 'GRAMMAR_CONFIRMED') confirmed = true;
   });
 
-  if (legacyDone || (wordDone && idiomDone)) return 'DONE';
+  if (legacyDone || confirmed) return 'DONE';
+  if (wordDone && idiomDone) return 'REVIEW';
   if (wordDone) return 'IDIOM';
   return 'WORD';
 }
@@ -728,6 +731,107 @@ function approvedGrammarBundle_(meetingNo) {
   return out.word && out.idiom ? out : null;
 }
 
+function grammarReviewMessage_(bundle) {
+  return (
+    'Thank you! Your Grammarian details are ready. ✅\n\n' +
+    'Please review:\n\n' +
+    '*WORD*\n' +
+    'Word: ' + bundle.word.item + '\n' +
+    'Meaning: ' + bundle.word.meaning + '\n' +
+    'Usage: ' + bundle.word.usage + '\n\n' +
+    '*IDIOM*\n' +
+    'Idiom: ' + bundle.idiom.item + '\n' +
+    'Meaning: ' + bundle.idiom.meaning + '\n' +
+    'Usage: ' + bundle.idiom.usage
+  );
+}
+
+function sendGrammarReviewButtons_(member, phone, meetingNo) {
+  const bundle = approvedGrammarBundle_(meetingNo);
+  if (!bundle) return false;
+
+  const body = grammarReviewMessage_(bundle);
+  const payload = {
+    messaging_product:'whatsapp',
+    recipient_type:'individual',
+    to:phone,
+    type:'interactive',
+    interactive:{
+      type:'button',
+      body:{text:body},
+      action:{buttons:[
+        {type:'reply', reply:{id:['GRAMMAR_REVIEW',meetingNo,'CONFIRM'].join('|'), title:'Confirm'}},
+        {type:'reply', reply:{id:['GRAMMAR_REVIEW',meetingNo,'EDIT_WORD'].join('|'), title:'Edit Word'}},
+        {type:'reply', reply:{id:['GRAMMAR_REVIEW',meetingNo,'EDIT_IDIOM'].join('|'), title:'Edit Idiom'}}
+      ]}
+    }
+  };
+
+  const result = sendWhatsAppPayload_(payload);
+  recordWorkflowOutbound_(
+    member, phone, 'GRAMMAR_REVIEW', body, meetingNo, result,
+    ['GRAMMAR_REVIEW', meetingNo, member, bundle.word.item, bundle.idiom.item].join('|')
+  );
+
+  if (result && result.ok) {
+    setConversation_(phone, {
+      kind:'GRAMMAR',
+      meetingNo:Number(meetingNo),
+      related:'GRM',
+      step:'REVIEW',
+      data:{}
+    });
+  }
+  return Boolean(result && result.ok);
+}
+
+function handleGrammarReviewReply_(member, phone, meetingNo, choice, messageId) {
+  const assignment = verifyRoleAssignment_(meetingNo, 'GRM', member);
+  if (!assignment.ok) {
+    clearConversation_(phone);
+    sendWhatsAppText_(phone,
+      'Your Grammarian assignment for Meeting ' + meetingNo +
+      ' has changed, so I did not save this.');
+    syncPhase1Tasks_();
+    return;
+  }
+
+  const normalizedChoice = String(choice || '').toUpperCase();
+  if (normalizedChoice === 'CONFIRM') {
+    appendSubmission_({
+      meetingNo:meetingNo,
+      member:member,
+      type:'GRAMMAR_CONFIRMED',
+      related:'GRM',
+      values:['Confirmed','','',''],
+      sourceMessageId:messageId || ''
+    });
+    clearConversation_(phone);
+    sendWhatsAppText_(phone,
+      'Thank you. Your Grammarian details are confirmed ✅');
+    sendApprovedGrammarBundle_(meetingNo);
+    syncPhase1Tasks_();
+    logAutomation_('Grammarian', meetingNo, member,
+      'Final Grammarian review confirmed', 'Success', '');
+    return;
+  }
+
+  const stage = normalizedChoice === 'EDIT_IDIOM' ? 'IDIOM' :
+    normalizedChoice === 'EDIT_WORD' ? 'WORD' : '';
+  if (!stage) return;
+
+  setConversation_(phone, {
+    kind:'GRAMMAR',
+    meetingNo:Number(meetingNo),
+    related:'GRM',
+    step:'EDIT_' + stage,
+    data:{}
+  });
+  sendWhatsAppText_(phone,
+    'Please copy the next message, make the changes, and send it back.');
+  sendWhatsAppText_(phone, grammarStageCopyMessage_(stage, true));
+}
+
 function grammarHandoffRecipients_(meetingNo) {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const planner = ss.getSheetByName('VPE Weekly Planner');
@@ -779,31 +883,34 @@ function sendApprovedGrammarBundle_(meetingNo) {
   return anySent;
 }
 
-function saveApprovedGrammarStage_(member, phone, meetingNo, stage, details, sourceMessageId) {
+function saveApprovedGrammarStage_(member, phone, meetingNo, stage, details, sourceMessageId, returnToReview) {
   const normalizedStage = String(stage || '').toUpperCase();
-  appendSubmission_({
+  const saved = appendSubmission_({
     meetingNo:meetingNo, member:member,
     type:normalizedStage === 'WORD' ? 'GRAMMAR_WORD' : 'GRAMMAR_IDIOM',
     related:'GRM',
     values:[details.item, details.meaning, details.usage, ''],
     sourceMessageId:sourceMessageId || ''
   });
-  logAutomation_('Grammarian', meetingNo, member,
-    (normalizedStage === 'WORD' ? 'Word' : 'Idiom') + ' received',
-    'Success', details.item);
+
+  if (saved !== false) {
+    logAutomation_('Grammarian', meetingNo, member,
+      (normalizedStage === 'WORD' ? 'Word' : 'Idiom') + ' received',
+      'Success', details.item);
+  }
+
+  if (returnToReview) {
+    sendGrammarReviewButtons_(member, phone, meetingNo);
+    syncPhase1Tasks_();
+    return;
+  }
 
   if (normalizedStage === 'WORD') {
     setConversation_(phone, {kind:'GRAMMAR', meetingNo:Number(meetingNo), related:'GRM',
       step:'IDIOM', data:{}});
     sendGrammarStagePrompt_(member, phone, meetingNo, 'IDIOM', 'GRAMMAR_AFTER_WORD');
   } else {
-    clearConversation_(phone);
-    sendWhatsAppText_(phone,
-      'Thank you. Your Grammarian details are complete ✅\n\n' +
-      'Word and Idiom of the Day have both been approved.');
-    // Both approved items are now canonical: compile once and hand them to
-    // the TMOD and VP Education. Idempotency prevents duplicate successful sends.
-    sendApprovedGrammarBundle_(meetingNo);
+    sendGrammarReviewButtons_(member, phone, meetingNo);
   }
   syncPhase1Tasks_();
 }
@@ -853,10 +960,12 @@ function handleGrammarStageSubmission_(member, phone, requestedMeetingNo, stage,
 
   const active = activeConversation_(phone);
   const parsed = parseGrammarStageBlock_(body, normalizedStage);
-  const previous = active && active.kind === 'GRAMMAR' &&
-    Number(active.meetingNo) === Number(task.meetingNo) &&
-    String(active.step || '').toUpperCase().indexOf(normalizedStage) === 0
-      ? (active.data || {}) : {};
+  const rawStep = active && active.kind === 'GRAMMAR' &&
+    Number(active.meetingNo) === Number(task.meetingNo)
+      ? String(active.step || '').toUpperCase() : '';
+  const editing = rawStep === 'EDIT_' + normalizedStage;
+  const previous = rawStep.indexOf(normalizedStage) !== -1
+    ? (active.data || {}) : {};
 
   const details = {
     item: String(parsed.item || previous.item || '').trim(),
@@ -880,7 +989,7 @@ function handleGrammarStageSubmission_(member, phone, requestedMeetingNo, stage,
   }
 
   saveApprovedGrammarStage_(
-    member, phone, task.meetingNo, normalizedStage, details, messageId
+    member, phone, task.meetingNo, normalizedStage, details, messageId, editing
   );
 }
 
