@@ -125,7 +125,7 @@ function doPost(e) {
       payload.system_action === 'TEST_ROLE_TEMPLATE_ONLY' &&
       payload.verify_token === VERIFY_TOKEN
     ) {
-      const result = testRoleReminderTemplateToVpe_();
+      const result = sendDevRoleReminderForNextVacancy_();
 
       return ContentService
         .createTextOutput(JSON.stringify(result))
