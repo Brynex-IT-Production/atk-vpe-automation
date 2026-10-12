@@ -2605,6 +2605,63 @@ function processDevTmodThemeTestOnce_() {
 }
 
 
+function processDevVpprThemePreviewOnce_() {
+  if (configValue_('SYSTEM_MODE','') !== 'DEV' ||
+      configValue_('WA_SEND_MODE','') !== 'TEST') return false;
+
+  const meetingNo = 454;
+  const props = PropertiesService.getScriptProperties();
+  const guardKey = 'DEV_VPPR_THEME_PREVIEW_454_V1';
+  if (props.getProperty(guardKey)) return false;
+
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const planner = ss.getSheetByName('VPE Weekly Planner');
+  if (!planner || planner.getLastRow() < 3) return false;
+
+  const ids = planner.getRange(3,1,planner.getLastRow()-2,1).getValues().flat();
+  const idx = ids.findIndex(v => Number(v) === meetingNo);
+  if (idx < 0) return false;
+
+  const row = planner.getRange(idx+3,1,1,28).getValues()[0];
+  const theme = String(row[3] || '').trim();
+  const tmod = String(row[18] || '').trim();
+  const vppr = String(configValue_('VPPR_MEMBER_NAME','') || '').trim();
+  if (!theme || !tmod || !vppr) return false;
+
+  const testMember = configValue_('VPE_MEMBER_NAME','Riyas AF');
+  const phone = normalizePhone_(phoneForMember_(testMember));
+  if (!phone || !isWhatsAppRecipientAllowed_(phone)) return false;
+
+  const body =
+    'DEV TEST — this would normally be sent to ' + vppr + ':\n\n' +
+    'Hi ' + vppr + ',\n\n' +
+    'ATK Meeting ' + meetingNo + ' update for promotion:\n\n' +
+    'Theme: ' + theme + '\n' +
+    'Toastmaster of the Day: ' + tmod + '\n\n' +
+    'Please use these details for the meeting promotion/poster.\n\n' +
+    'Thank you.';
+
+  const result = sendWhatsAppText_(phone, body);
+  recordWorkflowOutbound_(
+    testMember, phone, 'DEV_VPPR_THEME_PREVIEW', body, meetingNo, result,
+    ['DEV_VPPR_THEME_PREVIEW', meetingNo, vppr, theme, tmod].join('|')
+  );
+
+  logAutomation_(
+    'VPPR Handoff', meetingNo, vppr,
+    'DEV preview routed to VPE test number',
+    result && result.ok ? 'Sent' : 'Error',
+    'Theme=' + theme + ' | TMOD=' + tmod
+  );
+
+  if (result && result.ok) {
+    props.setProperty(guardKey, result.messageId || 'SENT');
+    return true;
+  }
+  return false;
+}
+
+
 function processAssignedRolePrompts_() {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const tasks = ss.getSheetByName('Automation Tasks');
