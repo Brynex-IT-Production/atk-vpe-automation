@@ -2546,6 +2546,55 @@ function handlePlannerEvaluatorEdit_(e) {
 }
 
 
+function processDevTmodThemeTestOnce_() {
+  if (configValue_('SYSTEM_MODE','') !== 'DEV' ||
+      configValue_('WA_SEND_MODE','') !== 'TEST' ||
+      !configBool_('TMOD_WORKFLOW_ENABLED')) return false;
+
+  const meetingNo = 454;
+  const member = configValue_('VPE_MEMBER_NAME','Riyas AF');
+  const phone = normalizePhone_(phoneForMember_(member));
+  const guardKey = 'DEV_TMOD_THEME_TEST_454_V1';
+  const props = PropertiesService.getScriptProperties();
+
+  if (props.getProperty(guardKey)) return false;
+  if (!phone || !isWhatsAppRecipientAllowed_(phone)) return false;
+  if (!hasOpenWhatsAppServiceWindow_(phone)) return false;
+  if (meetingTheme_(meetingNo)) return false;
+
+  const assignment = verifyRoleAssignment_(meetingNo, 'TMOD', member);
+  if (!assignment.ok) return false;
+
+  const active = activeConversation_(phone);
+  if (active) return false;
+
+  const request = startGuidedRequest_(
+    member, phone, 'THEME', meetingNo, 'TMOD', 'Toastmaster of the Day'
+  );
+  if (!request) return false;
+
+  const result = sendWhatsAppText_(phone, request.text);
+  recordWorkflowOutbound_(
+    member, phone, 'THEME_REQUEST', request.text, meetingNo, result,
+    ['DEV_TMOD_THEME_TEST', meetingNo, member].join('|')
+  );
+
+  logAutomation_(
+    'TMOD Theme', meetingNo, member,
+    'DEV immediate theme request test',
+    result && result.ok ? 'Sent' : 'Error',
+    result && (result.messageId || result.error) || ''
+  );
+
+  if (result && result.ok) {
+    setConversation_(phone, request.state);
+    props.setProperty(guardKey, result.messageId || 'SENT');
+    return true;
+  }
+  return false;
+}
+
+
 function processAssignedRolePrompts_() {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const tasks = ss.getSheetByName('Automation Tasks');
