@@ -88,7 +88,7 @@ function processInboundWhatsAppMessage_(message) {
   }
 
   if (interaction.kind === 'ROLE_MENU') {
-    handleRoleMenuRequest_(member, phone);
+    handleRoleMenuRequest_(member, phone, interaction.meetingNo || 0);
     return;
   }
 
@@ -127,7 +127,7 @@ function processInboundWhatsAppMessage_(message) {
   }
 
   if (interaction.kind === 'ROLE_MENU') {
-    handleRoleMenuRequest_(member, phone);
+    handleRoleMenuRequest_(member, phone, interaction.meetingNo || 0);
     return;
   }
 
@@ -274,9 +274,17 @@ function parseInteraction_(message) {
       if (id === 'ADMIN_EXCEPTIONS') {
         return { kind: 'ADMIN_EXCEPTIONS', text: String(reply.title || '') };
       }
+      if (id.indexOf('ROLE_MENU|') === 0) {
+        const parts = id.split('|');
+        return {
+          kind: 'ROLE_MENU',
+          meetingNo: Number(parts[1] || 0),
+          text: String(reply.title || '')
+        };
+      }
       if (id === 'ROLE_MENU' ||
           String(reply.title || '').trim().toLowerCase() === 'view roles') {
-        return { kind: 'ROLE_MENU', text: String(reply.title || '') };
+        return { kind: 'ROLE_MENU', meetingNo: 0, text: String(reply.title || '') };
       }
     }
   }
@@ -348,9 +356,17 @@ function parseInteraction_(message) {
         text: String(message.button.text || '')
       };
     }
+    if (payload.indexOf('ROLE_MENU|') === 0) {
+      const parts = payload.split('|');
+      return {
+        kind: 'ROLE_MENU',
+        meetingNo: Number(parts[1] || 0),
+        text: String(message.button.text || '')
+      };
+    }
     if (payload === 'ROLE_MENU' ||
         String(message.button.text || '').trim().toLowerCase() === 'view roles') {
-      return { kind: 'ROLE_MENU', text: String(message.button.text || '') };
+      return { kind: 'ROLE_MENU', meetingNo: 0, text: String(message.button.text || '') };
     }
   }
 
@@ -360,7 +376,7 @@ function parseInteraction_(message) {
   };
 }
 
-function handleRoleMenuRequest_(member, phone) {
+function handleRoleMenuRequest_(member, phone, requestedMeetingNo) {
   if (!configBool_('ROLE_SELECTION_ENABLED')) {
     sendWhatsAppText_(phone, 'Role selection is being prepared. It will be available here shortly.');
     return;
@@ -373,6 +389,18 @@ function handleRoleMenuRequest_(member, phone) {
     if (previewResult && (previewResult === true || previewResult.handled)) {
       return;
     }
+  }
+
+  if (Number(requestedMeetingNo)) {
+    const exactMeeting = findMeetingForRoleList_(Number(requestedMeetingNo), member);
+    if (!exactMeeting || !exactMeeting.available || !exactMeeting.available.length) {
+      sendWhatsAppText_(phone,
+        'There are no roles currently available for you in ATK Meeting ' +
+        requestedMeetingNo + '.');
+      return;
+    }
+    sendRoleList_(phone, member, exactMeeting);
+    return;
   }
 
   const meeting = findNextRoleSelectionMeeting_(member);
@@ -644,12 +672,96 @@ function reserveRole_(meetingNo, roleDef, member) {
   cell.setValue(member);
   SpreadsheetApp.flush();
 
+  // Keep the API-backed UI model in sync with WhatsApp bookings. For legacy-only
+  // meetings there may be no API meeting yet; in that case the planner booking
+  // remains valid. If an API meeting exists, its matching role item is mandatory.
+  try {
+    syncBookedRoleToApiMeeting_(meetingNo, roleDef.code, member);
+  } catch (error) {
+    cell.clearContent();
+    SpreadsheetApp.flush();
+    throw error;
+  }
+
   const dateText = row[1] instanceof Date
     ? Utilities.formatDate(row[1], configValue_('TIMEZONE', 'Asia/Kolkata'), 'EEE, d MMM')
     : String(row[1] || '');
 
   return { status: 'BOOKED', rowNumber, dateText,
     speakerName: roleDef.evaluatorSlot ? speakers[roleDef.evaluatorSlot - 1] : '' };
+}
+
+function syncBookedRoleToApiMeeting_(meetingNo, roleCode, memberName) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const meetings = ss.getSheetByName('API Meetings');
+  const items = ss.getSheetByName('API Meeting Items');
+  if (!meetings || !items || meetings.getLastRow() < 2) {
+    return {synced:false, reason:'API_MODEL_NOT_PRESENT'};
+  }
+
+  const meetingRows = meetings.getRange(
+    2,1,meetings.getLastRow()-1,7
+  ).getValues();
+  const meetingIndex = meetingRows.findIndex(r =>
+    String(r[1] || '') === 'ATK' &&
+    Number(r[6]) === Number(meetingNo)
+  );
+  if (meetingIndex < 0) {
+    return {synced:false, reason:'NO_API_MEETING'};
+  }
+
+  const meetingId = String(meetingRows[meetingIndex][0] || '');
+  if (!meetingId) throw new Error('API meeting ID missing for Meeting ' + meetingNo);
+
+  const memberSheet = ss.getSheetByName('Member Master');
+  if (!memberSheet || memberSheet.getLastRow() < 2) {
+    throw new Error('Member Master missing while syncing WhatsApp booking.');
+  }
+  const memberRows = memberSheet.getRange(
+    2,1,memberSheet.getLastRow()-1,4
+  ).getValues();
+  const memberRow = memberRows.find(r =>
+    String(r[1] || '').trim() === String(memberName || '').trim() &&
+    String(r[3] || '').trim() === 'Active'
+  );
+  if (!memberRow) {
+    throw new Error('Active member not found while syncing WhatsApp booking: ' + memberName);
+  }
+  const memberId = String(memberRow[0] || '');
+
+  const itemRows = items.getLastRow() >= 2
+    ? items.getRange(2,1,items.getLastRow()-1,11).getValues()
+    : [];
+  const itemIndex = itemRows.findIndex(r =>
+    String(r[1] || '') === meetingId &&
+    String(r[2] || '') === 'ATK' &&
+    String(r[5] || '') === String(roleCode || '')
+  );
+  if (itemIndex < 0) {
+    throw new Error(
+      'API role item missing for Meeting ' + meetingNo + ': ' + roleCode
+    );
+  }
+
+  const itemRowNo = itemIndex + 2;
+  const now = new Date();
+  items.getRange(itemRowNo,8,1,2).setValues([[memberId, memberName]]);
+  items.getRange(itemRowNo,11).setValue(now);
+
+  const meetingRowNo = meetingIndex + 2;
+  meetings.getRange(meetingRowNo,6).setValue(now);
+  SpreadsheetApp.flush();
+
+  if (typeof apiInvalidateMeetingCaches_ === 'function') {
+    apiInvalidateMeetingCaches_('ATK', meetingId);
+  }
+
+  return {
+    synced:true,
+    meeting_id:meetingId,
+    role_code:roleCode,
+    member_id:memberId
+  };
 }
 
 function findMeetingForRoleList_(meetingNo, member) {
