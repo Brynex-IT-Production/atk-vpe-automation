@@ -659,6 +659,54 @@ function processReadyIntroductionBundles_() {
 }
 
 /**
+ * Sends one approved role reminder to the sole DEV test recipient for the
+ * next meeting where that member can take a vacant role.
+ */
+function testRoleReminderTemplateToVpe_() {
+  if (configValue_('SYSTEM_MODE','') !== 'DEV' ||
+      configValue_('WA_SEND_MODE','') !== 'TEST') {
+    throw new Error('DEV role reminder test requires DEV TEST mode.');
+  }
+
+  const member = configValue_('VPE_MEMBER_NAME','Riyas AF');
+  const phone = normalizePhone_(phoneForMember_(member));
+  const allowlist = String(configValue_('WA_TEST_RECIPIENTS',''))
+    .split(',').map(normalizePhone_).filter(Boolean);
+
+  if (!phone || allowlist.length !== 1 || allowlist[0] !== phone ||
+      !isWhatsAppRecipientAllowed_(phone)) {
+    throw new Error('DEV role reminder test requires the VPE as the sole allowlisted recipient.');
+  }
+
+  const meeting = findNextRoleSelectionMeeting_(member);
+  if (!meeting || meeting.reason !== 'AVAILABLE') {
+    return {ok:false,sent:false,reason:meeting ? meeting.reason : 'NO_AVAILABLE_MEETING'};
+  }
+
+  const templateName = templateNameForKind_('ROLE_REMINDER') || 'atk_role_reminder_v2';
+  if (!isApprovedTemplate_(templateName)) {
+    throw new Error('Approved role reminder template is unavailable: ' + templateName);
+  }
+
+  const result = sendWhatsAppTemplate_(
+    phone, templateName, [meeting.meetingNo], 'ROLE_MENU');
+
+  logAutomation_('Role Selection', meeting.meetingNo, member,
+    'DEV role reminder test sent',
+    result && result.ok ? 'Sent' : 'Error',
+    result && (result.messageId || result.error) || '');
+
+  return {
+    ok:Boolean(result && result.ok),
+    sent:Boolean(result && result.ok),
+    meeting_no:meeting.meetingNo,
+    message_id:result && result.messageId || '',
+    error:result && result.error || ''
+  };
+}
+
+
+/**
  * One controlled test of the approved View roles template. Runs through the
  * DEV scheduler, never through the member reminder pilot.
  */
