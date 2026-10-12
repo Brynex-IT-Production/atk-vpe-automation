@@ -649,7 +649,15 @@ function generateGrammarMeaningUsage_(stage, item, meetingNo) {
     });
     const status = response.getResponseCode();
     if (status < 200 || status >= 300) {
-      return {ok:false, error:'AI HTTP ' + status};
+      let detail = '';
+      try {
+        const errorBody = JSON.parse(response.getContentText() || '{}');
+        detail = String(
+          errorBody && errorBody.error &&
+          (errorBody.error.code || errorBody.error.type || errorBody.error.message) || ''
+        ).trim();
+      } catch (ignore) {}
+      return {ok:false, error:'AI HTTP ' + status + (detail ? ' | ' + detail : '')};
     }
     const data = JSON.parse(response.getContentText());
     let output = String(data.output_text || '').trim();
