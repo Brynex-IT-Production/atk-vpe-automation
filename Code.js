@@ -169,6 +169,7 @@ function doPost(e) {
     logWhatsAppWebhook_(payload);
     if (!processAgendaDecisionButton_(payload) &&
         !processAgendaApprovalButton_(payload) &&
+        !processGrammarReviewButton_(payload) &&
         !processGrammarApprovalButton_(payload)) {
       processWhatsAppAutomation_(payload);
     }
@@ -658,6 +659,37 @@ function processGrammarApprovalButton_(payload) {
       handled = true;
     });
   });
+  return handled;
+}
+
+
+/* ATK_GRAMMAR_FINAL_REVIEW_BUTTON_V1 */
+function processGrammarReviewButton_(payload) {
+  const entry = payload && payload.entry && payload.entry[0];
+  if (!entry || !entry.changes) return false;
+  let handled = false;
+
+  entry.changes.forEach(change => {
+    const messages = (change.value && change.value.messages) || [];
+    messages.forEach(message => {
+      const reply = message.type === 'interactive' &&
+        message.interactive && message.interactive.button_reply;
+      if (!reply || !reply.id) return;
+
+      const match = String(reply.id).match(
+        /^GRAMMAR_REVIEW\|(\d+)\|(CONFIRM|EDIT_WORD|EDIT_IDIOM)$/
+      );
+      if (!match) return;
+
+      const phone = String(message.from || '');
+      const member = findMemberByWhatsApp_(phone);
+      handleGrammarReviewReply_(
+        member, phone, Number(match[1]), match[2], String(message.id || '')
+      );
+      handled = true;
+    });
+  });
+
   return handled;
 }
 
