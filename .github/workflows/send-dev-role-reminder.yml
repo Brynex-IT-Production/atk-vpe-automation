@@ -27,4 +27,4 @@ jobs:
             'https://script.google.com/macros/s/AKfycbwzHdJptr44J1aWN4UqHp6qN435kwFPbG8ngYGEYABqypF2urE0Jyd0hLd63M-wYVVE/exec')
           echo "$response"
           echo "$response" | grep -q '"sent":true'
-          echo "$response" | grep -q '"meeting_no":453'
+          echo "$response" | grep -Eq '"meeting_no":[0-9]+'
