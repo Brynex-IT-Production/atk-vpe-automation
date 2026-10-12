@@ -57,6 +57,7 @@ function phase1ScheduledTick() {
   processReadySpeakerDetailsToTmod_();
   if (introWorkflowEnabled) processMemberIntroOnboarding_();
   processEvaluatorNotifications_();
+  processDevEvaluatorCoordinationTestOnce_();
   processMonthlyProgrammePlanning_();
   processSpeakingSlotTargeting_();
   updateControlCenterReadiness_();
