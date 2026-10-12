@@ -306,6 +306,14 @@ function parseGrammarStageBlock_(text, stage) {
     }
   });
 
+  // If the member sends only a plain word/idiom (for example "Resilient"),
+  // keep it as the item and ask only for the missing Meaning and Usage.
+  if (!fields.item && !fields.meaning && !fields.usage &&
+      raw && raw.indexOf('\n') === -1 && raw.indexOf(':') === -1 &&
+      raw.length <= 120) {
+    fields.item = raw;
+  }
+
   const result = {
     recognized: ['item', 'meaning', 'usage']
       .filter(key => String(fields[key] || '').trim()).length,
@@ -346,31 +354,37 @@ function grammarStageForMember_(meetingNo, member) {
 function grammarStageIntroMessage_(member, meetingNo, stage) {
   if (String(stage || '').toUpperCase() === 'IDIOM') {
     return (
-      'Thank you, ' + member + '. The Word of the Day is received ✅\n\n' +
-      'Now please share only the Idiom of the Day for ATK Meeting ' + meetingNo + '.'
+      'Thank you! Your Word of the Day is received. ✅\n\n' +
+      '*IDIOM OF THE DAY*\n\n' +
+      'Please copy the next message, fill in the details, and send it back.'
     );
   }
 
-  const theme = meetingTheme_(meetingNo);
   return (
-    'Hi ' + member + ',\n\n' +
-    'Thank you for being the Grammarian for ATK Meeting ' + meetingNo + '.\n\n' +
-    (theme ? 'The meeting theme is: ' + theme + '\n\n' : '') +
-    'Let’s start with the Word of the Day. Please share the Word, Meaning and Usage in the format below.'
+    'Thank you for being the Grammarian for ATK Meeting ' + meetingNo + '. 😊\n\n' +
+    '*WORD OF THE DAY*\n\n' +
+    'Please copy the next message, fill in the details, and send it back.'
   );
 }
 
 function grammarStageCopyMessage_(stage, editMode) {
   const label = String(stage || '').toUpperCase() === 'IDIOM' ? 'Idiom' : 'Word';
-  if (editMode) {
-    return (
-      'Please copy this message, make the changes you want, and send it back:\n\n' +
-      label + ':\n' +
-      'Meaning:\n' +
-      'Usage:'
-    );
-  }
-  return 'Please reply in this format:\n\n' + label + ':';
+  return label + ':\nMeaning:\nUsage:';
+}
+
+function grammarMissingFieldsMessage_(stage, details) {
+  const label = String(stage || '').toUpperCase() === 'IDIOM' ? 'Idiom' : 'Word';
+  const missing = [];
+  if (!String(details.item || '').trim()) missing.push(label);
+  if (!String(details.meaning || '').trim()) missing.push('Meaning');
+  if (!String(details.usage || '').trim()) missing.push('Usage');
+
+  const lines = missing.map(field => field + ':').join('\n');
+  const human = missing.length === 1 ? missing[0] :
+    missing.length === 2 ? missing[0] + ' and ' + missing[1] :
+    missing.slice(0, -1).join(', ') + ' and ' + missing[missing.length - 1];
+
+  return 'Got it. I still need the ' + human + '.\n\n' + lines;
 }
 
 /**
@@ -775,7 +789,7 @@ function saveApprovedGrammarStage_(member, phone, meetingNo, stage, details, sou
     sourceMessageId:sourceMessageId || ''
   });
   logAutomation_('Grammarian', meetingNo, member,
-    (normalizedStage === 'WORD' ? 'Word' : 'Idiom') + ' approved',
+    (normalizedStage === 'WORD' ? 'Word' : 'Idiom') + ' received',
     'Success', details.item);
 
   if (normalizedStage === 'WORD') {
@@ -818,56 +832,56 @@ function handleGrammarStageSubmission_(member, phone, requestedMeetingNo, stage,
   if (!configBool_('GRAMMARIAN_WORKFLOW_ENABLED')) {
     sendWhatsAppText_(phone, 'Grammarian collection is not active yet.'); return;
   }
+
   const task = findPendingTaskForMember_('GRAMMAR', member, requestedMeetingNo);
-  if (!task) { sendWhatsAppText_(phone, 'I could not find a pending Grammarian submission for you.'); return; }
+  if (!task) {
+    sendWhatsAppText_(phone, 'I could not find a pending Grammarian submission for you.');
+    return;
+  }
 
   const normalizedStage = String(stage || '').toUpperCase();
+  if (normalizedStage !== 'WORD' && normalizedStage !== 'IDIOM') return;
+
   const assignment = verifyRoleAssignment_(task.meetingNo, 'GRM', member);
   if (!assignment.ok) {
     clearConversation_(phone);
     sendWhatsAppText_(phone, 'Your Grammarian assignment for Meeting ' + task.meetingNo +
       ' has changed, so I did not save this.');
-    syncPhase1Tasks_(); return;
+    syncPhase1Tasks_();
+    return;
   }
 
   const active = activeConversation_(phone);
-  const editing = active && active.kind === 'GRAMMAR' &&
+  const parsed = parseGrammarStageBlock_(body, normalizedStage);
+  const previous = active && active.kind === 'GRAMMAR' &&
     Number(active.meetingNo) === Number(task.meetingNo) &&
-    String(active.step || '').toUpperCase() === normalizedStage + '_EDIT';
+    String(active.step || '').toUpperCase().indexOf(normalizedStage) === 0
+      ? (active.data || {}) : {};
 
-  const details = parseGrammarStageBlock_(body, normalizedStage);
-  if (editing) {
-    if (details.recognized < 3) {
-      sendWhatsAppText_(phone, 'Please send all three details together.\n\n' +
-        grammarApprovalEditFormat_(normalizedStage)); return;
-    }
-    saveApprovedGrammarStage_(member, phone, task.meetingNo, normalizedStage, details, messageId);
+  const details = {
+    item: String(parsed.item || previous.item || '').trim(),
+    meaning: String(parsed.meaning || previous.meaning || '').trim(),
+    usage: String(parsed.usage || previous.usage || '').trim()
+  };
+  details.recognized = [details.item, details.meaning, details.usage].filter(Boolean).length;
+
+  // Manual-first canonical flow: never depend on AI. Preserve partial input and
+  // ask only for the fields still missing.
+  if (details.recognized < 3) {
+    setConversation_(phone, {
+      kind:'GRAMMAR',
+      meetingNo:Number(task.meetingNo),
+      related:'GRM',
+      step:normalizedStage,
+      data:details
+    });
+    sendWhatsAppText_(phone, grammarMissingFieldsMessage_(normalizedStage, details));
     return;
   }
 
-  // Normal path: member supplies only the Word/Idiom; AI supplies meaning + usage.
-  if (!details.item) {
-    sendWhatsAppText_(phone, grammarStageCopyMessage_(normalizedStage)); return;
-  }
-
-  const generated = generateGrammarMeaningUsage_(normalizedStage, details.item, task.meetingNo);
-  if (!generated.ok) {
-    logAutomation_('Grammarian AI', task.meetingNo, member,
-      normalizedStage + ' generation', 'Error', generated.error);
-    // Keep the submitted item in conversation so a later retry does not lose it.
-    setConversation_(phone, {kind:'GRAMMAR', meetingNo:Number(task.meetingNo), related:'GRM',
-      step:normalizedStage, data:{item:details.item}});
-    sendWhatsAppText_(phone,
-      'I received your ' + (normalizedStage === 'WORD' ? 'Word' : 'Idiom') +
-      '. I could not prepare the meaning and usage just now. Please try again shortly.');
-    return;
-  }
-
-  logAutomation_('Grammarian AI', task.meetingNo, member,
-    normalizedStage + ' meaning and usage generated', 'Success',
-    details.item + ' | model=' + generated.model);
-  sendGrammarApprovalButtons_(member, phone, task.meetingNo, normalizedStage,
-    details.item, generated.meaning, generated.usage);
+  saveApprovedGrammarStage_(
+    member, phone, task.meetingNo, normalizedStage, details, messageId
+  );
 }
 
 function handleStructuredSubmission_(member, phone, rawText, messageId) {
