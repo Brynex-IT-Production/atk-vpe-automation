@@ -678,9 +678,55 @@ function sendDevRoleReminderForNextVacancy_() {
     throw new Error('DEV role reminder test requires the VPE as the sole allowlisted recipient.');
   }
 
-  const meeting = findNextRoleSelectionMeeting_(member);
-  if (!meeting || meeting.reason !== 'AVAILABLE') {
-    return {ok:false,sent:false,reason:meeting ? meeting.reason : 'NO_AVAILABLE_MEETING'};
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const planner = ss.getSheetByName('VPE Weekly Planner');
+  if (!planner) throw new Error('VPE Weekly Planner not found.');
+
+  const today = startOfDay_(new Date());
+  const windowDays = Math.max(
+    1,
+    Number(configValue_('ROLE_SELECTION_WINDOW_DAYS','14')) || 14
+  );
+  const latest = new Date(today.getTime() + windowDays * 86400000);
+  const rowCount = Math.max(0, planner.getLastRow() - 2);
+  const rows = rowCount ? planner.getRange(3,1,rowCount,28).getValues() : [];
+
+  let meeting = null;
+  for (let i=0; i<rows.length; i++) {
+    const row = rows[i];
+    const meetingNo = Number(row[0]);
+    const meetingDate = row[1];
+    const status = String(row[2] || '');
+    if (!meetingNo || !(meetingDate instanceof Date)) continue;
+
+    const d = startOfDay_(meetingDate);
+    if (d <= today || d > latest) continue;
+    if (status === 'Completed' || status === 'Cancelled') continue;
+
+    const speakers = [row[6],row[10],row[14]]
+      .map(v => String(v || '').trim()).filter(Boolean);
+    if (speakers.indexOf(member) !== -1) continue;
+
+    const assigned = ROLE_DEFS_.some(def =>
+      String(row[def.column - 1] || '').trim() === member
+    );
+    if (assigned) continue;
+
+    const available = availableRoleDefs_(row);
+    if (!available.length) continue;
+
+    meeting = {
+      meetingNo:meetingNo,
+      meetingDate:meetingDate,
+      available:available,
+      rowNumber:i+3,
+      reason:'AVAILABLE'
+    };
+    break;
+  }
+
+  if (!meeting) {
+    return {ok:false,sent:false,reason:'NO_AVAILABLE_FUTURE_MEETING'};
   }
 
   const templateName = templateNameForKind_('ROLE_REMINDER') || 'atk_role_reminder_v2';
