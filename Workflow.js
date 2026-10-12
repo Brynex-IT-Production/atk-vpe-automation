@@ -809,7 +809,9 @@ function handleGrammarReviewReply_(member, phone, meetingNo, choice, messageId) 
     clearConversation_(phone);
     sendWhatsAppText_(phone,
       'Thank you. Your Grammarian details are confirmed ✅');
-    sendApprovedGrammarBundle_(meetingNo);
+    // Do not echo the compiled handoff back to the Grammarian who just confirmed it.
+    // Other handoff recipients (for example TMOD/VPE) still receive it.
+    sendApprovedGrammarBundle_(meetingNo, member);
     syncPhase1Tasks_();
     logAutomation_('Grammarian', meetingNo, member,
       'Final Grammarian review confirmed', 'Success', '');
@@ -850,7 +852,7 @@ function grammarHandoffRecipients_(meetingNo) {
   return recipients;
 }
 
-function sendApprovedGrammarBundle_(meetingNo) {
+function sendApprovedGrammarBundle_(meetingNo, excludeMember) {
   const bundle = approvedGrammarBundle_(meetingNo);
   if (!bundle) return false;
   const body =
@@ -864,6 +866,8 @@ function sendApprovedGrammarBundle_(meetingNo) {
     'These are the final details approved by the Grammarian.';
   let anySent = false;
   grammarHandoffRecipients_(meetingNo).forEach(recipient => {
+    if (excludeMember &&
+        String(recipient.member || '').trim() === String(excludeMember || '').trim()) return;
     const phone = normalizePhone_(phoneForMember_(recipient.member));
     if (!phone || !isWhatsAppRecipientAllowed_(phone)) return;
     const key = ['GRAMMAR_HANDOFF', meetingNo, recipient.member,
