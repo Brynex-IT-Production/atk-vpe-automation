@@ -134,20 +134,26 @@ function handleGuidedReply_(member, phone, text, messageId) {
         member, phone, n, answer.toUpperCase(), pendingImage);
       return true;
     }
-    const stage = String(state.step || grammarStageForMember_(n, member)).toUpperCase();
-    if (stage !== 'WORD' && stage !== 'IDIOM') {
+
+    const rawStage = String(state.step || grammarStageForMember_(n, member)).toUpperCase();
+    const stage = rawStage.indexOf('IDIOM') === 0 ? 'IDIOM' :
+      rawStage.indexOf('WORD') === 0 ? 'WORD' : '';
+
+    if (!stage) {
       clearConversation_(phone);
       return false;
     }
 
     const details = parseGrammarStageBlock_(answer, stage);
-    if (details.recognized < 3) {
-      sendWhatsAppText_(
-        phone,
-        'Please send all three details together.\n\n' +
-        grammarStageCopyMessage_(stage)
-      );
-      return true;
+
+    // Final design:
+    // normal WORD/IDIOM stages accept only the item; AI creates meaning + usage.
+    // edit stages still require all three fields and are validated downstream.
+    if (rawStage === 'WORD' || rawStage === 'IDIOM') {
+      if (!details.item) {
+        sendWhatsAppText_(phone, grammarStageCopyMessage_(stage));
+        return true;
+      }
     }
 
     handleGrammarStageSubmission_(member, phone, n, stage, details, messageId);
