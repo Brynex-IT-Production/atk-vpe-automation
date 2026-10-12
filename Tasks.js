@@ -43,8 +43,6 @@ function phase1ScheduledTick() {
   processVacantRoleReminders_();
   processSpeakerDetailPrompts_();
   processSpeakerDetailReminders_();
-  processDevTmodThemeTestOnce_();
-  processDevVpprThemePreviewOnce_();
   processAssignedRolePrompts_();
   processGrammarFlowTestStartOnce_();
   processVpprThemeHandoffs_();
