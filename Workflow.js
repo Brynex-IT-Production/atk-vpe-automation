@@ -2248,6 +2248,38 @@ function processSpeakerDetailReminders_() {
   });
 }
 
+function processDevEvaluatorCoordinationTestOnce_() {
+  if (configValue_('SYSTEM_MODE','') !== 'DEV' ||
+      configValue_('WA_SEND_MODE','') !== 'TEST' ||
+      !configBool_('EVALUATION_WORKFLOW_ENABLED')) return false;
+
+  const props = PropertiesService.getScriptProperties();
+  const guardKey = 'DEV_EVAL_COORD_TEST_454_V1';
+  if (props.getProperty(guardKey)) return false;
+
+  const member = configValue_('VPE_MEMBER_NAME','Riyas AF');
+  const phone = normalizePhone_(phoneForMember_(member));
+  if (!phone || !isWhatsAppRecipientAllowed_(phone)) return false;
+
+  processEvaluatorCoordinationForMeeting_(454, 2, [2]);
+
+  const outbox = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('WA Outbox');
+  if (outbox && outbox.getLastRow() >= 2) {
+    const rows = outbox.getRange(2,1,outbox.getLastRow()-1,16).getValues();
+    const sent = rows.some(r =>
+      Number(r[10]) === 454 &&
+      String(r[3] || '') === 'EVALUATOR_COORD_CHECK_EVALUATOR' &&
+      ['SENT','DELIVERED','READ','ACCEPTED'].indexOf(String(r[6] || '').toUpperCase()) >= 0
+    );
+    if (sent) {
+      props.setProperty(guardKey, 'SENT');
+      return true;
+    }
+  }
+  return false;
+}
+
+
 function processEvaluatorNotifications_() {
   if (!configBool_('EVALUATION_WORKFLOW_ENABLED')) return;
 
