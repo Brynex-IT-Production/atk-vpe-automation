@@ -662,7 +662,7 @@ function processReadyIntroductionBundles_() {
  * Sends one approved role reminder to the sole DEV test recipient for the
  * next meeting where that member can take a vacant role.
  */
-function testRoleReminderTemplateToVpe_() {
+function sendDevRoleReminderForNextVacancy_() {
   if (configValue_('SYSTEM_MODE','') !== 'DEV' ||
       configValue_('WA_SEND_MODE','') !== 'TEST') {
     throw new Error('DEV role reminder test requires DEV TEST mode.');
