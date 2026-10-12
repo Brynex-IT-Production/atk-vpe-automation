@@ -2254,14 +2254,14 @@ function processDevEvaluatorCoordinationTestOnce_() {
       !configBool_('EVALUATION_WORKFLOW_ENABLED')) return false;
 
   const props = PropertiesService.getScriptProperties();
-  const guardKey = 'DEV_EVAL_COORD_TEST_454_V1';
+  const guardKey = 'DEV_EVAL_COORD_TEST_454_V2';
   if (props.getProperty(guardKey)) return false;
 
   const member = configValue_('VPE_MEMBER_NAME','Riyas AF');
   const phone = normalizePhone_(phoneForMember_(member));
   if (!phone || !isWhatsAppRecipientAllowed_(phone)) return false;
 
-  processEvaluatorCoordinationForMeeting_(454, 2, [2]);
+  processEvaluatorCoordinationForMeeting_(454, 1, [1]);
 
   const outbox = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('WA Outbox');
   if (outbox && outbox.getLastRow() >= 2) {
