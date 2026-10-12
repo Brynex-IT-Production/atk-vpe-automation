@@ -188,6 +188,15 @@ function handleGrammarFlowTestReply_(member, phone, rawText) {
   const active = activeConversation_(phone);
   if (!active || active.kind !== 'GRAMMAR_TEST') return false;
 
+  // If the member now has a real pending Grammarian assignment, the legacy
+  // isolated DEV test must never intercept the reply. Drop the stale test
+  // conversation and let the real Grammarian workflow handle this message.
+  const realTask = findPendingTaskForMember_('GRAMMAR', member, 0);
+  if (realTask && verifyRoleAssignment_(realTask.meetingNo, 'GRM', member).ok) {
+    clearConversation_(phone);
+    return false;
+  }
+
   const stage = String(active.step || '').toUpperCase();
   if (stage !== 'WORD' && stage !== 'IDIOM') {
     clearConversation_(phone);
