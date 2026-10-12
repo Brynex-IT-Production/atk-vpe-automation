@@ -2513,7 +2513,22 @@ function handleEvaluatorCoordinationCheckReply_(member, phone, interaction) {
         {speaker: String(row[14] || '').trim(), evaluator: String(row[27] || '').trim()}
       ];
       const pair = pairs.find(p => role === 'SPEAKER' ? p.speaker === member : p.evaluator === member);
-      if (pair) counterpart = role === 'SPEAKER' ? pair.evaluator : pair.speaker;
+      if (pair) {
+        counterpart = role === 'SPEAKER' ? pair.evaluator : pair.speaker;
+
+        if (answer === 'YES') {
+          const slotIndex = pairs.indexOf(pair) + 1;
+          appendSubmission_({
+            meetingNo: meetingNo,
+            member: pair.speaker,
+            type: 'EVALUATOR_COORDINATION_CONFIRMED',
+            related: 'S' + slotIndex,
+            values: [member, role, pair.evaluator, 'YES'],
+            sourceMessageId: interaction.messageId || ''
+          });
+          syncPhase1Tasks_();
+        }
+      }
     }
   }
 
