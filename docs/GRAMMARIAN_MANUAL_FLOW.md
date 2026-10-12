@@ -47,8 +47,9 @@ Usage:
 7. Real meeting assignment state takes priority over stale DEV/test conversation state.
 8. Word completion advances to Idiom; partial data must not force a restart.
 9. Final canonical values are stored in WA Submissions as GRAMMAR_WORD and GRAMMAR_IDIOM.
-10. Final handoff to TMOD/VPE happens only when both stages are complete.
-11. New Meta template submission is never automatic and requires explicit VPE approval.
+10. After both stages are complete, show one final review with Confirm / Edit Word / Edit Idiom.
+11. The Grammarian task is completed and handed off to TMOD/VPE only after Confirm.
+12. New Meta template submission is never automatic and requires explicit VPE approval.
 
 ## State model
 
@@ -58,10 +59,16 @@ WORD_PENDING
 → IDIOM_PENDING
 → IDIOM_PARTIAL (optional)
 → IDIOM_COMPLETE
+→ REVIEW_PENDING
+→ CONFIRMED
 → COMPLETED
 
-Future enhancement:
-REVIEW_PENDING / EDIT_WORD / EDIT_IDIOM may be added before handoff without changing the collection format.
+From REVIEW_PENDING the member may choose:
+- Confirm
+- Edit Word
+- Edit Idiom
+
+Edits return to REVIEW_PENDING before completion. Final handoff must not occur until Confirm is selected.
 
 ## Recovery rules
 
