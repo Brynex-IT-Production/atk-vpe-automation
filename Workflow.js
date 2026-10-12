@@ -262,8 +262,11 @@ function parseGrammarStageBlock_(text, stage) {
     : /^(Idiom(?: of the Day)?)$/i;
 
   raw.split(/\r?\n/).forEach(line => {
-    const match = String(line || '').match(
-      /^\s*(Word(?: of the Day)?|Idiom(?: of the Day)?|Meaning|Usage|Example|Example usage)\s*:\s*(.*?)\s*$/i
+    const textLine = String(line || '');
+    // Accept both the clean form ("Word: Resilient") and the natural
+    // copy/fill form ("Please reply in this format: Word: Resilient").
+    const match = textLine.match(
+      /(?:^|\s)(Word(?: of the Day)?|Idiom(?: of the Day)?|Meaning|Usage|Example|Example usage)\s*:\s*(.*?)\s*$/i
     );
 
     if (match) {
@@ -286,7 +289,7 @@ function parseGrammarStageBlock_(text, stage) {
       return;
     }
 
-    const continuation = String(line || '').trim();
+    const continuation = textLine.trim();
     if (continuation && currentKey) {
       fields[currentKey] = fields[currentKey]
         ? fields[currentKey] + '\n' + continuation
