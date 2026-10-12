@@ -618,7 +618,7 @@ function saveGrammarImage_(mediaId, mimeHint, meetingNo, member, stage, messageI
 function generateGrammarMeaningUsage_(stage, item, meetingNo) {
   const props = PropertiesService.getScriptProperties();
   const apiKey = String(props.getProperty('OPENAI_API_KEY') || '').trim();
-  const model = String(props.getProperty('GRAMMAR_AI_MODEL') || 'gpt-5.6').trim();
+  const model = String(props.getProperty('GRAMMAR_AI_MODEL') || 'gpt-6-luna').trim();
   if (!apiKey) return {ok:false, error:'OPENAI_API_KEY missing'};
 
   const label = String(stage || '').toUpperCase() === 'IDIOM' ? 'idiom' : 'word';
