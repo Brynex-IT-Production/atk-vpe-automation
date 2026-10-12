@@ -146,16 +146,9 @@ function handleGuidedReply_(member, phone, text, messageId) {
 
     const details = parseGrammarStageBlock_(answer, stage);
 
-    // Final design:
-    // normal WORD/IDIOM stages accept only the item; AI creates meaning + usage.
-    // edit stages still require all three fields and are validated downstream.
-    if (rawStage === 'WORD' || rawStage === 'IDIOM') {
-      if (!details.item) {
-        sendWhatsAppText_(phone, grammarStageCopyMessage_(stage));
-        return true;
-      }
-    }
-
+    // Canonical manual-first design: accept complete or partial structured
+    // replies here. The workflow layer merges partial fields and asks only for
+    // whatever is still missing.
     handleGrammarStageSubmission_(member, phone, n, stage, details, messageId);
     return true;
   }
