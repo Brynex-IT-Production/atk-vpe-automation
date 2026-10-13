@@ -2777,12 +2777,72 @@ function apiDevRoleWorkflowMatrixSelfTest(forceAllWorkflows) {
  * 1) API meeting -> bridge -> vacancy -> booking integrity
  * 2) the four distinct post-booking workflow branches
  */
+function apiDevGrammarParserSelfTest_() {
+  const checks = [];
+  const check = (name, ok, detail) => {
+    checks.push({name:name, ok:Boolean(ok), detail:detail || ''});
+  };
+
+  const colon = parseGrammarStageBlock_(
+    'Word: Resilient\nMeaning: Staying in the process\nUsage: She remained resilient.',
+    'WORD'
+  );
+  check('word_colon_format',
+    colon.recognized === 3 &&
+    colon.item === 'Resilient' &&
+    !colon.oppositeStage,
+    JSON.stringify(colon));
+
+  const dash = parseGrammarStageBlock_(
+    'Word - Resilient\nMeaning - Staying in the process\nUsage - She remained resilient.',
+    'WORD'
+  );
+  check('word_dash_format',
+    dash.recognized === 3 &&
+    dash.item === 'Resilient',
+    JSON.stringify(dash));
+
+  const opposite = parseGrammarStageBlock_(
+    'Word: Resilient\nMeaning: Staying in the process\nUsage: She remained resilient.',
+    'IDIOM'
+  );
+  check('opposite_stage_protected',
+    opposite.recognized === 0 && opposite.oppositeStage === 'WORD',
+    JSON.stringify(opposite));
+
+  const combined = parseGrammarCombinedBlock_(
+    'Word: Resilient\n' +
+    'Meaning: Staying in the process\n' +
+    'Usage: She remained resilient.\n' +
+    'Idiom: Once in a blue moon\n' +
+    'Meaning: Very rarely\n' +
+    'Usage: He visits once in a blue moon.'
+  );
+  check('combined_six_field_format',
+    combined.recognized === 6 &&
+    combined.word === 'Resilient' &&
+    combined.idiom === 'Once in a blue moon' &&
+    combined.wordUsage === 'She remained resilient.' &&
+    combined.idiomUsage === 'He visits once in a blue moon.',
+    JSON.stringify(combined));
+
+  return {
+    ok:checks.every(x => x.ok),
+    checks:checks
+  };
+}
+
+
+/**
+ * One-button internal regression suite.
+ */
 function apiDevMasterRegressionSuite() {
   const started=Date.now();
   const previousSuppress=DEV_SUPPRESS_TEST_DETAIL_LOGS_;
   DEV_SUPPRESS_TEST_DETAIL_LOGS_=true;
 
   try {
+    const grammarParser=apiDevGrammarParserSelfTest_();
     const core=apiDevFullEndToEndSelfTest();
     const configured=apiDevRoleWorkflowMatrixSelfTest(false);
     const enabled=apiDevRoleWorkflowMatrixSelfTest(true);
@@ -2807,9 +2867,19 @@ function apiDevMasterRegressionSuite() {
     }
 
     const report={
-      ok:Boolean(core&&core.ok&&configured&&configured.ok&&enabled&&enabled.ok),
+      ok:Boolean(
+        grammarParser&&grammarParser.ok&&
+        core&&core.ok&&
+        configured&&configured.ok&&
+        enabled&&enabled.ok
+      ),
       version:API_V1_VERSION_,
       duration_ms:Date.now()-started,
+      grammarian_parser:{
+        ok:Boolean(grammarParser&&grammarParser.ok),
+        checks_passed:(grammarParser&&grammarParser.checks||[]).filter(x=>x.ok).length,
+        checks_total:(grammarParser&&grammarParser.checks||[]).length
+      },
       core:{
         ok:Boolean(core&&core.ok),
         checks_passed:(core&&core.checks||[]).filter(x=>x.ok).length,
