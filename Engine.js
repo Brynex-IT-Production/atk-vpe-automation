@@ -157,6 +157,11 @@ function processInboundWhatsAppMessage_(message) {
   const rawText = String(interaction.text || '').trim();
   const vpeMember = configValue_('VPE_MEMBER_NAME', 'Riyas AF');
 
+  // A reply to the approved Grammarian Utility template reopens the WhatsApp
+  // service window. Start the locked theme-aware Word -> Idiom collection
+  // immediately instead of waiting for the next hourly scheduler tick.
+  if (handleGrammarTemplateReentry_(member, phone)) return;
+
   if (handleGuidedReply_(member, phone, rawText, messageId)) return;
 
   if (handleStructuredSubmission_(member, phone, rawText, messageId)) {
@@ -192,6 +197,66 @@ function processInboundWhatsAppMessage_(message) {
     handleRoleMenuRequest_(member, phone);
     return;
   }
+}
+
+function handleGrammarTemplateReentry_(member, phone) {
+  if (!configBool_('GRAMMARIAN_WORKFLOW_ENABLED')) return false;
+  if (activeConversation_(phone)) return false;
+
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const planner = ss.getSheetByName('VPE Weekly Planner');
+  if (!planner || planner.getLastRow() < 3) return false;
+
+  const today = startOfDay_(new Date());
+  const rows = planner.getRange(3, 1, planner.getLastRow() - 2, 28).getValues();
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const meetingNo = Number(row[0]);
+    const meetingDate = row[1];
+    const status = String(row[2] || '');
+    const theme = String(row[3] || '').trim();
+    const grammarian = String(row[22] || '').trim();
+
+    if (!meetingNo || !(meetingDate instanceof Date) || grammarian !== member) continue;
+    if (!meetingAutomationEligible_(meetingNo)) continue;
+    if (status === 'Completed' || status === 'Cancelled') continue;
+
+    const stage = grammarStageForMember_(meetingNo, member);
+    if (stage !== 'WORD' && stage !== 'IDIOM') continue;
+
+    const daysLeft = Math.round(
+      (startOfDay_(meetingDate) - today) / 86400000
+    );
+    if (!theme && daysLeft > 3) continue;
+
+    if (stage === 'WORD' && theme) {
+      const themeKey = ['GRAMMAR_THEME_CONTEXT', meetingNo, member, theme].join('|');
+      if (!hasReminderBeenSent_(themeKey)) {
+        const themeText =
+          'Hi ' + member + ',\n\n' +
+          'The theme for ATK Meeting ' + meetingNo + ' is *' + theme + '*.\n\n' +
+          'Please choose a Word of the Day and an Idiom of the Day that connect well with this theme.';
+        const themeResult = sendWhatsAppText_(phone, themeText);
+        recordWorkflowOutbound_(
+          member, phone, 'GRAMMAR_THEME_CONTEXT',
+          themeText, meetingNo, themeResult, themeKey
+        );
+        if (!themeResult || !themeResult.ok) return true;
+      }
+    }
+
+    sendGrammarStagePrompt_(
+      member,
+      phone,
+      meetingNo,
+      stage,
+      theme ? 'GRAMMAR_TEMPLATE_REENTRY_THEME' : 'GRAMMAR_TEMPLATE_REENTRY_T_MINUS_3'
+    );
+    return true;
+  }
+
+  return false;
 }
 
 function parseInteraction_(message) {
