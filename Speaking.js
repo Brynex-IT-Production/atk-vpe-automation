@@ -31,7 +31,6 @@ function processSpeakingSlotTargeting_() {
     const meetingDate = row[1];
     const status = String(row[2] || '');
     if (!meetingNo || !(meetingDate instanceof Date)) return;
-    if (!meetingAutomationEligible_(meetingNo)) return;
     if (status === 'Completed' || status === 'Cancelled') return;
 
     const daysLeft = Math.round((startOfDay_(meetingDate) - today) / 86400000);
@@ -130,6 +129,60 @@ function sendSpeechSlotInvite_(candidate, meetingNo, meetingDate, openCount, sta
   return result;
 }
 
+function sendSpeechBookingConfirmation_(member, phone, meetingNo, dateText, slot) {
+  const destination = normalizePhone_(phone || phoneForMember_(member));
+  if (!member || !destination || !meetingNo || !slot) {
+    return {ok:false, error:'Missing speech confirmation details.'};
+  }
+
+  const key = [
+    'SPEECH_BOOKING_CONFIRMATION',
+    meetingNo,
+    'S' + slot,
+    member
+  ].join('|');
+  if (hasReminderBeenSent_(key)) {
+    return {ok:true, duplicate:true};
+  }
+
+  const cleanDate = String(dateText || '').trim();
+  const body =
+    'Confirmed ✅\n' +
+    'Your prepared speech is confirmed for ATK Meeting ' + meetingNo +
+    (cleanDate ? ' · ' + cleanDate : '') + '.\n' +
+    'Speech slot: Speaker ' + slot + '\n\n' +
+    'Thank you, ' + member + '.';
+
+  const result = sendAutomatedText_(
+    destination,
+    'SPEECH_BOOKING_CONFIRMATION',
+    body,
+    [member, meetingNo, cleanDate, 'Speaker ' + slot]
+  );
+
+  recordWorkflowOutbound_(
+    member,
+    destination,
+    'SPEECH_BOOKING_CONFIRMATION',
+    body,
+    meetingNo,
+    result,
+    key
+  );
+
+  logAutomation_(
+    'Speaking Slot',
+    meetingNo,
+    member,
+    'Speech booking confirmation: S' + slot,
+    result.ok ? 'Sent' : (result.deferred ? 'Deferred' : 'Error'),
+    result.error || ''
+  );
+
+  return result;
+}
+
+
 function handleSpeechSlotSelection_(member, phone, interaction) {
   if (!configBool_('SPEAKING_SLOT_WORKFLOW_ENABLED')) {
     sendWhatsAppText_(phone, 'Prepared-speech self-booking is currently unavailable.');
@@ -146,10 +199,12 @@ function handleSpeechSlotSelection_(member, phone, interaction) {
     const result = reserveSpeechSlot_(interaction.meetingNo, member);
 
     if (result.status === 'BOOKED') {
-      sendWhatsAppText_(
+      sendSpeechBookingConfirmation_(
+        member,
         phone,
-        'Confirmed ✅\nYour prepared speech is reserved for ' +
-        result.dateText + '.\n\nThank you, ' + member + '.'
+        interaction.meetingNo,
+        result.dateText,
+        result.slot
       );
 
       logAutomation_(
@@ -191,7 +246,6 @@ function handleSpeechSlotSelection_(member, phone, interaction) {
 }
 
 function reserveSpeechSlot_(meetingNo, member) {
-  if (!meetingAutomationEligible_(meetingNo)) return { status: 'NOT_AVAILABLE' };
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const sheet = ss.getSheetByName('VPE Weekly Planner');
   if (!sheet) return { status: 'NOT_FOUND' };
@@ -512,7 +566,6 @@ function availableSpeechMeetings_() {
   const today = startOfDay_(new Date());
   const bookingEnd = speechBookingWindowEnd_(today);
   return rows.filter(row => Number(row[0]) && row[1] instanceof Date &&
-      meetingAutomationEligible_(Number(row[0])) &&
       startOfDay_(row[1]) >= today &&
       startOfDay_(row[1]) <= bookingEnd &&
       !['Completed', 'Cancelled'].includes(String(row[2] || '')) &&
