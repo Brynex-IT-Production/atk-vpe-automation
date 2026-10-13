@@ -1,0 +1,77 @@
+name: DEV Safe Regression
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/dev-regression-only.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atk-vpe-dev
+  cancel-in-progress: false
+
+env:
+  ATK_DEV_SCRIPT_ID: 1LS3HabXjXOainAMiNLVVlRX5LEaA-o5Y7Kf31Fg-JQJZsR4ZKHI5zHUN
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Validate JavaScript
+        shell: bash
+        run: |
+          files=$(find . -maxdepth 1 -type f -name '*.js' -print)
+          test -n "$files"
+          while IFS= read -r file; do
+            node --check "$file"
+          done <<< "$files"
+
+      - name: Install clasp
+        run: npm install --global @google/clasp@3.4.1
+
+      - name: Configure clasp authentication
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          raw=os.environ.get('CLASPRC_JSON','').strip()
+          start=raw.find('{'); end=raw.rfind('}')
+          if start < 0 or end < start:
+              raise SystemExit('CLASPRC_JSON does not contain a JSON object.')
+          parsed=json.loads(raw[start:end+1])
+          target=Path.home()/'.clasprc.json'
+          target.write_text(json.dumps(parsed))
+          target.chmod(0o600)
+          PY
+
+      - name: Verify DEV target
+        shell: bash
+        run: |
+          grep -q "$ATK_DEV_SCRIPT_ID" .clasp.json
+
+      - name: Push current source to DEV HEAD
+        run: clasp push --force
+
+      - name: Run master regression without WhatsApp
+        shell: bash
+        run: |
+          set -o pipefail
+          clasp run apiDevMasterRegressionSuite --dev | tee /tmp/regression.txt
+          grep -q '"ok":true' /tmp/regression.txt || grep -q '"ok": true' /tmp/regression.txt
+          grep -q 'grammarian_parser' /tmp/regression.txt
