@@ -143,13 +143,15 @@ function apiHandleRequest_(payload) {
         return {status:200,data:apiClubBootstrap_(clubId)};
       case 'meeting.create':
         return {status:201,data:apiCreateMeeting_(clubId,payload)};
-      case 'meeting.ensure':
+      case 'meeting.ensure': {
+        const ensured = apiEnsureMeetingForPlanner_(
+          clubId,Number(payload.planner_meeting_no || 0)
+        );
         return {
           status:200,
-          data:apiEnsureMeetingForPlanner_(
-            clubId,Number(payload.planner_meeting_no || 0)
-          )
+          data:apiMeetingDetail_(clubId,ensured.meeting_id)
         };
+      }
       case 'meeting.get':
         return {status:200,data:apiMeetingDetail_(clubId,String(payload.meeting_id || ''))};
       case 'meetings.list':
@@ -786,6 +788,7 @@ function apiListMeetings_(clubId) {
         ? Utilities.formatDate(r[2],configValue_('TIMEZONE','Asia/Kolkata'),'yyyy-MM-dd')
         : String(r[2] || '').slice(0,10),
       status:String(r[3]),
+      planner_meeting_no:String(r[6] || ''),
       updated_at:r[5] instanceof Date ? r[5].toISOString() : String(r[5] || '')
     }))
     .sort((a,b)=>a.meeting_date.localeCompare(b.meeting_date));
@@ -798,8 +801,12 @@ function apiMeetingDetail_(clubId,meetingId) {
   const check = apiActivationCheck_(meeting);
   const actions = meeting.planner_meeting_no ? apiPendingActionsForMeeting_(Number(meeting.planner_meeting_no)) : [];
   return {
-    meeting_id:meeting.meeting_id,club_id:meeting.club_id,meeting_date:meeting.meeting_date,
-    status:meeting.status,items:meeting.items,
+    meeting_id:meeting.meeting_id,
+    club_id:meeting.club_id,
+    meeting_date:meeting.meeting_date,
+    status:meeting.status,
+    planner_meeting_no:meeting.planner_meeting_no || '',
+    items:meeting.items,
     activation:{ready:check.ready,issues:check.errors},
     pending_actions:actions
   };
