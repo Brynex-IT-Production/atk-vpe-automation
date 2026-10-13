@@ -577,6 +577,11 @@ function handleRoleSelection_(member, phone, interaction) {
         phone
       );
 
+      if (roleDef.code === 'TMOD' &&
+          typeof sendLateTmodCatchUp_ === 'function') {
+        sendLateTmodCatchUp_(interaction.meetingNo);
+      }
+
       if (roleDef.code !== 'TMOD' && roleDef.code !== 'GRM') {
         sendMeetingThemeToRole_(
           interaction.meetingNo,
