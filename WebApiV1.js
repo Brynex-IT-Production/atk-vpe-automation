@@ -3070,6 +3070,207 @@ function apiDevRoleWorkflowMatrixSelfTest(forceAllWorkflows) {
  * 1) API meeting -> bridge -> vacancy -> booking integrity
  * 2) the four distinct post-booking workflow branches
  */
+function apiDevPlannerLifecycleSelfTest_() {
+  const clubId = API_DEFAULT_CLUB_ID_;
+  const ss = apiSpreadsheet_();
+  const planner = ss.getSheetByName('VPE Weekly Planner');
+  if (!planner) throw new Error('VPE Weekly Planner missing');
+
+  const members = apiListMembers_(clubId);
+  if (members.length < 5) {
+    throw new Error('Need at least five active members for lifecycle self-test');
+  }
+
+  const checks = [];
+  const check = (name, ok, detail) => {
+    checks.push({name:name,ok:Boolean(ok),detail:detail || ''});
+    if (!ok) {
+      const e = new Error('Lifecycle self-test failed: ' + name);
+      e.selfTestChecks = checks.slice();
+      throw e;
+    }
+  };
+
+  const existingPlanner = planner.getLastRow() >= 3
+    ? planner.getRange(3,1,planner.getLastRow()-2,28).getValues()
+    : [];
+  const usedDates = new Set(existingPlanner
+    .filter(r => r[1] instanceof Date)
+    .map(r => Utilities.formatDate(
+      r[1], configValue_('TIMEZONE','Asia/Kolkata'), 'yyyy-MM-dd'
+    )));
+
+  const apiSheets = apiEnsureSheets_();
+  const existingApiDates = apiSheets.meetings.getLastRow() >= 2
+    ? apiSheets.meetings.getRange(
+        2,1,apiSheets.meetings.getLastRow()-1,7
+      ).getValues()
+      .filter(r => String(r[1] || '') === clubId)
+      .map(r => r[2] instanceof Date
+        ? Utilities.formatDate(
+            r[2],configValue_('TIMEZONE','Asia/Kolkata'),'yyyy-MM-dd'
+          )
+        : String(r[2] || '').slice(0,10))
+    : [];
+  existingApiDates.forEach(d => usedDates.add(d));
+
+  let testDate = null;
+  for (let day = 20; day >= 1; day--) {
+    const candidate = new Date(2098, 11, day);
+    const key = Utilities.formatDate(
+      candidate, configValue_('TIMEZONE','Asia/Kolkata'), 'yyyy-MM-dd'
+    );
+    if (!usedDates.has(key)) {
+      testDate = candidate;
+      break;
+    }
+  }
+  check('unused_test_date_found', Boolean(testDate));
+
+  const dateText = Utilities.formatDate(
+    testDate, configValue_('TIMEZONE','Asia/Kolkata'), 'yyyy-MM-dd'
+  );
+  const maxMeetingNo = existingPlanner.reduce(
+    (m,row) => Math.max(m,Number(row[0]) || 0), 0
+  );
+  const meetingNo = maxMeetingNo + 8100;
+  const rowNo = planner.getLastRow() + 1;
+  const row = new Array(28).fill('');
+  row[0] = meetingNo;
+  row[1] = testDate;
+  row[2] = 'SELF_TEST_LIFECYCLE';
+
+  // Planner-first assignments that must hydrate into a later API meeting.
+  row[6] = members[0].name;   // S1
+  row[8] = 'Planned';
+  const timerDef = ROLE_DEFS_.find(x => x.code === 'Timer');
+  const ahDef = ROLE_DEFS_.find(x => x.code === 'Ah');
+  const grmDef = ROLE_DEFS_.find(x => x.code === 'GRM');
+  if (!timerDef || !ahDef || !grmDef) {
+    throw new Error('Required role definitions missing');
+  }
+  row[timerDef.column - 1] = members[1].name;
+  planner.getRange(rowNo,1,1,28).setValues([row]);
+  SpreadsheetApp.flush();
+
+  let meetingId = '';
+  try {
+    const created = apiCreateMeeting_(clubId,{meeting_date:dateText});
+    meetingId = created.meeting_id;
+
+    const byCode = {};
+    created.items.forEach(item => { byCode[item.code] = item; });
+
+    check(
+      'planner_number_linked_on_create',
+      Number(created.planner_meeting_no) === meetingNo,
+      String(created.planner_meeting_no || '')
+    );
+    check(
+      'planner_speaker_hydrated_on_create',
+      byCode.S1 && byCode.S1.member_name === members[0].name,
+      byCode.S1 ? byCode.S1.member_name : 'missing'
+    );
+    check(
+      'planner_role_hydrated_on_create',
+      byCode.Timer && byCode.Timer.member_name === members[1].name,
+      byCode.Timer ? byCode.Timer.member_name : 'missing'
+    );
+
+    // API exists first; a later WhatsApp-style speaker booking must mirror in.
+    const booked = reserveSpeechSlot_(meetingNo,members[2].name);
+    check(
+      'speech_booking_succeeds_with_api_present',
+      booked && booked.status === 'BOOKED' && booked.slot === 2,
+      booked ? JSON.stringify(booked) : 'missing'
+    );
+    const afterBooking = apiGetMeeting_(clubId,meetingId);
+    const s2 = afterBooking.items.find(x => x.code === 'S2');
+    check(
+      'speech_booking_mirrors_immediately_to_api',
+      s2 && s2.member_name === members[2].name,
+      s2 ? s2.member_name : 'missing'
+    );
+
+    // Simulate a stale UI draft: planner received Ah while UI still has it blank.
+    planner.getRange(rowNo,ahDef.column).setValue(members[3].name);
+    SpreadsheetApp.flush();
+    const stale = apiGetMeeting_(clubId,meetingId);
+    const staleItems = stale.items.map(x => Object.assign({},x));
+    const staleAh = staleItems.find(x => x.code === 'Ah');
+    staleAh.member_id = '';
+    staleAh.member_name = '';
+
+    const saved = apiSaveMeeting_(clubId,{
+      meeting_id:meetingId,
+      save_mode:'DRAFT',
+      items:staleItems
+    });
+    const savedAh = saved.items.find(x => x.code === 'Ah');
+    check(
+      'stale_ui_blank_imports_planner_assignment',
+      savedAh && savedAh.member_name === members[3].name,
+      savedAh ? savedAh.member_name : 'missing'
+    );
+
+    // A genuine non-blank disagreement must be blocked, never overwritten.
+    planner.getRange(rowNo,grmDef.column).setValue(members[4].name);
+    SpreadsheetApp.flush();
+
+    const conflictBase = apiGetMeeting_(clubId,meetingId);
+    const conflictItems = conflictBase.items.map(x => Object.assign({},x));
+    const conflictGrm = conflictItems.find(x => x.code === 'GRM');
+    conflictGrm.member_id = members[3].member_id;
+    conflictGrm.member_name = members[3].name;
+
+    let conflictBlocked = false;
+    try {
+      apiSaveMeeting_(clubId,{
+        meeting_id:meetingId,
+        save_mode:'DRAFT',
+        items:conflictItems
+      });
+    } catch (error) {
+      conflictBlocked = Boolean(
+        error &&
+        error.apiCode === 'SYNC_CONFLICT' &&
+        error.details &&
+        error.details.some(x => x.code === 'GRM')
+      );
+    }
+    check('true_assignment_conflict_is_blocked', conflictBlocked);
+
+    return {
+      ok:checks.every(x => x.ok),
+      checks:checks
+    };
+  } finally {
+    // Remove temporary API items/meeting and planner row.
+    if (meetingId) {
+      const sheets = apiEnsureSheets_();
+      for (let r=sheets.items.getLastRow(); r>=2; r--) {
+        if (String(sheets.items.getRange(r,2).getValue()) === meetingId) {
+          sheets.items.deleteRow(r);
+        }
+      }
+      for (let r=sheets.meetings.getLastRow(); r>=2; r--) {
+        if (String(sheets.meetings.getRange(r,1).getValue()) === meetingId) {
+          sheets.meetings.deleteRow(r);
+        }
+      }
+      apiInvalidateMeetingCaches_(clubId,meetingId);
+    }
+
+    if (planner.getMaxRows() >= rowNo) {
+      const currentNo = Number(planner.getRange(rowNo,1).getValue() || 0);
+      if (currentNo === meetingNo) planner.deleteRow(rowNo);
+    }
+    SpreadsheetApp.flush();
+    apiInvalidateClubReadCaches_(clubId);
+  }
+}
+
+
 function apiDevGrammarParserSelfTest_() {
   const checks = [];
   const check = (name, ok, detail) => {
@@ -3136,6 +3337,7 @@ function apiDevMasterRegressionSuite() {
 
   try {
     const grammarParser=apiDevGrammarParserSelfTest_();
+    const plannerLifecycle=apiDevPlannerLifecycleSelfTest_();
     const core=apiDevFullEndToEndSelfTest();
     const configured=apiDevRoleWorkflowMatrixSelfTest(false);
     const enabled=apiDevRoleWorkflowMatrixSelfTest(true);
@@ -3162,6 +3364,7 @@ function apiDevMasterRegressionSuite() {
     const report={
       ok:Boolean(
         grammarParser&&grammarParser.ok&&
+        plannerLifecycle&&plannerLifecycle.ok&&
         core&&core.ok&&
         configured&&configured.ok&&
         enabled&&enabled.ok
@@ -3172,6 +3375,11 @@ function apiDevMasterRegressionSuite() {
         ok:Boolean(grammarParser&&grammarParser.ok),
         checks_passed:(grammarParser&&grammarParser.checks||[]).filter(x=>x.ok).length,
         checks_total:(grammarParser&&grammarParser.checks||[]).length
+      },
+      planner_api_lifecycle:{
+        ok:Boolean(plannerLifecycle&&plannerLifecycle.ok),
+        checks_passed:(plannerLifecycle&&plannerLifecycle.checks||[]).filter(x=>x.ok).length,
+        checks_total:(plannerLifecycle&&plannerLifecycle.checks||[]).length
       },
       core:{
         ok:Boolean(core&&core.ok),
