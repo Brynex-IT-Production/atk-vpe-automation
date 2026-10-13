@@ -1220,6 +1220,9 @@ function apiClubBootstrap_(clubId) {
       custom_sessions:true,
       ordered_items:true,
       dashboard:true,
+      planner_lifecycle_sync:true,
+      meeting_ensure:true,
+      whatsapp_booking_sync:true,
       whatsapp_activation:false,
       legacy_sync:false
     }
