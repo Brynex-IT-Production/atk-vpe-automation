@@ -157,7 +157,6 @@ function processInboundWhatsAppMessage_(message) {
   const rawText = String(interaction.text || '').trim();
   const vpeMember = configValue_('VPE_MEMBER_NAME', 'Riyas AF');
 
-  if (handleGrammarFlowTestReply_(member, phone, rawText)) return;
   if (handleGuidedReply_(member, phone, rawText, messageId)) return;
 
   if (handleStructuredSubmission_(member, phone, rawText, messageId)) {
