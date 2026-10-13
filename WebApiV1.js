@@ -835,6 +835,25 @@ function apiValidateMeetingItems_(items, clubId) {
   });
 }
 
+function apiRunLateTmodCatchUpSafely_(meetingNo) {
+  if (!meetingNo || typeof sendLateTmodCatchUp_ !== 'function') return false;
+  try {
+    return Boolean(sendLateTmodCatchUp_(meetingNo));
+  } catch (error) {
+    if (typeof logAutomation_ === 'function') {
+      logAutomation_(
+        'TMOD Catch-up',
+        meetingNo,
+        '',
+        'Late TMOD handoff',
+        'Error',
+        String(error && error.message || error)
+      );
+    }
+    return false;
+  }
+}
+
 function apiBridgePlannedMeetingIfEnabled_(clubId,meetingId) {
   const props = PropertiesService.getScriptProperties();
   const autoSync = String(props.getProperty(API_AUTO_SYNC_PLANNED_PROPERTY_) || '').toUpperCase() === 'TRUE';
@@ -852,6 +871,8 @@ function apiBridgePlannedMeetingIfEnabled_(clubId,meetingId) {
   // Refresh legacy-derived programme/task projections after the planner write.
   if (typeof syncProgrammeSlots_ === 'function') syncProgrammeSlots_();
   if (typeof syncPhase1Tasks_ === 'function' && configBool_('TASK_ENGINE_ENABLED')) syncPhase1Tasks_();
+
+  apiRunLateTmodCatchUpSafely_(result.planner_meeting_no);
 
   return {enabled:true,synced:true,planner_meeting_no:result.planner_meeting_no};
 }
@@ -977,6 +998,9 @@ function apiActivateMeeting_(clubId,meetingId) {
       }
       SpreadsheetApp.flush();
       apiInvalidateMeetingCaches_(clubId,meetingId);
+      apiRunLateTmodCatchUpSafely_(
+        synced && synced.planner_meeting_no
+      );
     } catch (error) {
       // Activation is atomic: a failed reconciliation/sync must not leave
       // the meeting stranded in READY_FOR_SYNC.
@@ -2762,9 +2786,12 @@ function apiDevRoleWorkflowMatrixSelfTest(forceAllWorkflows) {
   const planner=ss.getSheetByName('VPE Weekly Planner');
   const taskSheet=ss.getSheetByName(TASK_SHEET_);
   const outbox=ss.getSheetByName('WA Outbox');
+  const submissions=ss.getSheetByName('WA Submissions');
   const automationLog=ss.getSheetByName('Automation Log');
-  if (!planner || !taskSheet || !outbox) {
-    throw new Error('Planner, Automation Tasks and WA Outbox are required.');
+  if (!planner || !taskSheet || !outbox || !submissions) {
+    throw new Error(
+      'Planner, Automation Tasks, WA Outbox and WA Submissions are required.'
+    );
   }
   if (!configBool_('ROLE_SELECTION_ENABLED')) {
     throw new Error('ROLE_SELECTION_ENABLED must be TRUE.');
@@ -2912,6 +2939,49 @@ function apiDevRoleWorkflowMatrixSelfTest(forceAllWorkflows) {
     // EV2 requires Speaker 2, which is populated in the base row.
     planner.getRange(plannerRowNo,1,1,28).setValues([row]);
 
+    // Prove that content submitted before a TMOD exists is replayed as soon as
+    // the TMOD books the role. These rows are cleaned with the test meeting.
+    if (code === 'TMOD') {
+      appendSubmission_({
+        meetingNo:meetingNo,
+        member:members[3].name,
+        type:'GRAMMAR_WORD',
+        related:'GRM',
+        values:['Resilient','Able to recover quickly','She remained resilient.',''],
+        sourceMessageId:''
+      });
+      appendSubmission_({
+        meetingNo:meetingNo,
+        member:members[3].name,
+        type:'GRAMMAR_IDIOM',
+        related:'GRM',
+        values:['Once in a blue moon','Very rarely','We meet once in a blue moon.',''],
+        sourceMessageId:''
+      });
+      appendSubmission_({
+        meetingNo:meetingNo,
+        member:members[3].name,
+        type:'GRAMMAR_CONFIRMED',
+        related:'GRM',
+        values:['Confirmed','','',''],
+        sourceMessageId:''
+      });
+      appendSubmission_({
+        meetingNo:meetingNo,
+        member:members[2].name,
+        type:'SPEAKER_DETAILS',
+        related:'S1',
+        values:[
+          'Late TMOD Speech',
+          'Presentation Mastery',
+          '2',
+          'Understanding Your Communication Style',
+          '07:30'
+        ],
+        sourceMessageId:''
+      });
+    }
+
     const captures=[];
     DEV_OUTBOUND_CAPTURE_=captures;
     DEV_FORCE_SERVICE_WINDOW_=true;
@@ -2985,6 +3055,18 @@ function apiDevRoleWorkflowMatrixSelfTest(forceAllWorkflows) {
           text.toLowerCase().indexOf('theme for atk meeting')<0,
           'captured='+captures.length);
       }
+
+      if (flags.grammarian_workflow_enabled) {
+        check('TMOD_late_grammar_handoff_generated',
+          text.indexOf('Word of the Day: Resilient')>=0 &&
+          text.indexOf('Idiom of the Day: Once in a blue moon')>=0,
+          'captured='+captures.length);
+      }
+
+      check('TMOD_late_speaker_handoff_generated',
+        text.indexOf('Title: Late TMOD Speech')>=0 &&
+        text.indexOf('Time: 07:30')>=0,
+        'captured='+captures.length);
     }
 
     if (code==='GRM') {
@@ -3127,6 +3209,11 @@ function apiDevRoleWorkflowMatrixSelfTest(forceAllWorkflows) {
 
     removeByMeetingNos_(taskSheet,18,1);
     removeByMeetingNos_(outbox,Math.max(16,outbox.getLastColumn()),10);
+    removeByMeetingNos_(
+      submissions,
+      Math.max(15,submissions.getLastColumn()),
+      1
+    );
     if (automationLog) {
       removeByMeetingNos_(automationLog,Math.max(7,automationLog.getLastColumn()),2);
     }
