@@ -79,25 +79,13 @@ print(match.group(1))
 PY
 )
 
-python3 - "$verify" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-Path("/tmp/atk-vpe-master-payload.json").write_text(
-    json.dumps({
-        "system_action": "DEV_MASTER_REGRESSION",
-        "verify_token": sys.argv[1],
-    })
-)
-PY
-
 http_code=$(curl --location --silent --show-error \
   --max-time 330 \
   --output /tmp/atk-vpe-master.json \
   --write-out '%{http_code}' \
-  --header 'Content-Type: application/json' \
-  --data-binary @/tmp/atk-vpe-master-payload.json \
+  --get \
+  --data-urlencode 'system_action=DEV_MASTER_REGRESSION' \
+  --data-urlencode "verify_token=$verify" \
   "$DEV_URL")
 
 [ "$http_code" = "200" ] || fail "DEV endpoint returned HTTP $http_code."
