@@ -909,6 +909,7 @@ function grammarBundleIsFinalConfirmed_(meetingNo) {
 }
 
 function sendApprovedGrammarBundle_(meetingNo, excludeMember) {
+  if (!meetingAutomationEligible_(meetingNo)) return false;
   const bundle = approvedGrammarBundle_(meetingNo);
   if (!bundle || !grammarBundleIsFinalConfirmed_(meetingNo)) return false;
   const body =
@@ -1528,6 +1529,7 @@ function sendMeetingThemeToAssignedRoles_(meetingNo) {
 
 
 function sendThemeAndTmodToVppr_(meetingNo) {
+  if (!meetingAutomationEligible_(meetingNo)) return false;
   if (!configBool_('VPPR_THEME_HANDOFF_ENABLED')) return false;
 
   const vppr = String(configValue_('VPPR_MEMBER_NAME', '') || '').trim();
@@ -1618,6 +1620,7 @@ function processVpprThemeHandoffs_() {
     const tmod = String(row[18] || '').trim();
 
     if (!meetingNo || !(meetingDate instanceof Date)) return;
+    if (!meetingAutomationEligible_(meetingNo)) return;
     if (startOfDay_(meetingDate) < today) return;
     if (['Completed', 'Cancelled'].indexOf(status) !== -1) return;
     if (!theme || !tmod) return;
@@ -1909,6 +1912,7 @@ function recordWorkflowOutbound_(member, phone, kind, text, meetingNo, result, i
 }
 
 function sendConsolidatedIntroductionsIfReady_(meetingNo) {
+  if (!meetingAutomationEligible_(meetingNo)) return false;
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const planner = ss.getSheetByName('VPE Weekly Planner');
   const submissions = ss.getSheetByName('WA Submissions');
@@ -2364,6 +2368,7 @@ function processEvaluatorNotifications_() {
     const meetingDate = row[1];
     const status = String(row[2] || '');
     if (!meetingNo || !(meetingDate instanceof Date)) return;
+    if (!meetingAutomationEligible_(meetingNo)) return;
     if (status === 'Completed' || status === 'Cancelled') return;
 
     const daysLeft = Math.round((startOfDay_(meetingDate) - today) / 86400000);
@@ -2377,6 +2382,7 @@ function processEvaluatorNotificationsForMeeting_(meetingNo) {
 }
 
 function processEvaluatorCoordinationForMeeting_(meetingNo, daysLeft, reminderDays) {
+  if (!meetingAutomationEligible_(meetingNo)) return false;
   if (!configBool_('EVALUATION_WORKFLOW_ENABLED')) return false;
 
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -2981,6 +2987,7 @@ function processThemeRequestReminder_() {
 }
 
 function sendSpeakerDetailsToTmod_(meetingNo, member, slotRef, parts) {
+  if (!meetingAutomationEligible_(meetingNo)) return false;
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const planner = ss.getSheetByName('VPE Weekly Planner');
   if (!planner || planner.getLastRow() < 3) return false;
@@ -3090,8 +3097,10 @@ function processReadySpeakerDetailsToTmod_() {
 
   subs.getRange(2, 1, subs.getLastRow() - 1, 15).getValues().forEach(row => {
     if (String(row[3] || '') !== 'SPEAKER_DETAILS') return;
+    const meetingNo = Number(row[1]);
+    if (!meetingAutomationEligible_(meetingNo)) return;
     sendSpeakerDetailsToTmod_(
-      Number(row[1]),
+      meetingNo,
       String(row[2] || ''),
       String(row[4] || ''),
       [
@@ -3106,6 +3115,7 @@ function processReadySpeakerDetailsToTmod_() {
 }
 
 function sendLateTmodCatchUp_(meetingNo) {
+  if (!meetingAutomationEligible_(meetingNo)) return false;
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const planner = ss.getSheetByName('VPE Weekly Planner');
   if (!planner || planner.getLastRow() < 3) return false;
@@ -3179,6 +3189,7 @@ function processLateTmodCatchUps_() {
     const tmod = String(row[18] || '').trim();
 
     if (!meetingNo || !tmod || !(meetingDate instanceof Date)) return;
+    if (!meetingAutomationEligible_(meetingNo)) return;
     if (startOfDay_(meetingDate) < today) return;
     if (['Completed', 'Cancelled'].indexOf(status) !== -1) return;
 
