@@ -3044,6 +3044,58 @@ function sendSpeakerDetailsToTmod_(meetingNo, member, slotRef, parts) {
   recordWorkflowOutbound_(tmod, phone, 'SPEECH_TO_TMOD', body, meetingNo, result, key);
 }
 
+function processDevSpeakerTmodPreviewOnce_() {
+  if (configValue_('SYSTEM_MODE','') !== 'DEV' ||
+      configValue_('WA_SEND_MODE','') !== 'TEST') return false;
+
+  const props = PropertiesService.getScriptProperties();
+  const guardKey = 'DEV_SPEAKER_TMOD_PREVIEW_455_V1';
+  if (props.getProperty(guardKey)) return false;
+
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const subs = ss.getSheetByName('WA Submissions');
+  if (!subs || subs.getLastRow() < 2) return false;
+
+  const rows = subs.getRange(2,1,subs.getLastRow()-1,15).getValues();
+  const row = rows.find(r =>
+    Number(r[1]) === 455 &&
+    String(r[2] || '') === 'Riyas AF' &&
+    String(r[3] || '') === 'SPEAKER_DETAILS' &&
+    String(r[4] || '') === 'S1'
+  );
+  if (!row) return false;
+
+  const phone = normalizePhone_(phoneForMember_('Riyas AF'));
+  if (!phone || !isWhatsAppRecipientAllowed_(phone)) return false;
+
+  const body =
+    'DEV TEST — this would normally be sent to the TMOD once assigned:\n\n' +
+    'ATK Meeting 455\n\n' +
+    'Speaker 1 — Riyas AF\n' +
+    'Title: ' + String(row[5] || '') + '\n' +
+    'Path: ' + String(row[6] || '') + '\n' +
+    'Level: ' + String(row[7] || '') + '\n' +
+    'Project: ' + String(row[8] || '');
+
+  const result = sendWhatsAppText_(phone, body);
+  recordWorkflowOutbound_(
+    'Riyas AF', phone, 'DEV_SPEAKER_TMOD_PREVIEW',
+    body, 455, result, guardKey
+  );
+
+  if (result && result.ok) {
+    props.setProperty(guardKey, result.messageId || 'SENT');
+    logAutomation_(
+      'Speaker Details', 455, 'Riyas AF',
+      'DEV TMOD handoff preview routed to test recipient',
+      'Sent', 'S1'
+    );
+    return true;
+  }
+  return false;
+}
+
+
 function processReadySpeakerDetailsToTmod_() {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const subs = ss.getSheetByName('WA Submissions');
