@@ -55,7 +55,7 @@ function templateNameForKind_(kind) {
   const normalizedKind = String(kind || '').toUpperCase();
 
   const preferredConfig = {
-    ROLE_REMINDER: ['WA_TEMPLATE_ROLE_REMINDER_V2', 'atk_role_reminder_v2'],
+    ROLE_REMINDER: ['WA_TEMPLATE_ROLE_REMINDER', 'atk_role_reminder'],
     SPEECH_INVITE: ['WA_TEMPLATE_SPEECH_INVITE_V2', 'atk_speech_invite_v2'],
     THEME_REQUEST: ['WA_TEMPLATE_THEME_REQUEST_V2', 'atk_theme_request_v2'],
     SPEAKER_DETAILS: ['WA_TEMPLATE_SPEAKER_DETAILS_V3', 'atk_speaker_details_v3']
