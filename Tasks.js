@@ -71,11 +71,11 @@ function phase1ScheduledTick() {
   processAssignedRolePrompts_();
   processLateTmodCatchUps_();
   processVpprThemeHandoffs_();
-  // Run scheduled reminders first, then catch up any pending Grammarian whose
-  // original assignment prompt was never sent (for example, manual planner entry).
-  // This order prevents a first-time catch-up and a reminder firing in the same tick.
+  // Grammarian collection is theme-aware: start when the TMOD theme is available,
+  // or at T-3 days as the fallback, whichever happens first. Do not run the legacy
+  // immediate-assignment catch-up because it can request Word/Idiom before the theme.
+  processThemeAwareGrammarCollection_();
   processGrammarAssignmentReminder_();
-  processMissingGrammarAssignmentPrompts_();
   if (introWorkflowEnabled) processIntroChoiceTimeouts_();
   processThemeRequestReminder_();
   if (introWorkflowEnabled) processReadyIntroductionBundles_();
@@ -87,6 +87,90 @@ function phase1ScheduledTick() {
   updateControlCenterReadiness_();
   processAgendaApprovalAutomation_();
   processVpeExceptionDigest_();
+}
+
+
+/**
+ * Start Grammarian content collection only after the meeting theme is available,
+ * or at T-3 days if the TMOD has not submitted a theme. Once Grammarian details
+ * are complete, this function never reopens the workflow.
+ *
+ * The actual Word/Idiom collection remains free-form and therefore requires an
+ * open WhatsApp service window. If the window is closed, the task remains pending
+ * for the approved re-entry/template path instead of falling back to the old
+ * immediate-assignment behavior.
+ */
+function processThemeAwareGrammarCollection_() {
+  if (!configBool_('GRAMMARIAN_WORKFLOW_ENABLED')) return;
+
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const planner = ss.getSheetByName('VPE Weekly Planner');
+  if (!planner || planner.getLastRow() < 3) return;
+
+  const today = startOfDay_(new Date());
+  const rows = planner.getRange(3, 1, planner.getLastRow() - 2, 28).getValues();
+
+  rows.forEach(row => {
+    const meetingNo = Number(row[0]);
+    const meetingDate = row[1];
+    const status = String(row[2] || '');
+    const theme = String(row[3] || '').trim();
+    const grammarian = String(row[22] || '').trim(); // W = Grammarian
+
+    if (!meetingNo || !(meetingDate instanceof Date) || !grammarian) return;
+    if (!meetingAutomationEligible_(meetingNo)) return;
+    if (status === 'Completed' || status === 'Cancelled') return;
+
+    const stage = grammarStageForMember_(meetingNo, grammarian);
+    if (stage === 'DONE' || stage === 'REVIEW') return;
+    if (stage !== 'WORD' && stage !== 'IDIOM') return;
+
+    const daysLeft = Math.round(
+      (startOfDay_(meetingDate) - today) / 86400000
+    );
+    if (!theme && daysLeft > 3) return;
+
+    const phone = normalizePhone_(phoneForMember_(grammarian));
+    if (!phone || !isWhatsAppRecipientAllowed_(phone)) return;
+    if (!hasOpenWhatsAppServiceWindow_(phone)) {
+      logAutomation_(
+        'Grammarian', meetingNo, grammarian,
+        theme
+          ? 'Theme ready; waiting for WhatsApp re-entry window'
+          : 'T-3 fallback reached; waiting for WhatsApp re-entry window',
+        'Deferred',
+        theme || 'Theme not received'
+      );
+      return;
+    }
+
+    if (stage === 'WORD' && grammarStagePromptSentAt_(meetingNo, grammarian, 'WORD')) return;
+    if (stage === 'IDIOM' && grammarStagePromptSentAt_(meetingNo, grammarian, 'IDIOM')) return;
+
+    if (stage === 'WORD' && theme) {
+      const themeKey = ['GRAMMAR_THEME_CONTEXT', meetingNo, grammarian, theme].join('|');
+      if (!hasReminderBeenSent_(themeKey)) {
+        const themeText =
+          'Hi ' + grammarian + ',\n\n' +
+          'The theme for ATK Meeting ' + meetingNo + ' is *' + theme + '*.\n\n' +
+          'Please choose a Word of the Day and an Idiom of the Day that connect well with this theme.';
+        const themeResult = sendWhatsAppText_(phone, themeText);
+        recordWorkflowOutbound_(
+          grammarian, phone, 'GRAMMAR_THEME_CONTEXT',
+          themeText, meetingNo, themeResult, themeKey
+        );
+        if (!themeResult || !themeResult.ok) return;
+      }
+    }
+
+    sendGrammarStagePrompt_(
+      grammarian,
+      phone,
+      meetingNo,
+      stage,
+      theme ? 'GRAMMAR_THEME_READY' : 'GRAMMAR_T_MINUS_3_FALLBACK'
+    );
+  });
 }
 
 function installEvaluatorEditTrigger() {
