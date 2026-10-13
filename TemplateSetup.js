@@ -20,6 +20,40 @@ function createAtkWhatsAppTemplates_() {
   };
 }
 
+function submitSpeechBookingConfirmationTemplateFromDev_() {
+  if (String(configValue_('SYSTEM_MODE', '') || '').toUpperCase() !== 'DEV') {
+    throw new Error('Speech booking confirmation template submission is DEV-only.');
+  }
+
+  const props = PropertiesService.getScriptProperties();
+  const token = props.getProperty('META_ACCESS_TOKEN');
+  const wabaId = props.getProperty('WA_WABA_ID');
+  if (!token || !wabaId) {
+    throw new Error('Meta template credentials are missing.');
+  }
+
+  const spec = {
+    name: 'atk_speech_booking_confirmation_v1',
+    language: 'en_US',
+    category: 'UTILITY',
+    body: 'Your prepared speech for ATK Meeting {{1}} on {{2}} is confirmed.\n\nThank you.',
+    examples: ['454', '26 October 2026'],
+    buttons: []
+  };
+
+  const result = createOrReadTemplate_(token, wabaId, spec);
+  logAutomation_(
+    'WhatsApp Templates',
+    '',
+    '',
+    'Speech booking confirmation template submission',
+    result.ok ? 'Success' : 'Error',
+    JSON.stringify(result)
+  );
+  return result;
+}
+
+
 function getAtkWhatsAppTemplateSpecs_() {
   return [
     roleReminderV2Spec_(),
