@@ -7,6 +7,31 @@
 const TASK_SHEET_ = 'Automation Tasks';
 const SUBMISSION_SHEET_ = 'WA Submissions';
 
+/**
+ * During DEV live trials, only meetings explicitly activated in the API/UI
+ * may drive meeting-specific automation or accept bookings.
+ * Other modes keep legacy planner behavior unchanged.
+ */
+function meetingAutomationEligible_(meetingNo) {
+  const no = Number(meetingNo || 0);
+  if (!no) return false;
+
+  const systemMode = String(configValue_('SYSTEM_MODE', '') || '').toUpperCase();
+  const sendMode = String(configValue_('WA_SEND_MODE', '') || '').toUpperCase();
+  if (systemMode !== 'DEV' || sendMode !== 'LIVE') return true;
+
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = ss.getSheetByName('API Meetings');
+  if (!sheet || sheet.getLastRow() < 2) return false;
+
+  const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 7).getValues();
+  return rows.some(row =>
+    String(row[1] || '') === 'ATK' &&
+    Number(row[6]) === no &&
+    String(row[3] || '').toUpperCase() === 'ACTIVE'
+  );
+}
+
 // ATK_AGENDA_TEMPLATE_SUBMIT_RETRY_20261002
 function phase1ScheduledTick() {
   if (!configBool_('TASK_ENGINE_ENABLED')) return;
@@ -149,6 +174,7 @@ function syncPhase1Tasks_() {
     const meetingStatus = String(row[2] || '');
 
     if (!meetingNo || !(meetingDate instanceof Date)) return;
+    if (!meetingAutomationEligible_(meetingNo)) return;
     if (meetingStatus === 'Completed' || meetingStatus === 'Cancelled') return;
 
     const meetingDay = startOfDay_(meetingDate);
@@ -528,6 +554,7 @@ function processVacantRoleReminders_() {
     const meetingDate = row[1];
     const status = String(row[2] || '');
     if (!meetingNo || !(meetingDate instanceof Date) || status === 'Completed' || status === 'Cancelled') return;
+    if (!meetingAutomationEligible_(meetingNo)) return;
 
     const daysLeft = Math.round((startOfDay_(meetingDate) - today) / 86400000);
     if (configuredDays.indexOf(daysLeft) === -1) return;
@@ -581,6 +608,7 @@ function processVacantRoleReminders_() {
 
 function sendVacantRoleInvitesNow_(meetingNo) {
   if (!configBool_('ROLE_SELECTION_ENABLED')) return {sent:0,eligible:0,open_roles:0};
+  if (!meetingAutomationEligible_(meetingNo)) return {sent:0,eligible:0,open_roles:0,blocked:'MEETING_NOT_ACTIVE'};
 
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const planner = ss.getSheetByName('VPE Weekly Planner');
@@ -762,6 +790,7 @@ function processReadyIntroductionBundles_() {
     const status = String(row[2] || '');
 
     if (!meetingNo || !(meetingDate instanceof Date)) return;
+    if (!meetingAutomationEligible_(meetingNo)) return;
     if (status === 'Completed' || status === 'Cancelled') return;
 
     const daysLeft = Math.round(
@@ -924,7 +953,7 @@ function processAgendaApprovalAutomation_() {
   if (!planner || !preview) return;
 
   const previewMeetingNo = Number(preview.getRange('B4').getValue());
-  if (!previewMeetingNo) return;
+  if (!previewMeetingNo || !meetingAutomationEligible_(previewMeetingNo)) return;
 
   const ids = planner.getRange(3,1,Math.max(0, planner.getLastRow() - 2),1)
     .getValues().flat();
