@@ -143,6 +143,18 @@ function doPost(e) {
 
     if (
       payload &&
+      payload.system_action === 'SUBMIT_SPEECH_BOOKING_CONFIRMATION_V1' &&
+      payload.verify_token === VERIFY_TOKEN
+    ) {
+      const result = submitSpeechBookingConfirmationTemplateFromDev_();
+
+      return ContentService
+        .createTextOutput(JSON.stringify(result))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (
+      payload &&
       payload.system_action === 'TEST_APPROVED_WA_TEMPLATES' &&
       payload.verify_token === VERIFY_TOKEN
     ) {
