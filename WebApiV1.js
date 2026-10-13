@@ -747,6 +747,7 @@ function apiGetMeeting_(clubId,meetingId) {
   const sheets = apiEnsureSheets_();
   const rec = apiFindMeetingRecord_(sheets,clubId,meetingId);
   const mr = rec.values;
+  const beforeItems = apiGetMeeting_(clubId,meetingId).items || [];
 
   const rows = sheets.items.getLastRow() >= 2
     ? sheets.items.getRange(2,1,sheets.items.getLastRow()-1,11).getValues()
@@ -990,6 +991,13 @@ function apiSaveMeeting_(clubId,payload) {
     if (bridge && bridge.synced) {
       plannerMeetingNo = String(bridge.planner_meeting_no || '');
     }
+
+    apiSendNewSpeechBookingConfirmations_(
+      clubId,
+      Number(plannerMeetingNo || 0),
+      beforeItems,
+      normalized
+    );
   }
 
   return apiCacheMeeting_({
@@ -1001,6 +1009,63 @@ function apiSaveMeeting_(clubId,payload) {
     items:normalized
   });
 }
+
+function apiSendNewSpeechBookingConfirmations_(clubId, meetingNo, beforeItems, afterItems) {
+  if (String(clubId || '') !== 'ATK' ||
+      !Number(meetingNo) ||
+      typeof sendSpeechBookingConfirmation_ !== 'function') return;
+
+  const before = {};
+  (beforeItems || []).forEach(item => {
+    const code = String(item.code || '');
+    if (/^S[123]$/.test(code)) {
+      before[code] = String(item.member_name || '').trim();
+    }
+  });
+
+  const after = {};
+  (afterItems || []).forEach(item => {
+    const code = String(item.code || '');
+    if (/^S[123]$/.test(code)) {
+      after[code] = String(item.member_name || '').trim();
+    }
+  });
+
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const planner = ss.getSheetByName('VPE Weekly Planner');
+  let dateText = '';
+  if (planner && planner.getLastRow() >= 3) {
+    const ids = planner.getRange(3, 1, planner.getLastRow() - 2, 1).getValues().flat();
+    const idx = ids.findIndex(v => Number(v) === Number(meetingNo));
+    if (idx >= 0) {
+      const d = planner.getRange(idx + 3, 2).getValue();
+      if (d instanceof Date) {
+        dateText = Utilities.formatDate(
+          d,
+          configValue_('TIMEZONE', 'Asia/Kolkata'),
+          'EEE, d MMM'
+        );
+      }
+    }
+  }
+
+  ['S1','S2','S3'].forEach(code => {
+    const member = after[code] || '';
+    if (!member || member === (before[code] || '')) return;
+
+    const phone = normalizePhone_(phoneForMember_(member));
+    if (!phone) return;
+
+    sendSpeechBookingConfirmation_(
+      member,
+      phone,
+      Number(meetingNo),
+      dateText,
+      Number(code.slice(1))
+    );
+  });
+}
+
 
 function apiActivationCheck_(meeting) {
   const errors = [];
@@ -1025,6 +1090,32 @@ function apiActivateMeeting_(clubId,meetingId) {
   if (meeting.status === 'ACTIVE') return meeting;
 
   const sheets = apiEnsureSheets_();
+
+  if (sheets.meetings.getLastRow() >= 2) {
+    const rows = sheets.meetings.getRange(
+      2, 1, sheets.meetings.getLastRow() - 1, 7
+    ).getValues();
+
+    const otherActive = rows.find(row =>
+      String(row[1] || '') === String(clubId || '') &&
+      String(row[0] || '') !== String(meetingId || '') &&
+      String(row[3] || '').toUpperCase() === 'ACTIVE'
+    );
+
+    if (otherActive) {
+      const err = new Error(
+        'Another meeting is already active. Complete or close it before activating this meeting.'
+      );
+      err.apiCode = 'ANOTHER_MEETING_ACTIVE';
+      err.details = [{
+        meeting_id: String(otherActive[0] || ''),
+        planner_meeting_no: Number(otherActive[6] || 0) || '',
+        message: 'Only one meeting can be ACTIVE at a time.'
+      }];
+      throw err;
+    }
+  }
+
   let meetingRow = 0;
   for (let r=2;r<=sheets.meetings.getLastRow();r++) {
     if (String(sheets.meetings.getRange(r,1).getValue())===meetingId &&
