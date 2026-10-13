@@ -1177,6 +1177,32 @@ function apiPendingActionsForMeeting_(meetingNo) {
     });
 }
 
+function apiVacantPositionsFromPlannerRow_(row) {
+  const defs = [
+    {code:'TMOD', label:'Toastmaster of the Day', column:19, type:'role'},
+    {code:'GE', label:'General Evaluator', column:20, type:'role'},
+    {code:'TTM', label:'Table Topics Master', column:21, type:'role'},
+    {code:'S1', label:'Speaker 1', column:7, type:'speech'},
+    {code:'S2', label:'Speaker 2', column:11, type:'speech'},
+    {code:'S3', label:'Speaker 3', column:15, type:'speech'},
+    {code:'EV1', label:'Evaluator 1', column:26, type:'evaluator'},
+    {code:'EV2', label:'Evaluator 2', column:27, type:'evaluator'},
+    {code:'EV3', label:'Evaluator 3', column:28, type:'evaluator'},
+    {code:'Timer', label:'Timer', column:22, type:'role'},
+    {code:'Ah', label:'Ah-Counter', column:23, type:'role'},
+    {code:'GRM', label:'Grammarian', column:24, type:'role'}
+  ];
+
+  return defs
+    .filter(def => !String(row[def.column - 1] || '').trim())
+    .map(def => ({
+      code:def.code,
+      label:def.label,
+      type:def.type
+    }));
+}
+
+
 function apiDashboard_(clubId) {
   if (clubId !== API_DEFAULT_CLUB_ID_) throw new Error('Club not provisioned: '+clubId);
   const ss = apiSpreadsheet_();
@@ -1190,16 +1216,21 @@ function apiDashboard_(clubId) {
   const taskRows = tasks && tasks.getLastRow() >= 2
     ? tasks.getRange(2,1,tasks.getLastRow()-1,18).getValues() : [];
 
-  const meetings = rows.filter(row => {
+  const upcomingRows = rows.filter(row => {
     return Number(row[0]) && row[1] instanceof Date &&
       startOfDay_(row[1]) >= today &&
       ['Completed','Cancelled'].indexOf(String(row[2] || '')) < 0;
-  }).slice(0,4).map(row => {
+  }).slice(0,4);
+
+  const meetings = upcomingRows.map(row => {
     const readiness = buildReadinessRow_(row,taskRows);
+    const vacancies = apiVacantPositionsFromPlannerRow_(row);
     return {
       meeting_no:Number(row[0]),
       meeting_date:Utilities.formatDate(row[1],configValue_('TIMEZONE','Asia/Kolkata'),'yyyy-MM-dd'),
       status:String(row[2] || ''),
+      vacant_positions:vacancies,
+      vacant_count:vacancies.length,
       readiness:{
         roles:readiness[1],
         programme:readiness[2],
@@ -1226,7 +1257,44 @@ function apiDashboard_(clubId) {
     };
   });
 
-  return {club_id:clubId,meetings:meetings,pending_actions:pending};
+  // Backward-compatible Home-page vacancy projection.
+  // Every unfilled meeting position is surfaced as VACANT_ROLE regardless of
+  // how the automation engine internally models speakers/evaluators.
+  const vacancyActions = [];
+  upcomingRows.forEach(row => {
+    const meetingNo = Number(row[0]);
+    const meetingDate = row[1];
+    apiVacantPositionsFromPlannerRow_(row).forEach(v => {
+      const key = meetingNo + '|' + v.code;
+      const alreadyPresent = pending.some(p =>
+        Number(p.meeting_no) === meetingNo &&
+        String(p.kind || '') === 'VACANT_ROLE' &&
+        String(p.related || '') === v.code
+      );
+      if (alreadyPresent) return;
+
+      vacancyActions.push({
+        action_id:'VACANCY|' + key,
+        meeting_no:meetingNo,
+        kind:'VACANT_ROLE',
+        member_name:'',
+        related:v.code,
+        state:'Pending',
+        title:v.label + ' vacant',
+        description:v.label,
+        severity:'pending',
+        due_at:meetingDate instanceof Date ? meetingDate.toISOString() : ''
+      });
+    });
+  });
+
+  const allPending = pending.concat(vacancyActions);
+  return {
+    club_id:clubId,
+    meetings:meetings,
+    vacant_positions:meetings.length ? meetings[0].vacant_positions : [],
+    pending_actions:allPending
+  };
 }
 
 
