@@ -243,54 +243,33 @@ function handleGrammarFlowTestReply_(member, phone, rawText) {
 }
 
 
-function parseGrammarStageBlock_(text, stage) {
-  const normalizedStage = String(stage || '').toUpperCase();
-  if (normalizedStage !== 'WORD' && normalizedStage !== 'IDIOM') {
-    return { recognized: 0, item: '', meaning: '', usage: '' };
-  }
-
-  if (text && typeof text === 'object') {
-    const item = String(text.item || '').trim();
-    const meaning = String(text.meaning || '').trim();
-    const usage = String(text.usage || '').trim();
-    return {
-      recognized: [item, meaning, usage].filter(Boolean).length,
-      item: item,
-      meaning: meaning,
-      usage: usage,
-      label: normalizedStage === 'WORD' ? 'Word' : 'Idiom'
-    };
-  }
-
+function parseGrammarCombinedBlock_(text) {
   const raw = String(text || '').trim();
   const fields = {};
+  let section = '';
   let currentKey = '';
-  const itemLabel = normalizedStage === 'WORD' ? 'Word' : 'Idiom';
-  const itemPattern = normalizedStage === 'WORD'
-    ? /^(Word(?: of the Day)?)$/i
-    : /^(Idiom(?: of the Day)?)$/i;
 
   raw.split(/\r?\n/).forEach(line => {
     const textLine = String(line || '');
-    // Accept both the clean form ("Word: Resilient") and the natural
-    // copy/fill form ("Please reply in this format: Word: Resilient").
     const match = textLine.match(
-      /(?:^|\s)(Word(?: of the Day)?|Idiom(?: of the Day)?|Meaning|Usage|Example|Example usage)\s*:\s*(.*?)\s*$/i
+      /^\s*(Word(?: of the Day)?|Idiom(?: of the Day)?|Meaning|Usage|Example|Example usage)\s*(?::|[-–—])\s*(.*?)\s*$/i
     );
 
     if (match) {
-      const label = String(match[1] || '').trim();
+      const label = String(match[1] || '').trim().toLowerCase();
       const value = String(match[2] || '').trim();
       let key = '';
 
-      if (itemPattern.test(label)) key = 'item';
-      else if (/^meaning$/i.test(label)) key = 'meaning';
-      else if (/^(usage|example|example usage)$/i.test(label)) key = 'usage';
-
-      // Ignore the opposite stage's item label rather than misclassifying it.
-      if (/^(word(?: of the day)?|idiom(?: of the day)?)$/i.test(label) && !itemPattern.test(label)) {
-        currentKey = '';
-        return;
+      if (/^word(?: of the day)?$/.test(label)) {
+        section = 'word';
+        key = 'word';
+      } else if (/^idiom(?: of the day)?$/.test(label)) {
+        section = 'idiom';
+        key = 'idiom';
+      } else if (label === 'meaning' && section) {
+        key = section + 'Meaning';
+      } else if (/^(usage|example|example usage)$/.test(label) && section) {
+        key = section + 'Usage';
       }
 
       currentKey = key;
@@ -306,23 +285,171 @@ function parseGrammarStageBlock_(text, stage) {
     }
   });
 
-  // If the member sends only a plain word/idiom (for example "Resilient"),
-  // keep it as the item and ask only for the missing Meaning and Usage.
+  const keys = [
+    'word','wordMeaning','wordUsage',
+    'idiom','idiomMeaning','idiomUsage'
+  ];
+  return {
+    recognized: keys.filter(k => String(fields[k] || '').trim()).length,
+    word: String(fields.word || '').trim(),
+    wordMeaning: String(fields.wordMeaning || '').trim(),
+    wordUsage: String(fields.wordUsage || '').trim(),
+    idiom: String(fields.idiom || '').trim(),
+    idiomMeaning: String(fields.idiomMeaning || '').trim(),
+    idiomUsage: String(fields.idiomUsage || '').trim()
+  };
+}
+
+function handleCombinedGrammarSubmission_(member, phone, requestedMeetingNo, body, messageId) {
+  if (!configBool_('GRAMMARIAN_WORKFLOW_ENABLED')) {
+    sendWhatsAppText_(phone, 'Grammarian collection is not active yet.');
+    return false;
+  }
+
+  const task = findPendingTaskForMember_('GRAMMAR', member, requestedMeetingNo);
+  if (!task) return false;
+
+  const details = body && typeof body === 'object'
+    ? body
+    : parseGrammarCombinedBlock_(body);
+  if (Number(details.recognized || 0) < 6) return false;
+
+  const assignment = verifyRoleAssignment_(task.meetingNo, 'GRM', member);
+  if (!assignment.ok) {
+    clearConversation_(phone);
+    sendWhatsAppText_(phone,
+      'Your Grammarian assignment for Meeting ' + task.meetingNo +
+      ' has changed, so I did not save this.');
+    syncPhase1Tasks_();
+    return true;
+  }
+
+  const source = String(messageId || '');
+  appendSubmission_({
+    meetingNo:task.meetingNo,
+    member:member,
+    type:'GRAMMAR_WORD',
+    related:'GRM',
+    values:[details.word, details.wordMeaning, details.wordUsage, ''],
+    sourceMessageId:source ? source + '|WORD' : ''
+  });
+  appendSubmission_({
+    meetingNo:task.meetingNo,
+    member:member,
+    type:'GRAMMAR_IDIOM',
+    related:'GRM',
+    values:[details.idiom, details.idiomMeaning, details.idiomUsage, ''],
+    sourceMessageId:source ? source + '|IDIOM' : ''
+  });
+
+  clearConversation_(phone);
+  logAutomation_(
+    'Grammarian', task.meetingNo, member,
+    'Combined Word + Idiom received',
+    'Success', details.word + ' / ' + details.idiom
+  );
+  syncPhase1Tasks_();
+  sendGrammarReviewButtons_(member, phone, task.meetingNo);
+  return true;
+}
+
+
+function parseGrammarStageBlock_(text, stage) {
+  const normalizedStage = String(stage || '').toUpperCase();
+  if (normalizedStage !== 'WORD' && normalizedStage !== 'IDIOM') {
+    return { recognized: 0, item: '', meaning: '', usage: '', oppositeStage: '' };
+  }
+
+  if (text && typeof text === 'object') {
+    const item = String(text.item || '').trim();
+    const meaning = String(text.meaning || '').trim();
+    const usage = String(text.usage || '').trim();
+    return {
+      recognized: [item, meaning, usage].filter(Boolean).length,
+      item:item, meaning:meaning, usage:usage,
+      label: normalizedStage === 'WORD' ? 'Word' : 'Idiom',
+      oppositeStage:''
+    };
+  }
+
+  const raw = String(text || '').trim();
+  const fields = {};
+  let currentKey = '';
+  let section = '';
+  let sawExpected = false;
+  let sawOpposite = false;
+  const itemLabel = normalizedStage === 'WORD' ? 'Word' : 'Idiom';
+  const expectedPattern = normalizedStage === 'WORD'
+    ? /^(Word(?: of the Day)?)$/i
+    : /^(Idiom(?: of the Day)?)$/i;
+  const oppositePattern = normalizedStage === 'WORD'
+    ? /^(Idiom(?: of the Day)?)$/i
+    : /^(Word(?: of the Day)?)$/i;
+
+  raw.split(/\r?\n/).forEach(line => {
+    const textLine = String(line || '');
+    const match = textLine.match(
+      /(?:^|\s)(Word(?: of the Day)?|Idiom(?: of the Day)?|Meaning|Usage|Example|Example usage)\s*(?::|[-–—])\s*(.*?)\s*$/i
+    );
+
+    if (match) {
+      const label = String(match[1] || '').trim();
+      const value = String(match[2] || '').trim();
+      let key = '';
+
+      if (expectedPattern.test(label)) {
+        sawExpected = true;
+        section = 'EXPECTED';
+        key = 'item';
+      } else if (oppositePattern.test(label)) {
+        sawOpposite = true;
+        section = 'OPPOSITE';
+        currentKey = '';
+        return;
+      } else if (/^meaning$/i.test(label)) {
+        if (section !== 'OPPOSITE') key = 'meaning';
+      } else if (/^(usage|example|example usage)$/i.test(label)) {
+        if (section !== 'OPPOSITE') key = 'usage';
+      }
+
+      currentKey = key;
+      if (key && value) fields[key] = value;
+      return;
+    }
+
+    const continuation = textLine.trim();
+    if (continuation && currentKey) {
+      fields[currentKey] = fields[currentKey]
+        ? fields[currentKey] + '\n' + continuation
+        : continuation;
+    }
+  });
+
+  if (sawOpposite && !sawExpected) {
+    return {
+      recognized:0, item:'', meaning:'', usage:'',
+      label:itemLabel,
+      oppositeStage: normalizedStage === 'WORD' ? 'IDIOM' : 'WORD'
+    };
+  }
+
   if (!fields.item && !fields.meaning && !fields.usage &&
-      raw && raw.indexOf('\n') === -1 && raw.indexOf(':') === -1 &&
+      raw && raw.indexOf('\n') === -1 &&
+      raw.indexOf(':') === -1 &&
+      !/\s[-–—]\s/.test(raw) &&
       raw.length <= 120) {
     fields.item = raw;
   }
 
-  const result = {
-    recognized: ['item', 'meaning', 'usage']
+  return {
+    recognized:['item','meaning','usage']
       .filter(key => String(fields[key] || '').trim()).length,
-    item: String(fields.item || '').trim(),
-    meaning: String(fields.meaning || '').trim(),
-    usage: String(fields.usage || '').trim()
+    item:String(fields.item || '').trim(),
+    meaning:String(fields.meaning || '').trim(),
+    usage:String(fields.usage || '').trim(),
+    label:itemLabel,
+    oppositeStage:''
   };
-  result.label = itemLabel;
-  return result;
 }
 
 function grammarStageForMember_(meetingNo, member) {
@@ -437,6 +564,28 @@ function grammarStagePromptSentAt_(meetingNo, member, stage) {
     )
     .map(row => row[12])
     .sort((a, b) => b.getTime() - a.getTime());
+
+  return sent.length ? sent[0] : null;
+}
+
+
+function grammarReviewPromptSentAt_(meetingNo, member) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = ss.getSheetByName('WA Outbox');
+  if (!sheet || sheet.getLastRow() < 2) return null;
+
+  const successfulStates = new Set(['SENT','DELIVERED','READ','ACCEPTED']);
+  const rows = sheet.getRange(2,1,sheet.getLastRow()-1,16).getValues();
+  const sent = rows
+    .filter(row =>
+      String(row[1] || '').trim() === String(member || '').trim() &&
+      String(row[3] || '') === 'GRAMMAR_REVIEW' &&
+      Number(row[10]) === Number(meetingNo) &&
+      successfulStates.has(String(row[6] || '').toUpperCase()) &&
+      row[12] instanceof Date
+    )
+    .map(row => row[12])
+    .sort((a,b) => b.getTime() - a.getTime());
 
   return sent.length ? sent[0] : null;
 }
@@ -746,9 +895,22 @@ function grammarReviewMessage_(bundle) {
   );
 }
 
-function sendGrammarReviewButtons_(member, phone, meetingNo) {
+function sendGrammarReviewButtons_(member, phone, meetingNo, keyKind) {
   const bundle = approvedGrammarBundle_(meetingNo);
-  if (!bundle) return false;
+  if (!bundle || !phone || !isWhatsAppRecipientAllowed_(phone)) return false;
+
+  const key = [
+    String(keyKind || 'GRAMMAR_REVIEW'),
+    meetingNo,
+    member,
+    bundle.word.item,
+    bundle.word.meaning,
+    bundle.word.usage,
+    bundle.idiom.item,
+    bundle.idiom.meaning,
+    bundle.idiom.usage
+  ].join('|');
+  if (hasReminderBeenSent_(key)) return false;
 
   const body = grammarReviewMessage_(bundle);
   const payload = {
@@ -769,8 +931,7 @@ function sendGrammarReviewButtons_(member, phone, meetingNo) {
 
   const result = sendWhatsAppPayload_(payload);
   recordWorkflowOutbound_(
-    member, phone, 'GRAMMAR_REVIEW', body, meetingNo, result,
-    ['GRAMMAR_REVIEW', meetingNo, member, bundle.word.item, bundle.idiom.item].join('|')
+    member, phone, 'GRAMMAR_REVIEW', body, meetingNo, result, key
   );
 
   if (result && result.ok) {
@@ -971,6 +1132,17 @@ function handleGrammarStageSubmission_(member, phone, requestedMeetingNo, stage,
   const previous = rawStep.indexOf(normalizedStage) !== -1
     ? (active.data || {}) : {};
 
+  if (parsed.oppositeStage) {
+    const wanted = normalizedStage === 'WORD' ? 'Word' : 'Idiom';
+    const received = parsed.oppositeStage === 'WORD' ? 'Word' : 'Idiom';
+    sendWhatsAppText_(
+      phone,
+      received + ' details were received, but I am currently waiting for the ' +
+      wanted + ' of the Day.\n\n' + grammarStageCopyMessage_(normalizedStage)
+    );
+    return;
+  }
+
   const details = {
     item: String(parsed.item || previous.item || '').trim(),
     meaning: String(parsed.meaning || previous.meaning || '').trim(),
@@ -1011,6 +1183,13 @@ function handleStructuredSubmission_(member, phone, rawText, messageId) {
   if (grammarMatch) {
     handleGrammarSubmission_(member, phone, Number(grammarMatch[1] || 0), grammarMatch[2], messageId);
     return true;
+  }
+
+  const combinedGrammarBlock = parseGrammarCombinedBlock_(text);
+  if (combinedGrammarBlock.recognized >= 6) {
+    if (handleCombinedGrammarSubmission_(
+      member, phone, 0, combinedGrammarBlock, messageId
+    )) return true;
   }
 
   const grammarBlock = parseGrammarDetailsBlock_(text);
@@ -2782,15 +2961,32 @@ function processMissingGrammarAssignmentPrompts_() {
     const stage = grammarStageForMember_(meetingNo, member);
     if (stage === 'DONE') return;
 
-    const assignmentKey = ['ASSIGNMENT_PROMPT', meetingNo, related, member, stage, 'INTRO'].join('|');
-    if (hasReminderBeenSent_(assignmentKey)) return;
-
     const phone = phoneForMember_(member);
     if (!phone || !isWhatsAppRecipientAllowed_(phone)) return;
-
-    // A manually entered role may not have opened a WhatsApp service window.
-    // Do not fall back to the retired all-in-one Grammarian template.
     if (!hasOpenWhatsAppServiceWindow_(phone)) return;
+
+    const active = activeConversation_(phone);
+    if (active && !(
+      active.kind === 'GRAMMAR' &&
+      Number(active.meetingNo) === Number(meetingNo)
+    )) return;
+
+    if (stage === 'REVIEW') {
+      const sent = sendGrammarReviewButtons_(member, phone, meetingNo);
+      if (sent) {
+        logAutomation_(
+          'Grammarian', meetingNo, member,
+          'Missing Grammarian final review catch-up',
+          'Sent', 'REVIEW'
+        );
+      }
+      return;
+    }
+
+    const assignmentKey = [
+      'ASSIGNMENT_PROMPT', meetingNo, related, member, stage, 'INTRO'
+    ].join('|');
+    if (hasReminderBeenSent_(assignmentKey)) return;
 
     const sent = sendGrammarStagePrompt_(
       member, phone, meetingNo, stage, 'ASSIGNMENT_PROMPT'
@@ -2841,20 +3037,41 @@ function processGrammarAssignmentReminder_() {
     const phone = phoneForMember_(member);
     if (!phone || !isWhatsAppRecipientAllowed_(phone)) return;
 
-    const promptAt = grammarStagePromptSentAt_(meetingNo, member, stage);
-    if (!(promptAt instanceof Date)) return;
-
-    // Avoid a reminder immediately after someone has just selected the role
-    // or just submitted the Word and received the Idiom prompt.
     const minHours = Math.max(
       1,
       Number(configValue_('GRAMMAR_REMINDER_MIN_HOURS', '2')) || 2
     );
-    if ((now.getTime() - promptAt.getTime()) < minHours * 60 * 60 * 1000) return;
 
-    // The old approved template asks for Word + Idiom together and no longer
-    // matches this flow. Reminders therefore stay free-form until a new
-    // reminder template is explicitly approved in the future.
+    if (stage === 'REVIEW') {
+      const reviewAt = grammarReviewPromptSentAt_(meetingNo, member);
+      if (!(reviewAt instanceof Date)) return;
+      if ((now.getTime() - reviewAt.getTime()) < minHours * 60 * 60 * 1000) return;
+      if (!hasOpenWhatsAppServiceWindow_(phone)) return;
+
+      const slotDate = Utilities.formatDate(now, timezone, 'yyyyMMdd');
+      const reminderKind = [
+        'GRAMMAR_REVIEW_REMINDER',
+        slotDate,
+        'H' + localHour
+      ].join('|');
+
+      const sent = sendGrammarReviewButtons_(
+        member, phone, meetingNo, reminderKind
+      );
+      if (sent) {
+        logAutomation_(
+          'Grammarian', meetingNo, member,
+          'Grammarian final review reminder at ' +
+            (localHour === 20 ? '8 PM' : localHour + ' AM'),
+          'Sent', 'REVIEW'
+        );
+      }
+      return;
+    }
+
+    const promptAt = grammarStagePromptSentAt_(meetingNo, member, stage);
+    if (!(promptAt instanceof Date)) return;
+    if ((now.getTime() - promptAt.getTime()) < minHours * 60 * 60 * 1000) return;
     if (!hasOpenWhatsAppServiceWindow_(phone)) return;
 
     const slotDate = Utilities.formatDate(now, timezone, 'yyyyMMdd');
