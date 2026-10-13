@@ -895,9 +895,22 @@ function grammarHandoffRecipients_(meetingNo) {
   return recipients;
 }
 
+function grammarBundleIsFinalConfirmed_(meetingNo) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = ss.getSheetByName('WA Submissions');
+  if (!sheet || sheet.getLastRow() < 2) return false;
+
+  return sheet.getRange(2, 2, sheet.getLastRow() - 1, 4).getValues()
+    .some(row =>
+      Number(row[0]) === Number(meetingNo) &&
+      String(row[2] || '').trim() === 'GRAMMAR_CONFIRMED' &&
+      String(row[3] || '').trim() === 'GRM'
+    );
+}
+
 function sendApprovedGrammarBundle_(meetingNo, excludeMember) {
   const bundle = approvedGrammarBundle_(meetingNo);
-  if (!bundle) return false;
+  if (!bundle || !grammarBundleIsFinalConfirmed_(meetingNo)) return false;
   const body =
     'The Grammarian details for ATK Meeting ' + meetingNo + ' are ready.\n\n' +
     'Word of the Day: ' + bundle.word.item + '\n' +
@@ -2954,28 +2967,44 @@ function processThemeRequestReminder_() {
 function sendSpeakerDetailsToTmod_(meetingNo, member, slotRef, parts) {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const planner = ss.getSheetByName('VPE Weekly Planner');
-  const ids = planner.getRange(3, 1, Math.max(0, planner.getLastRow() - 2), 1)
+  if (!planner || planner.getLastRow() < 3) return false;
+
+  const ids = planner.getRange(3, 1, planner.getLastRow() - 2, 1)
     .getValues().flat();
   const idx = ids.findIndex(v => Number(v) === Number(meetingNo));
-  if (idx < 0) return;
-  const tmod = String(planner.getRange(idx + 3, 19).getValue() || '').trim();
-  const phone = phoneForMember_(tmod);
-  if (!phone || !isWhatsAppRecipientAllowed_(phone)) return;
+  if (idx < 0) return false;
 
+  const tmod = String(planner.getRange(idx + 3, 19).getValue() || '').trim();
+  const phone = normalizePhone_(phoneForMember_(tmod));
+  if (!tmod || !phone || !isWhatsAppRecipientAllowed_(phone)) return false;
+
+  const normalizedParts = (parts || []).map(v => String(v || '').trim());
+  const speechTime = normalizedParts[4] || 'TBC';
   const slotNumber = Number(String(slotRef || '').replace(/^S/i, ''));
-  const speakerLabel = 'Speaker ' + (slotNumber || String(slotRef || '').replace(/^S/i, '')) +
+  const speakerLabel = 'Speaker ' +
+    (slotNumber || String(slotRef || '').replace(/^S/i, '')) +
     ' — ' + member;
 
   const body =
     'ATK Meeting ' + meetingNo + '\n\n' +
     speakerLabel + '\n' +
-    'Title: ' + parts[0] + '\n' +
-    'Path: ' + parts[1] + '\n' +
-    'Level: ' + parts[2] + '\n' +
-    'Project: ' + parts[3];
+    'Title: ' + normalizedParts[0] + '\n' +
+    'Path: ' + normalizedParts[1] + '\n' +
+    'Level: ' + normalizedParts[2] + '\n' +
+    'Project: ' + normalizedParts[3] + '\n' +
+    'Time: ' + speechTime;
 
-  const key = ['SPEECH_TO_TMOD', meetingNo, slotRef, member, parts.join('|')].join('|');
-  if (hasReminderBeenSent_(key)) return;
+  // TMOD is part of the key so a replacement TMOD receives the same stored
+  // speaker details even if the previous TMOD already received them.
+  const key = [
+    'SPEECH_TO_TMOD',
+    meetingNo,
+    tmod,
+    slotRef,
+    member,
+    normalizedParts.join('|')
+  ].join('|');
+  if (hasReminderBeenSent_(key)) return false;
 
   const result = sendAutomatedText_(
     phone,
@@ -2985,24 +3014,135 @@ function sendSpeakerDetailsToTmod_(meetingNo, member, slotRef, parts) {
       tmod,
       meetingNo,
       speakerLabel + '\n' +
-        'Title: ' + parts[0] + '\n' +
-        'Path: ' + parts[1] + '\n' +
-        'Level: ' + parts[2] + '\n' +
-        'Project: ' + parts[3]
+        'Title: ' + normalizedParts[0] + '\n' +
+        'Path: ' + normalizedParts[1] + '\n' +
+        'Level: ' + normalizedParts[2] + '\n' +
+        'Project: ' + normalizedParts[3] + '\n' +
+        'Time: ' + speechTime
     ]
   );
 
-  recordWorkflowOutbound_(tmod, phone, 'SPEECH_TO_TMOD', body, meetingNo, result, key);
+  recordWorkflowOutbound_(
+    tmod, phone, 'SPEECH_TO_TMOD', body, meetingNo, result, key
+  );
+  return Boolean(result && result.ok);
+}
+
+function sendStoredSpeakerDetailsToTmod_(meetingNo) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const subs = ss.getSheetByName('WA Submissions');
+  if (!subs || subs.getLastRow() < 2) return false;
+
+  let anySent = false;
+  subs.getRange(2, 1, subs.getLastRow() - 1, 15).getValues().forEach(row => {
+    if (Number(row[1]) !== Number(meetingNo) ||
+        String(row[3] || '') !== 'SPEAKER_DETAILS') return;
+
+    const sent = sendSpeakerDetailsToTmod_(
+      Number(row[1]),
+      String(row[2] || ''),
+      String(row[4] || ''),
+      [row[5], row[6], row[7], row[8], row[14]].map(String)
+    );
+    if (sent) anySent = true;
+  });
+  return anySent;
 }
 
 function processReadySpeakerDetailsToTmod_() {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const subs = ss.getSheetByName('WA Submissions');
   if (!subs || subs.getLastRow() < 2) return;
-  subs.getRange(2, 1, subs.getLastRow() - 1, 14).getValues().forEach(row => {
-    if (String(row[3]) !== 'SPEAKER_DETAILS') return;
-    sendSpeakerDetailsToTmod_(Number(row[1]), String(row[2] || ''),
-      String(row[4] || ''), [row[5], row[6], row[7], row[8]].map(String));
+
+  subs.getRange(2, 1, subs.getLastRow() - 1, 15).getValues().forEach(row => {
+    if (String(row[3] || '') !== 'SPEAKER_DETAILS') return;
+    sendSpeakerDetailsToTmod_(
+      Number(row[1]),
+      String(row[2] || ''),
+      String(row[4] || ''),
+      [row[5], row[6], row[7], row[8], row[14]].map(String)
+    );
+  });
+}
+
+function sendLateTmodCatchUp_(meetingNo) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const planner = ss.getSheetByName('VPE Weekly Planner');
+  if (!planner || planner.getLastRow() < 3) return false;
+
+  const ids = planner.getRange(3, 1, planner.getLastRow() - 2, 1)
+    .getValues().flat();
+  const idx = ids.findIndex(v => Number(v) === Number(meetingNo));
+  if (idx < 0) return false;
+
+  const row = planner.getRange(idx + 3, 1, 1, 28).getValues()[0];
+  const meetingDate = row[1];
+  const status = String(row[2] || '').trim();
+  const tmod = String(row[18] || '').trim();
+
+  if (!tmod || ['Completed', 'Cancelled'].indexOf(status) !== -1) return false;
+  if (meetingDate instanceof Date &&
+      startOfDay_(meetingDate) < startOfDay_(new Date())) return false;
+
+  let anySent = false;
+
+  // Grammarian handoff is replayed only after the Grammarian's final review
+  // confirmation. Recipient-specific keys allow a replacement TMOD to receive it.
+  if (configBool_('GRAMMARIAN_WORKFLOW_ENABLED') &&
+      grammarBundleIsFinalConfirmed_(meetingNo)) {
+    if (sendApprovedGrammarBundle_(meetingNo)) anySent = true;
+  }
+
+  // Speaker details are stored independently of TMOD assignment, so replay all
+  // available submissions to the newly assigned/replacement TMOD.
+  if (sendStoredSpeakerDetailsToTmod_(meetingNo)) anySent = true;
+
+  // Introductions are handed over once the meeting is inside the configured
+  // bundle window. A TMOD assigned earlier will receive them on the normal tick.
+  if (configBool_('INTRO_WORKFLOW_ENABLED') && meetingDate instanceof Date) {
+    const dueDays = Math.max(
+      0,
+      Number(configValue_('INTRO_BUNDLE_DUE_DAYS', '2')) || 2
+    );
+    const daysLeft = Math.round(
+      (startOfDay_(meetingDate) - startOfDay_(new Date())) / 86400000
+    );
+    if (daysLeft >= 0 && daysLeft <= dueDays &&
+        sendConsolidatedIntroductionsIfReady_(meetingNo)) {
+      anySent = true;
+    }
+  }
+
+  // If a theme already exists (for example after a TMOD replacement), refresh
+  // the promotion handoff so VPPR receives the current TMOD + theme pairing.
+  if (String(row[3] || '').trim() && sendThemeAndTmodToVppr_(meetingNo)) {
+    anySent = true;
+  }
+
+  return anySent;
+}
+
+function processLateTmodCatchUps_() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const planner = ss.getSheetByName('VPE Weekly Planner');
+  if (!planner || planner.getLastRow() < 3) return;
+
+  const today = startOfDay_(new Date());
+  const rows = planner.getRange(
+    3, 1, planner.getLastRow() - 2, 28
+  ).getValues();
+
+  rows.forEach(row => {
+    const meetingNo = Number(row[0]);
+    const meetingDate = row[1];
+    const status = String(row[2] || '').trim();
+    const tmod = String(row[18] || '').trim();
+
+    if (!meetingNo || !tmod || !(meetingDate instanceof Date)) return;
+    if (startOfDay_(meetingDate) < today) return;
+    if (['Completed', 'Cancelled'].indexOf(status) !== -1) return;
+
+    sendLateTmodCatchUp_(meetingNo);
   });
 }
 
