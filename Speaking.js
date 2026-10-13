@@ -195,7 +195,9 @@ function reserveSpeechSlot_(meetingNo, member) {
   if (!sheet) return { status: 'NOT_FOUND' };
 
   const lastRow = sheet.getLastRow();
-  const ids = sheet.getRange(3, 1, Math.max(0, lastRow - 2), 1).getValues().flat();
+  const ids = sheet.getRange(
+    3, 1, Math.max(0, lastRow - 2), 1
+  ).getValues().flat();
   const idx = ids.findIndex(v => Number(v) === Number(meetingNo));
   if (idx < 0) return { status: 'NOT_FOUND' };
 
@@ -203,20 +205,25 @@ function reserveSpeechSlot_(meetingNo, member) {
   const row = sheet.getRange(rowNumber, 1, 1, 28).getValues()[0];
   const status = String(row[2] || '');
   if (status === 'Completed' || status === 'Cancelled' ||
-      !(row[1] instanceof Date) || startOfDay_(row[1]) < startOfDay_(new Date())) {
+      !(row[1] instanceof Date) ||
+      startOfDay_(row[1]) < startOfDay_(new Date())) {
     return { status: 'NOT_AVAILABLE' };
   }
 
   const speakerColumns = [7, 11, 15];
   const statusColumns = [9, 13, 17];
-  const existingSpeakers = speakerColumns.map(c => String(row[c - 1] || '').trim());
+  const existingSpeakers = speakerColumns.map(
+    c => String(row[c - 1] || '').trim()
+  );
 
   if (existingSpeakers.indexOf(member) !== -1) {
     return { status: 'ALREADY_SPEAKER' };
   }
 
   for (let i = 0; i < ROLE_DEFS_.length; i++) {
-    const assigned = String(row[ROLE_DEFS_[i].column - 1] || '').trim();
+    const assigned = String(
+      row[ROLE_DEFS_[i].column - 1] || ''
+    ).trim();
     if (assigned === member) {
       return { status: 'HAS_ROLE', roleName: ROLE_DEFS_[i].name };
     }
@@ -234,15 +241,33 @@ function reserveSpeechSlot_(meetingNo, member) {
   sheet.getRange(rowNumber, statusCol).setValue('Planned');
   SpreadsheetApp.flush();
 
+  // If an API/UI meeting already exists for this planner meeting/date,
+  // mirror the booking immediately. A true conflict rolls the planner
+  // write back rather than leaving the two systems inconsistent.
+  try {
+    if (typeof apiMirrorPlannerAssignmentToMeeting_ === 'function') {
+      apiMirrorPlannerAssignmentToMeeting_(
+        'ATK', meetingNo, 'S' + slot, member
+      );
+    }
+  } catch (error) {
+    sheet.getRange(rowNumber, speakerCol).clearContent();
+    sheet.getRange(rowNumber, statusCol).clearContent();
+    SpreadsheetApp.flush();
+    throw error;
+  }
+
   const dateText = row[1] instanceof Date
-    ? Utilities.formatDate(row[1], configValue_('TIMEZONE', 'Asia/Kolkata'), 'EEE, d MMM')
+    ? Utilities.formatDate(
+        row[1], configValue_('TIMEZONE', 'Asia/Kolkata'), 'EEE, d MMM'
+      )
     : String(row[1] || '');
 
   return {
     status: 'BOOKED',
     slot: openIndex + 1,
-    rowNumber,
-    dateText
+    rowNumber:rowNumber,
+    dateText:dateText
   };
 }
 
