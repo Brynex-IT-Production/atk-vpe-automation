@@ -57,6 +57,7 @@ function phase1ScheduledTick() {
   processThemeRequestReminder_();
   if (introWorkflowEnabled) processReadyIntroductionBundles_();
   processReadySpeakerDetailsToTmod_();
+  processDevSpeakerTmodPreviewOnce_();
   if (introWorkflowEnabled) processMemberIntroOnboarding_();
   processEvaluatorNotifications_();
   processMonthlyProgrammePlanning_();
