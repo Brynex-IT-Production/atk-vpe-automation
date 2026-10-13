@@ -31,6 +31,7 @@ function processSpeakingSlotTargeting_() {
     const meetingDate = row[1];
     const status = String(row[2] || '');
     if (!meetingNo || !(meetingDate instanceof Date)) return;
+    if (!meetingAutomationEligible_(meetingNo)) return;
     if (status === 'Completed' || status === 'Cancelled') return;
 
     const daysLeft = Math.round((startOfDay_(meetingDate) - today) / 86400000);
@@ -190,6 +191,7 @@ function handleSpeechSlotSelection_(member, phone, interaction) {
 }
 
 function reserveSpeechSlot_(meetingNo, member) {
+  if (!meetingAutomationEligible_(meetingNo)) return { status: 'NOT_AVAILABLE' };
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const sheet = ss.getSheetByName('VPE Weekly Planner');
   if (!sheet) return { status: 'NOT_FOUND' };
@@ -510,6 +512,7 @@ function availableSpeechMeetings_() {
   const today = startOfDay_(new Date());
   const bookingEnd = speechBookingWindowEnd_(today);
   return rows.filter(row => Number(row[0]) && row[1] instanceof Date &&
+      meetingAutomationEligible_(Number(row[0])) &&
       startOfDay_(row[1]) >= today &&
       startOfDay_(row[1]) <= bookingEnd &&
       !['Completed', 'Cancelled'].includes(String(row[2] || '')) &&
