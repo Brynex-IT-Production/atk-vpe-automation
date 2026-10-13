@@ -435,6 +435,62 @@ function countSuccessfulOutboxByPrefix_(prefix) {
 }
 
 
+function processDevSpeakerInviteTestOnce_() {
+  if (configValue_('SYSTEM_MODE','') !== 'DEV' ||
+      configValue_('WA_SEND_MODE','') !== 'TEST' ||
+      !configBool_('SPEAKING_SLOT_WORKFLOW_ENABLED')) return false;
+
+  const props = PropertiesService.getScriptProperties();
+  const guardKey = 'DEV_SPEAKER_INVITE_TEST_V1';
+  if (props.getProperty(guardKey)) return false;
+
+  const member = configValue_('VPE_MEMBER_NAME','Riyas AF');
+  const phone = normalizePhone_(phoneForMember_(member));
+  if (!member || !phone || !isWhatsAppRecipientAllowed_(phone)) return false;
+
+  const body = speechDateInviteBody_(member);
+  const payload = {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to: phone,
+    type: 'interactive',
+    interactive: {
+      type: 'button',
+      body: {text: body},
+      action: {buttons: [{
+        type: 'reply',
+        reply: {id: 'SPEECH_DATES', title: 'Reserve speech slot'}
+      }]}
+    }
+  };
+
+  const result = sendAutomatedQuickReply_(
+    phone,
+    'SPEECH_INVITE',
+    payload,
+    [member],
+    'SPEECH_DATES'
+  );
+
+  recordWorkflowOutbound_(
+    member, phone, 'SPEECH_INVITE', body, 0, result, guardKey
+  );
+
+  logAutomation_(
+    'Speaking Slot', '', member,
+    'DEV speech-date invitation test',
+    result && result.ok ? 'Sent' : 'Error',
+    result && (result.error || result.channelMode || '') || ''
+  );
+
+  if (result && result.ok) {
+    props.setProperty(guardKey, result.messageId || 'SENT');
+    return true;
+  }
+  return false;
+}
+
+
 /** Invite once for the nearest open meeting; show up to four dates at tap time. */
 function processSpeechDateInvites_() {
   const meetings = availableSpeechMeetings_();
