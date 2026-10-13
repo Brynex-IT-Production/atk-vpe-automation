@@ -166,3 +166,4 @@ jobs:
           assert report.get('forced_enabled_workflows',{}).get('ok') is True, report
           print('SAFE_MASTER_REGRESSION_OK')
           PY
+# Activation kickoff verification 2026-10-13
