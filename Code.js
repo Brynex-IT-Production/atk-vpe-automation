@@ -142,11 +142,23 @@ function doPost(e) {
     // This exists because Apps Script Execution API calls are unreliable from
     // GitHub Actions for this project. The shared verify token plus DEV mode
     // prevents these helpers from being callable in LIVE.
-    if (payload && payload.system_action === 'DEV_MASTER_REGRESSION' &&
-        payload.verify_token === VERIFY_TOKEN &&
-        configValue_('SYSTEM_MODE','') === 'DEV') {
+    if (payload && payload.system_action === 'DEV_MASTER_REGRESSION') {
+      const tokenOk = payload.verify_token === VERIFY_TOKEN;
+      const systemMode = configValue_('SYSTEM_MODE','');
+      if (tokenOk && systemMode === 'DEV') {
+        return ContentService
+          .createTextOutput(JSON.stringify(apiDevMasterRegressionSuite()))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+
       return ContentService
-        .createTextOutput(JSON.stringify(apiDevMasterRegressionSuite()))
+        .createTextOutput(JSON.stringify({
+          ok:false,
+          diagnostic:'DEV_MASTER_REGRESSION_GUARD',
+          action_ok:true,
+          token_ok:Boolean(tokenOk),
+          system_mode:String(systemMode || '')
+        }))
         .setMimeType(ContentService.MimeType.JSON);
     }
 
