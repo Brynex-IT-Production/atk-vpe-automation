@@ -187,15 +187,14 @@ function apiPublicMember_(m) {
 }
 
 function apiListMembers_(clubId) {
-  // V1 reads the existing Member Master. Multi-club storage comes next.
+  // Member roster is small and operationally sensitive. Always read the
+  // current Member Master so UI dropdowns reflect roster/status changes
+  // immediately instead of serving a stale cached subset.
   if (clubId !== API_DEFAULT_CLUB_ID_) throw new Error('Club not provisioned: '+clubId);
-  const cacheKey = apiCacheKey_('members',clubId);
-  const cached = apiCacheGetJson_(cacheKey);
-  if (cached) return cached;
 
   const sh = apiSpreadsheet_().getSheetByName('Member Master');
   if (!sh || sh.getLastRow() < 2) return [];
-  const members = sh.getRange(2,1,sh.getLastRow()-1,4).getValues()
+  return sh.getRange(2,1,sh.getLastRow()-1,4).getValues()
     .filter(r => String(r[3] || '').trim() === 'Active')
     .map(r => ({
       member_id:String(r[0] || '').trim(),
@@ -204,9 +203,6 @@ function apiListMembers_(clubId) {
       status:String(r[3] || '').trim()
     }))
     .filter(m => m.member_id && m.name);
-
-  apiCachePutJson_(cacheKey,members);
-  return members;
 }
 
 
