@@ -1,4 +1,5 @@
 # Planner/API lifecycle, WhatsApp mirror and activation rollback regression gate.
+# Retriggered 2026-10-13 after lifecycle sync implementation.
 name: DEV Safe Regression
 
 on:
