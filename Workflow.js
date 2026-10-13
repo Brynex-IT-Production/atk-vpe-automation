@@ -2127,7 +2127,7 @@ function verifySpeakerAssignment_(meetingNo, slotRef, member) {
   return { ok: assigned === member, sheet, rowNumber, assigned, slot, column };
 }
 
-function processSpeakerDetailPrompts_() {
+function processSpeakerDetailPrompts_(onlyMeetingNo) {
   if (!configBool_('SPEAKER_DETAILS_WORKFLOW_ENABLED')) return;
 
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -2142,6 +2142,8 @@ function processSpeakerDetailPrompts_() {
     const meetingNo = Number(row[1]);
     const member = String(row[3] || '').trim();
     const related = String(row[4] || '').trim();
+
+    if (onlyMeetingNo && Number(meetingNo) !== Number(onlyMeetingNo)) return;
 
     if (String(row[2]) !== 'SPEAKER_DETAILS' || String(row[5]) !== 'Pending' ||
         !(row[6] instanceof Date) || row[6] > new Date()) return;
@@ -2650,7 +2652,7 @@ function handlePlannerEvaluatorEdit_(e) {
 }
 
 
-function processAssignedRolePrompts_() {
+function processAssignedRolePrompts_(onlyMeetingNo) {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const tasks = ss.getSheetByName('Automation Tasks');
   if (!tasks || tasks.getLastRow() < 2) return;
@@ -2661,6 +2663,7 @@ function processAssignedRolePrompts_() {
         String(row[5] || '') !== 'Pending' ||
         !(row[6] instanceof Date) || row[6] > new Date()) return;
     const meetingNo = Number(row[1]);
+    if (onlyMeetingNo && Number(meetingNo) !== Number(onlyMeetingNo)) return;
     const member = String(row[3] || '').trim();
     const related = String(row[4] || '').trim();
     const phone = phoneForMember_(member);
@@ -2696,7 +2699,7 @@ function grammarDetailsRequestBody_(member, meetingNo, isReminder, stage) {
  * No Meta template is used. If the WhatsApp customer-service window is not
  * open, this waits rather than sending anything out of policy.
  */
-function processMissingGrammarAssignmentPrompts_() {
+function processMissingGrammarAssignmentPrompts_(onlyMeetingNo) {
   if (!configBool_('GRAMMARIAN_WORKFLOW_ENABLED')) return;
 
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -2710,6 +2713,7 @@ function processMissingGrammarAssignmentPrompts_() {
         String(row[5] || '') !== 'Pending') return;
 
     const meetingNo = Number(row[1]);
+    if (onlyMeetingNo && Number(meetingNo) !== Number(onlyMeetingNo)) return;
     const member = String(row[3] || '').trim();
     const related = String(row[4] || '').trim();
     if (!meetingNo || !member || related !== 'GRM') return;
