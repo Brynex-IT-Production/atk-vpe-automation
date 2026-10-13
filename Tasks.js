@@ -133,14 +133,34 @@ function processThemeAwareGrammarCollection_() {
     const phone = normalizePhone_(phoneForMember_(grammarian));
     if (!phone || !isWhatsAppRecipientAllowed_(phone)) return;
     if (!hasOpenWhatsAppServiceWindow_(phone)) {
-      logAutomation_(
-        'Grammarian', meetingNo, grammarian,
-        theme
-          ? 'Theme ready; waiting for WhatsApp re-entry window'
-          : 'T-3 fallback reached; waiting for WhatsApp re-entry window',
-        'Deferred',
-        theme || 'Theme not received'
-      );
+      const reentryKey = ['GRAMMAR_REENTRY', meetingNo, grammarian, stage].join('|');
+      if (!hasReminderBeenSent_(reentryKey)) {
+        const templateName = 'atk_grammar_request';
+        if (!isApprovedTemplate_(templateName)) {
+          logAutomation_(
+            'Grammarian', meetingNo, grammarian,
+            'Approved Grammarian re-entry template unavailable',
+            'Deferred', templateName
+          );
+          return;
+        }
+
+        const templateResult = sendWhatsAppTemplate_(
+          phone,
+          templateName,
+          [grammarian, meetingNo]
+        );
+        recordWorkflowOutbound_(
+          grammarian,
+          phone,
+          'GRAMMAR_REENTRY',
+          'Approved Grammarian request template',
+          meetingNo,
+          templateResult,
+          reentryKey
+        );
+        if (!templateResult || !templateResult.ok) return;
+      }
       return;
     }
 
