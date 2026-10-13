@@ -435,6 +435,78 @@ function countSuccessfulOutboxByPrefix_(prefix) {
 }
 
 
+function processDevSpeakerDetailsTestOnce_() {
+  if (configValue_('SYSTEM_MODE','') !== 'DEV' ||
+      configValue_('WA_SEND_MODE','') !== 'TEST' ||
+      !configBool_('SPEAKER_DETAILS_WORKFLOW_ENABLED')) return false;
+
+  const props = PropertiesService.getScriptProperties();
+  const guardKey = 'DEV_SPEAKER_DETAILS_TEST_455_V1';
+  if (props.getProperty(guardKey)) return false;
+
+  const meetingNo = 455;
+  const related = 'S1';
+  const member = configValue_('VPE_MEMBER_NAME','Riyas AF');
+  const phone = normalizePhone_(phoneForMember_(member));
+  if (!phone || !isWhatsAppRecipientAllowed_(phone)) return false;
+
+  const assignment = verifySpeakerAssignment_(meetingNo, related, member);
+  if (!assignment || !assignment.ok) return false;
+
+  if (activeConversation_(phone)) clearConversation_(phone);
+
+  const body =
+    'Hi ' + member + ',\n\n' +
+    'You’re confirmed as a speaker for ATK Meeting ' + meetingNo + ' 🎤\n\n' +
+    'Please share your speech details in the format below. Here’s an example:\n\n' +
+    'Path: Presentation Mastery\n' +
+    'Level: 1\n' +
+    'Project: 3\n' +
+    'Title: My Ambition\n' +
+    'Time: 7 minutes';
+
+  const result = sendAutomatedText_(
+    phone,
+    'SPEAKER_DETAILS',
+    body,
+    [member, meetingNo]
+  );
+  if (!result || !result.ok) return false;
+
+  const prodKey = ['SPEAKER_DETAILS_PROMPT', meetingNo, related, member].join('|');
+  recordWorkflowOutbound_(
+    member, phone, 'SPEAKER_DETAILS_PROMPT',
+    body, meetingNo, result, prodKey
+  );
+
+  const copyBody =
+    'Please copy the message below, replace the details with yours, and send it back:\n\n' +
+    'Path:\n' +
+    'Level:\n' +
+    'Project:\n' +
+    'Title:\n' +
+    'Time:';
+
+  const copyResult = sendWhatsAppText_(phone, copyBody);
+  if (!copyResult || !copyResult.ok) return false;
+
+  setConversation_(phone, {
+    kind: 'SPEAKER_DETAILS',
+    meetingNo: meetingNo,
+    related: related,
+    member: member
+  });
+
+  props.setProperty(guardKey, copyResult.messageId || 'SENT');
+  logAutomation_(
+    'Speaker Details', meetingNo, member,
+    'DEV immediate speaker-details test',
+    'Sent', related
+  );
+  return true;
+}
+
+
 function processDevSpeakerInviteTestOnce_() {
   if (configValue_('SYSTEM_MODE','') !== 'DEV' ||
       configValue_('WA_SEND_MODE','') !== 'TEST' ||
