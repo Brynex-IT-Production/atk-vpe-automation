@@ -850,6 +850,78 @@ function apiRunLateTmodCatchUpSafely_(meetingNo) {
   }
 }
 
+function apiRunMeetingActivationKickoffSafely_(meetingNo) {
+  const report = {
+    meeting_no:Number(meetingNo || 0),
+    speaker_details:false,
+    assigned_role_prompts:false,
+    grammar_prompt:false,
+    evaluator_pairing:false,
+    role_invites:null
+  };
+  if (!report.meeting_no) return report;
+
+  const run = (label, fn) => {
+    try {
+      return fn();
+    } catch (error) {
+      if (typeof logAutomation_ === 'function') {
+        logAutomation_(
+          'Meeting Activation',
+          report.meeting_no,
+          '',
+          label,
+          'Error',
+          String(error && error.message || error)
+        );
+      }
+      return false;
+    }
+  };
+
+  if (typeof processSpeakerDetailPrompts_ === 'function') {
+    run('Start speaker detail collection', () => {
+      processSpeakerDetailPrompts_(report.meeting_no);
+      report.speaker_details = true;
+      return true;
+    });
+  }
+
+  if (typeof processAssignedRolePrompts_ === 'function') {
+    run('Start assigned-role collection', () => {
+      processAssignedRolePrompts_(report.meeting_no);
+      report.assigned_role_prompts = true;
+      return true;
+    });
+  }
+
+  if (typeof processMissingGrammarAssignmentPrompts_ === 'function') {
+    run('Start Grammarian collection', () => {
+      processMissingGrammarAssignmentPrompts_(report.meeting_no);
+      report.grammar_prompt = true;
+      return true;
+    });
+  }
+
+  if (typeof processEvaluatorNotificationsForMeeting_ === 'function') {
+    run('Start evaluator coordination', () => {
+      processEvaluatorNotificationsForMeeting_(report.meeting_no);
+      report.evaluator_pairing = true;
+      return true;
+    });
+  }
+
+  if (typeof sendVacantRoleInvitesNow_ === 'function') {
+    report.role_invites = run(
+      'Send vacant-role invitations',
+      () => sendVacantRoleInvitesNow_(report.meeting_no)
+    );
+  }
+
+  return report;
+}
+
+
 function apiBridgePlannedMeetingIfEnabled_(clubId,meetingId) {
   const props = PropertiesService.getScriptProperties();
   const autoSync = String(props.getProperty(API_AUTO_SYNC_PLANNED_PROPERTY_) || '').toUpperCase() === 'TRUE';
@@ -994,9 +1066,9 @@ function apiActivateMeeting_(clubId,meetingId) {
       }
       SpreadsheetApp.flush();
       apiInvalidateMeetingCaches_(clubId,meetingId);
-      apiRunLateTmodCatchUpSafely_(
-        synced && synced.planner_meeting_no
-      );
+      const activatedMeetingNo = synced && synced.planner_meeting_no;
+      apiRunLateTmodCatchUpSafely_(activatedMeetingNo);
+      apiRunMeetingActivationKickoffSafely_(activatedMeetingNo);
     } catch (error) {
       // Activation is atomic: a failed reconciliation/sync must not leave
       // the meeting stranded in READY_FOR_SYNC.
