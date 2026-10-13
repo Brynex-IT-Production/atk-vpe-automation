@@ -1837,6 +1837,18 @@ function appendSubmission_(data) {
     '',
     values[4] || ''
   ]);
+
+  // The fifth submission value is used for speaker Time. Sheets can coerce
+  // strings such as "07:30" into a Date/time serial, which breaks a later
+  // TMOD catch-up replay. Force that cell back to plain text after append.
+  if (values.length >= 5 && values[4] !== '' && values[4] !== null &&
+      values[4] !== undefined) {
+    const lastRow = sheet.getLastRow();
+    sheet.getRange(lastRow, 15)
+      .setNumberFormat('@')
+      .setValue(String(values[4]));
+  }
+
   return true;
 }
 
@@ -3028,6 +3040,18 @@ function sendSpeakerDetailsToTmod_(meetingNo, member, slotRef, parts) {
   return Boolean(result && result.ok);
 }
 
+function storedSubmissionText_(value) {
+  if (Object.prototype.toString.call(value) === '[object Date]' &&
+      !isNaN(value.getTime())) {
+    return Utilities.formatDate(
+      value,
+      configValue_('TIMEZONE', 'Asia/Kolkata'),
+      'HH:mm'
+    );
+  }
+  return String(value === null || value === undefined ? '' : value).trim();
+}
+
 function sendStoredSpeakerDetailsToTmod_(meetingNo) {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const subs = ss.getSheetByName('WA Submissions');
@@ -3042,7 +3066,13 @@ function sendStoredSpeakerDetailsToTmod_(meetingNo) {
       Number(row[1]),
       String(row[2] || ''),
       String(row[4] || ''),
-      [row[5], row[6], row[7], row[8], row[14]].map(String)
+      [
+        storedSubmissionText_(row[5]),
+        storedSubmissionText_(row[6]),
+        storedSubmissionText_(row[7]),
+        storedSubmissionText_(row[8]),
+        storedSubmissionText_(row[14])
+      ]
     );
     if (sent) anySent = true;
   });
@@ -3060,7 +3090,13 @@ function processReadySpeakerDetailsToTmod_() {
       Number(row[1]),
       String(row[2] || ''),
       String(row[4] || ''),
-      [row[5], row[6], row[7], row[8], row[14]].map(String)
+      [
+        storedSubmissionText_(row[5]),
+        storedSubmissionText_(row[6]),
+        storedSubmissionText_(row[7]),
+        storedSubmissionText_(row[8]),
+        storedSubmissionText_(row[14])
+      ]
     );
   });
 }
