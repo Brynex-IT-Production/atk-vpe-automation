@@ -579,6 +579,111 @@ function processVacantRoleReminders_() {
   });
 }
 
+function sendVacantRoleInvitesNow_(meetingNo) {
+  if (!configBool_('ROLE_SELECTION_ENABLED')) return {sent:0,eligible:0,open_roles:0};
+
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const planner = ss.getSheetByName('VPE Weekly Planner');
+  const members = ss.getSheetByName('Member Master');
+  if (!planner || !members) return {sent:0,eligible:0,open_roles:0};
+
+  const lastRow = planner.getLastRow();
+  if (lastRow < 3) return {sent:0,eligible:0,open_roles:0};
+
+  const ids = planner.getRange(3,1,lastRow-2,1).getValues().flat();
+  const idx = ids.findIndex(v => Number(v) === Number(meetingNo));
+  if (idx < 0) return {sent:0,eligible:0,open_roles:0};
+
+  const row = planner.getRange(idx+3,1,1,28).getValues()[0];
+  const openRoles = availableRoleDefs_(row);
+  if (!openRoles.length) return {sent:0,eligible:0,open_roles:0};
+
+  const speakers = new Set(
+    [row[6],row[10],row[14]]
+      .map(v => String(v || '').trim())
+      .filter(Boolean)
+  );
+  const assigned = new Set(
+    ROLE_DEFS_
+      .map(def => String(row[def.column - 1] || '').trim())
+      .filter(Boolean)
+  );
+
+  const memberRows = members.getRange(
+    2,1,Math.max(0,members.getLastRow()-1),4
+  ).getValues();
+
+  const eligible = memberRows
+    .filter(mr => String(mr[3] || '').trim() === 'Active')
+    .map(mr => ({
+      name:String(mr[1] || '').trim(),
+      phone:normalizePhone_(mr[2] || '')
+    }))
+    .filter(m =>
+      m.name && m.phone &&
+      !speakers.has(m.name) &&
+      !assigned.has(m.name)
+    );
+
+  let sent = 0;
+  eligible.forEach(member => {
+    if (!isWhatsAppRecipientAllowed_(member.phone)) return;
+
+    const idempotency = [
+      'ROLE_ACTIVATION',
+      meetingNo,
+      member.name
+    ].join('|');
+    if (hasReminderBeenSent_(idempotency)) return;
+
+    const text =
+      'Hi,\n\n' +
+      'Hope you are attending the meeting this week.\n\n' +
+      'Please tap below to see the available roles for ATK Meeting No. ' +
+      meetingNo + '.\n\nThank you.';
+
+    const result = sendAutomatedQuickReply_(
+      member.phone,
+      'ROLE_REMINDER',
+      {
+        messaging_product:'whatsapp',
+        recipient_type:'individual',
+        to:member.phone,
+        type:'interactive',
+        interactive:{
+          type:'button',
+          body:{text:text},
+          action:{
+            buttons:[{
+              type:'reply',
+              reply:{id:'ROLE_MENU',title:'View roles'}
+            }]
+          }
+        }
+      },
+      [meetingNo],
+      'ROLE_MENU|' + meetingNo
+    );
+
+    recordReminderSend_(
+      idempotency,
+      member,
+      meetingNo,
+      result,
+      text
+    );
+
+    if (result && result.ok) sent++;
+  });
+
+  return {
+    sent:sent,
+    eligible:eligible.length,
+    open_roles:openRoles.length
+  };
+}
+
+
 function hasReminderBeenSent_(idempotencyKey) {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const sheet = ss.getSheetByName('WA Outbox');
