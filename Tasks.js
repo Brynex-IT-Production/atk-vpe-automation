@@ -44,6 +44,7 @@ function phase1ScheduledTick() {
   processSpeakerDetailPrompts_();
   processSpeakerDetailReminders_();
   processAssignedRolePrompts_();
+  processLateTmodCatchUps_();
   processVpprThemeHandoffs_();
   // Run scheduled reminders first, then catch up any pending Grammarian whose
   // original assignment prompt was never sent (for example, manual planner entry).
