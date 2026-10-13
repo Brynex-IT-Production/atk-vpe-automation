@@ -435,6 +435,46 @@ function countSuccessfulOutboxByPrefix_(prefix) {
 }
 
 
+function processDevSpeakerIntroTestOnce_() {
+  if (configValue_('SYSTEM_MODE','') !== 'DEV' ||
+      configValue_('WA_SEND_MODE','') !== 'TEST' ||
+      !configBool_('INTRO_WORKFLOW_ENABLED')) return false;
+
+  const props = PropertiesService.getScriptProperties();
+  const guardKey = 'DEV_SPEAKER_INTRO_TEST_455_V1';
+  if (props.getProperty(guardKey)) return false;
+
+  const meetingNo = 455;
+  const related = 'S1';
+  const member = configValue_('VPE_MEMBER_NAME','Riyas AF');
+  const phone = normalizePhone_(phoneForMember_(member));
+  if (!phone || !isWhatsAppRecipientAllowed_(phone)) return false;
+
+  const assignment = verifySpeakerAssignment_(meetingNo, related, member);
+  if (!assignment || !assignment.ok) return false;
+
+  const task = findPendingTaskForMember_('INTRO', member, meetingNo, related);
+  if (!task) return false;
+
+  const active = activeConversation_(phone);
+  if (active) clearConversation_(phone);
+
+  promptSpeakerIntro_(member, phone, meetingNo, related);
+
+  const key = ['INTRO_PROMPT', meetingNo, related, member].join('|');
+  if (hasReminderBeenSent_(key)) {
+    props.setProperty(guardKey, 'SENT');
+    logAutomation_(
+      'Introduction', meetingNo, member,
+      'DEV immediate speaker intro test',
+      'Sent', related
+    );
+    return true;
+  }
+  return false;
+}
+
+
 function processDevSpeakerDetailsTestOnce_() {
   if (configValue_('SYSTEM_MODE','') !== 'DEV' ||
       configValue_('WA_SEND_MODE','') !== 'TEST' ||
