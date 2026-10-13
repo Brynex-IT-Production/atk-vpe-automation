@@ -691,76 +691,12 @@ function reserveRole_(meetingNo, roleDef, member) {
 }
 
 function syncBookedRoleToApiMeeting_(meetingNo, roleCode, memberName) {
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  const meetings = ss.getSheetByName('API Meetings');
-  const items = ss.getSheetByName('API Meeting Items');
-  if (!meetings || !items || meetings.getLastRow() < 2) {
-    return {synced:false, reason:'API_MODEL_NOT_PRESENT'};
+  if (typeof apiMirrorPlannerAssignmentToMeeting_ !== 'function') {
+    return {synced:false, reason:'API_HELPER_NOT_AVAILABLE'};
   }
-
-  const meetingRows = meetings.getRange(
-    2,1,meetings.getLastRow()-1,7
-  ).getValues();
-  const meetingIndex = meetingRows.findIndex(r =>
-    String(r[1] || '') === 'ATK' &&
-    Number(r[6]) === Number(meetingNo)
+  return apiMirrorPlannerAssignmentToMeeting_(
+    'ATK', meetingNo, roleCode, memberName
   );
-  if (meetingIndex < 0) {
-    return {synced:false, reason:'NO_API_MEETING'};
-  }
-
-  const meetingId = String(meetingRows[meetingIndex][0] || '');
-  if (!meetingId) throw new Error('API meeting ID missing for Meeting ' + meetingNo);
-
-  const memberSheet = ss.getSheetByName('Member Master');
-  if (!memberSheet || memberSheet.getLastRow() < 2) {
-    throw new Error('Member Master missing while syncing WhatsApp booking.');
-  }
-  const memberRows = memberSheet.getRange(
-    2,1,memberSheet.getLastRow()-1,4
-  ).getValues();
-  const memberRow = memberRows.find(r =>
-    String(r[1] || '').trim() === String(memberName || '').trim() &&
-    String(r[3] || '').trim() === 'Active'
-  );
-  if (!memberRow) {
-    throw new Error('Active member not found while syncing WhatsApp booking: ' + memberName);
-  }
-  const memberId = String(memberRow[0] || '');
-
-  const itemRows = items.getLastRow() >= 2
-    ? items.getRange(2,1,items.getLastRow()-1,11).getValues()
-    : [];
-  const itemIndex = itemRows.findIndex(r =>
-    String(r[1] || '') === meetingId &&
-    String(r[2] || '') === 'ATK' &&
-    String(r[5] || '') === String(roleCode || '')
-  );
-  if (itemIndex < 0) {
-    throw new Error(
-      'API role item missing for Meeting ' + meetingNo + ': ' + roleCode
-    );
-  }
-
-  const itemRowNo = itemIndex + 2;
-  const now = new Date();
-  items.getRange(itemRowNo,8,1,2).setValues([[memberId, memberName]]);
-  items.getRange(itemRowNo,11).setValue(now);
-
-  const meetingRowNo = meetingIndex + 2;
-  meetings.getRange(meetingRowNo,6).setValue(now);
-  SpreadsheetApp.flush();
-
-  if (typeof apiInvalidateMeetingCaches_ === 'function') {
-    apiInvalidateMeetingCaches_('ATK', meetingId);
-  }
-
-  return {
-    synced:true,
-    meeting_id:meetingId,
-    role_code:roleCode,
-    member_id:memberId
-  };
 }
 
 function findMeetingForRoleList_(meetingNo, member) {
