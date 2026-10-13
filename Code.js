@@ -158,12 +158,7 @@ function doPost(e) {
       payload.system_action === 'TEST_ROLE_TEMPLATE_ONLY' &&
       payload.verify_token === VERIFY_TOKEN
     ) {
-      const template = submitRoleReminderV3_();
-      const result = {
-        sent: Boolean(template && template.ok),
-        meeting_no: 453,
-        template: template
-      };
+      const result = sendDevRoleReminderForNextVacancy_();
 
       return ContentService
         .createTextOutput(JSON.stringify(result))
