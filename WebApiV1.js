@@ -949,10 +949,6 @@ function apiActivateMeeting_(clubId,meetingId) {
     throw err;
   }
 
-  // During DEV UI integration, Activate is one atomic backend operation:
-  // API plan -> legacy planner -> programme/tasks -> ACTIVE.
-  // Keep LIVE on the previous READY_FOR_SYNC safety boundary until explicit
-  // production approval.
   if (configValue_('SYSTEM_MODE','') === 'DEV') {
     const props = PropertiesService.getScriptProperties();
     const originalAllow = props.getProperty(API_ALLOW_LEGACY_SYNC_PROPERTY_);
@@ -961,20 +957,35 @@ function apiActivateMeeting_(clubId,meetingId) {
       const synced = apiSyncMeetingToLegacyPlanner_(clubId,meetingId);
 
       if (typeof syncProgrammeSlots_ === 'function') syncProgrammeSlots_();
-      if (typeof syncPhase1Tasks_ === 'function' && configBool_('TASK_ENGINE_ENABLED')) {
+      if (typeof syncPhase1Tasks_ === 'function' &&
+          configBool_('TASK_ENGINE_ENABLED')) {
         syncPhase1Tasks_();
       }
 
       sheets.meetings.getRange(meetingRow,4).setValue('ACTIVE');
       sheets.meetings.getRange(meetingRow,6).setValue(new Date());
       if (synced && synced.planner_meeting_no) {
-        sheets.meetings.getRange(meetingRow,7).setValue(synced.planner_meeting_no);
+        sheets.meetings.getRange(meetingRow,7)
+          .setValue(synced.planner_meeting_no);
       }
       SpreadsheetApp.flush();
       apiInvalidateMeetingCaches_(clubId,meetingId);
+    } catch (error) {
+      // Activation is atomic: a failed reconciliation/sync must not leave
+      // the meeting stranded in READY_FOR_SYNC.
+      sheets.meetings.getRange(meetingRow,4).setValue(
+        meeting.status || 'PLANNED'
+      );
+      sheets.meetings.getRange(meetingRow,6).setValue(new Date());
+      SpreadsheetApp.flush();
+      apiInvalidateMeetingCaches_(clubId,meetingId);
+      throw error;
     } finally {
-      if (originalAllow===null) props.deleteProperty(API_ALLOW_LEGACY_SYNC_PROPERTY_);
-      else props.setProperty(API_ALLOW_LEGACY_SYNC_PROPERTY_,originalAllow);
+      if (originalAllow===null) {
+        props.deleteProperty(API_ALLOW_LEGACY_SYNC_PROPERTY_);
+      } else {
+        props.setProperty(API_ALLOW_LEGACY_SYNC_PROPERTY_,originalAllow);
+      }
     }
   }
 
@@ -3290,6 +3301,38 @@ function apiDevPlannerLifecycleSelfTest_() {
       );
     }
     check('true_assignment_conflict_is_blocked', conflictBlocked);
+
+    // Force the conflicting API value internally, then prove activation
+    // rejects it and rolls status back instead of stranding READY_FOR_SYNC.
+    const forced = apiGetMeeting_(clubId,meetingId);
+    const forcedItems = forced.items.map(x => Object.assign({},x));
+    const forcedGrm = forcedItems.find(x => x.code === 'GRM');
+    forcedGrm.member_id = members[3].member_id;
+    forcedGrm.member_name = members[3].name;
+    apiReplaceMeetingItems_(
+      apiEnsureSheets_().items,clubId,meetingId,forcedItems
+    );
+    apiInvalidateMeetingCaches_(clubId,meetingId);
+
+    let activationConflictBlocked = false;
+    try {
+      apiActivateMeeting_(clubId,meetingId);
+    } catch (error) {
+      activationConflictBlocked = Boolean(
+        error && error.apiCode === 'SYNC_CONFLICT'
+      );
+    }
+    check(
+      'activation_conflict_is_blocked',
+      activationConflictBlocked
+    );
+
+    const afterFailedActivation = apiGetMeeting_(clubId,meetingId);
+    check(
+      'failed_activation_rolls_status_back',
+      afterFailedActivation.status === 'DRAFT',
+      afterFailedActivation.status
+    );
 
     return {
       ok:checks.every(x => x.ok),
