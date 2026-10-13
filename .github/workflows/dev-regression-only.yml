@@ -69,6 +69,6 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          clasp run apiDevMasterRegressionSuite --dev | tee /tmp/regression.txt
+          clasp run apiDevMasterRegressionSuite | tee /tmp/regression.txt
           grep -q '"ok":true' /tmp/regression.txt || grep -q '"ok": true' /tmp/regression.txt
           grep -q 'grammarian_parser' /tmp/regression.txt
