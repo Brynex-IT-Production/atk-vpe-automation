@@ -2015,6 +2015,9 @@ function handleSpeakerDetailsSubmission_(member, phone, requestedMeetingNo, body
   );
 
   sendSpeakerDetailsToTmod_(task.meetingNo, member, task.related, parts);
+  if (configBool_('INTRO_WORKFLOW_ENABLED')) {
+    promptSpeakerIntro_(member, phone, task.meetingNo, task.related);
+  }
   processEvaluatorNotificationsForMeeting_(task.meetingNo);
 }
 
