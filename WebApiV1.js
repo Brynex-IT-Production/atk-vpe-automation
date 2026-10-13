@@ -3067,6 +3067,56 @@ function apiDevRoleWorkflowMatrixSelfTest(forceAllWorkflows) {
         text.indexOf('Title: Late TMOD Speech')>=0 &&
         text.indexOf('Time: 07:30')>=0,
         'captured='+captures.length);
+
+      // Replacement-TMOD regression:
+      // 1) TMOD A (VPE) has already received the stored handoffs above.
+      // 2) Swap the planner to a different active member.
+      // 3) Allow that member's phone only in this invocation's in-memory config.
+      // 4) Confirm TMOD B receives the same stored handoffs.
+      // 5) Replay once more and prove idempotency suppresses duplicates.
+      const replacementTmod=members.find(m=>
+        m && m.name!==vpe && normalizePhone_(m.whatsapp)
+      );
+      check('TMOD_replacement_candidate_available',Boolean(replacementTmod));
+
+      const replacementPhone=normalizePhone_(replacementTmod.whatsapp);
+      const currentAllowlist=String(configValue_('WA_TEST_RECIPIENTS','') || '');
+      const replacementConfig=Object.assign({},getConfigMap_());
+      replacementConfig.WA_TEST_RECIPIENTS=[
+        currentAllowlist,
+        replacementPhone
+      ].filter(Boolean).join(',');
+      CONFIG_CACHE_=replacementConfig;
+
+      planner.getRange(plannerRowNo,19).setValue(replacementTmod.name);
+
+      const replacementCaptures=[];
+      DEV_OUTBOUND_CAPTURE_=replacementCaptures;
+      sendLateTmodCatchUp_(meetingNo);
+      DEV_OUTBOUND_CAPTURE_=null;
+
+      const replacementText=payloadText_(replacementCaptures);
+
+      if (flags.grammarian_workflow_enabled) {
+        check('TMOD_replacement_grammar_handoff_generated',
+          replacementText.indexOf('Word of the Day: Resilient')>=0 &&
+          replacementText.indexOf('Idiom of the Day: Once in a blue moon')>=0,
+          'captured='+replacementCaptures.length);
+      }
+
+      check('TMOD_replacement_speaker_handoff_generated',
+        replacementText.indexOf('Title: Late TMOD Speech')>=0 &&
+        replacementText.indexOf('Time: 07:30')>=0,
+        'captured='+replacementCaptures.length);
+
+      const duplicateCaptures=[];
+      DEV_OUTBOUND_CAPTURE_=duplicateCaptures;
+      sendLateTmodCatchUp_(meetingNo);
+      DEV_OUTBOUND_CAPTURE_=null;
+
+      check('TMOD_replacement_duplicate_handoffs_suppressed',
+        duplicateCaptures.length===0,
+        'captured='+duplicateCaptures.length);
     }
 
     if (code==='GRM') {
