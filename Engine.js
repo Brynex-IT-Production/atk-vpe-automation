@@ -443,6 +443,7 @@ function findNextRoleSelectionMeeting_(member) {
     const status = String(row[2] || '');
 
     if (!meetingNo || !(meetingDate instanceof Date)) continue;
+    if (!meetingAutomationEligible_(meetingNo)) continue;
     const d = startOfDay_(meetingDate);
     if (d < today || d > latest) continue;
     if (status === 'Completed' || status === 'Cancelled') continue;
@@ -640,6 +641,7 @@ function handleRoleSelection_(member, phone, interaction) {
 }
 
 function reserveRole_(meetingNo, roleDef, member) {
+  if (!meetingAutomationEligible_(meetingNo)) return { status: 'NOT_AVAILABLE' };
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const sheet = ss.getSheetByName('VPE Weekly Planner');
   const lastRow = sheet.getLastRow();
@@ -705,6 +707,7 @@ function syncBookedRoleToApiMeeting_(meetingNo, roleCode, memberName) {
 }
 
 function findMeetingForRoleList_(meetingNo, member) {
+  if (!meetingAutomationEligible_(meetingNo)) return null;
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const sheet = ss.getSheetByName('VPE Weekly Planner');
   const rowCount = Math.max(0, sheet.getLastRow() - 2);
