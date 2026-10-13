@@ -143,6 +143,13 @@ function apiHandleRequest_(payload) {
         return {status:200,data:apiClubBootstrap_(clubId)};
       case 'meeting.create':
         return {status:201,data:apiCreateMeeting_(clubId,payload)};
+      case 'meeting.ensure':
+        return {
+          status:200,
+          data:apiEnsureMeetingForPlanner_(
+            clubId,Number(payload.planner_meeting_no || 0)
+          )
+        };
       case 'meeting.get':
         return {status:200,data:apiMeetingDetail_(clubId,String(payload.meeting_id || ''))};
       case 'meetings.list':
@@ -564,6 +571,50 @@ function apiMirrorPlannerAssignmentToMeeting_(clubId, meetingNo, code, memberNam
     code:String(code || ''),
     member_id:member.member_id
   };
+}
+
+
+function apiEnsureMeetingForPlanner_(clubId, meetingNo) {
+  const wantedNo = Number(meetingNo || 0);
+  if (!wantedNo) {
+    const e = new Error('planner_meeting_no is required');
+    e.apiCode = 'BAD_REQUEST';
+    throw e;
+  }
+
+  const existing = apiFindMeetingForPlannerMeeting_(clubId,wantedNo);
+  if (existing) {
+    return apiGetMeeting_(clubId,String(existing.values[0] || ''));
+  }
+
+  const planner = apiSpreadsheet_().getSheetByName('VPE Weekly Planner');
+  if (!planner || planner.getLastRow() < 3) {
+    const e = new Error('Planner meeting not found: ' + wantedNo);
+    e.apiCode = 'NOT_FOUND';
+    throw e;
+  }
+
+  const ids = planner.getRange(
+    3,1,planner.getLastRow()-2,1
+  ).getValues().flat();
+  const idx = ids.findIndex(v => Number(v) === wantedNo);
+  if (idx < 0) {
+    const e = new Error('Planner meeting not found: ' + wantedNo);
+    e.apiCode = 'NOT_FOUND';
+    throw e;
+  }
+
+  const date = planner.getRange(idx+3,2).getValue();
+  if (!(date instanceof Date)) {
+    const e = new Error('Planner meeting date is missing for Meeting ' + wantedNo);
+    e.apiCode = 'BAD_REQUEST';
+    throw e;
+  }
+
+  const dateText = Utilities.formatDate(
+    date, configValue_('TIMEZONE','Asia/Kolkata'), 'yyyy-MM-dd'
+  );
+  return apiCreateMeeting_(clubId,{meeting_date:dateText});
 }
 
 
@@ -3155,7 +3206,7 @@ function apiDevPlannerLifecycleSelfTest_() {
 
   let meetingId = '';
   try {
-    const created = apiCreateMeeting_(clubId,{meeting_date:dateText});
+    const created = apiEnsureMeetingForPlanner_(clubId,meetingNo);
     meetingId = created.meeting_id;
 
     const byCode = {};
