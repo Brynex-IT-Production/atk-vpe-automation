@@ -122,6 +122,14 @@ function handleGuidedReply_(member, phone, text, messageId) {
   }
 
   if (kind === 'GRAMMAR') {
+    const combinedGrammar = parseGrammarCombinedBlock_(answer);
+    if (combinedGrammar.recognized >= 6) {
+      handleCombinedGrammarSubmission_(
+        member, phone, n, combinedGrammar, messageId
+      );
+      return true;
+    }
+
     if (state.data && state.data.pendingImage) {
       if (!/^(WORD|IDIOM)$/i.test(answer)) {
         sendWhatsAppText_(phone, 'Please reply WORD or IDIOM to label the image.');
