@@ -42,11 +42,8 @@ function phase1ScheduledTick() {
   syncPhase1Tasks_();
   processVacantRoleReminders_();
   processSpeakerDetailPrompts_();
-  processDevSpeakerDetailsTestOnce_();
-  processDevSpeakerIntroTestOnce_();
   processSpeakerDetailReminders_();
   processAssignedRolePrompts_();
-  processGrammarFlowTestStartOnce_();
   processVpprThemeHandoffs_();
   // Run scheduled reminders first, then catch up any pending Grammarian whose
   // original assignment prompt was never sent (for example, manual planner entry).
@@ -57,11 +54,9 @@ function phase1ScheduledTick() {
   processThemeRequestReminder_();
   if (introWorkflowEnabled) processReadyIntroductionBundles_();
   processReadySpeakerDetailsToTmod_();
-  processDevSpeakerTmodPreviewOnce_();
   if (introWorkflowEnabled) processMemberIntroOnboarding_();
   processEvaluatorNotifications_();
   processMonthlyProgrammePlanning_();
-  processDevSpeakerInviteTestOnce_();
   processSpeakingSlotTargeting_();
   updateControlCenterReadiness_();
   processAgendaApprovalAutomation_();
