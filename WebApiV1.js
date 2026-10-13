@@ -160,7 +160,10 @@ function apiHandleRequest_(payload) {
     }
   } catch (err) {
     const code = String(err && err.apiCode || 'INTERNAL_ERROR');
-    const clientCodes = ['BAD_REQUEST','NOT_FOUND','MEETING_NOT_READY','LEGACY_SYNC_DISABLED'];
+    const clientCodes = [
+      'BAD_REQUEST','NOT_FOUND','MEETING_NOT_READY','LEGACY_SYNC_DISABLED',
+      'SYNC_CONFLICT','SYNC_MEMBER_NOT_FOUND'
+    ];
     const status = code === 'NOT_FOUND' ? 404 : (clientCodes.indexOf(code) >= 0 ? 400 : 500);
     return {status:status,error:{
       code:code,
@@ -354,17 +357,257 @@ function apiNewId_(prefix) {
   return prefix+'_'+Utilities.getUuid().replace(/-/g,'').slice(0,16).toUpperCase();
 }
 
+function apiMemberByName_(clubId, memberName) {
+  const wanted = String(memberName || '').trim();
+  if (!wanted) return null;
+  return apiListMembers_(clubId).find(m =>
+    String(m.name || '').trim() === wanted
+  ) || null;
+}
+
+function apiFindPlannerMeetingByDate_(dateText) {
+  const planner = apiSpreadsheet_().getSheetByName('VPE Weekly Planner');
+  if (!planner || planner.getLastRow() < 3) return null;
+
+  const timezone = configValue_('TIMEZONE','Asia/Kolkata');
+  const rows = planner.getRange(3,1,planner.getLastRow()-2,28).getValues();
+  const idx = rows.findIndex(row =>
+    row[1] instanceof Date &&
+    Utilities.formatDate(row[1], timezone, 'yyyy-MM-dd') === String(dateText || '')
+  );
+  if (idx < 0) return null;
+
+  return {
+    row_number: idx + 3,
+    meeting_no: Number(rows[idx][0] || 0),
+    values: rows[idx]
+  };
+}
+
+function apiPlannerAssignments_(plannerRow) {
+  const row = plannerRow || [];
+  const assignments = {
+    S1:String(row[6] || '').trim(),
+    S2:String(row[10] || '').trim(),
+    S3:String(row[14] || '').trim()
+  };
+  ROLE_DEFS_.forEach(def => {
+    assignments[def.code] = String(row[def.column - 1] || '').trim();
+  });
+  return assignments;
+}
+
+function apiReconcileItemsWithPlanner_(clubId, meetingDate, items) {
+  const plannerMeeting = apiFindPlannerMeetingByDate_(meetingDate);
+  const cloned = (items || []).map(item => Object.assign({}, item));
+  if (!plannerMeeting) {
+    return {items:cloned, planner_meeting_no:'', imported:[], conflicts:[]};
+  }
+
+  const plannerAssignments = apiPlannerAssignments_(plannerMeeting.values);
+  const imported = [];
+  const conflicts = [];
+
+  cloned.forEach(item => {
+    const code = String(item.code || '');
+    if (!code || !Object.prototype.hasOwnProperty.call(plannerAssignments, code)) return;
+
+    const plannerName = String(plannerAssignments[code] || '').trim();
+    const apiName = String(item.member_name || '').trim();
+    if (!plannerName) return;
+
+    if (!apiName) {
+      const member = apiMemberByName_(clubId, plannerName);
+      if (!member) {
+        const e = new Error(
+          'Planner member is not active in Member Master: ' + plannerName
+        );
+        e.apiCode = 'SYNC_MEMBER_NOT_FOUND';
+        throw e;
+      }
+      item.member_id = member.member_id;
+      item.member_name = member.name;
+      imported.push({code:code,member_name:member.name});
+      return;
+    }
+
+    if (apiName !== plannerName) {
+      conflicts.push({
+        code:code,
+        api_member:apiName,
+        planner_member:plannerName
+      });
+    }
+  });
+
+  if (conflicts.length) {
+    const e = new Error(
+      'API/planner assignment conflict: ' +
+      conflicts.map(x =>
+        x.code + ' (' + x.api_member + ' vs ' + x.planner_member + ')'
+      ).join(', ')
+    );
+    e.apiCode = 'SYNC_CONFLICT';
+    e.details = conflicts;
+    throw e;
+  }
+
+  return {
+    items:cloned,
+    planner_meeting_no:plannerMeeting.meeting_no || '',
+    imported:imported,
+    conflicts:[]
+  };
+}
+
+function apiFindMeetingForPlannerMeeting_(clubId, meetingNo) {
+  const sheets = apiEnsureSheets_();
+  const rows = sheets.meetings.getLastRow() >= 2
+    ? sheets.meetings.getRange(2,1,sheets.meetings.getLastRow()-1,7).getValues()
+    : [];
+
+  let idx = rows.findIndex(r =>
+    String(r[1] || '') === String(clubId || '') &&
+    Number(r[6]) === Number(meetingNo)
+  );
+  if (idx >= 0) {
+    return {row_number:idx+2, values:rows[idx]};
+  }
+
+  const planner = apiSpreadsheet_().getSheetByName('VPE Weekly Planner');
+  if (!planner || planner.getLastRow() < 3) return null;
+  const ids = planner.getRange(3,1,planner.getLastRow()-2,1).getValues().flat();
+  const plannerIdx = ids.findIndex(v => Number(v) === Number(meetingNo));
+  if (plannerIdx < 0) return null;
+
+  const date = planner.getRange(plannerIdx+3,2).getValue();
+  if (!(date instanceof Date)) return null;
+  const dateText = Utilities.formatDate(
+    date, configValue_('TIMEZONE','Asia/Kolkata'), 'yyyy-MM-dd'
+  );
+
+  idx = rows.findIndex(r => {
+    if (String(r[1] || '') !== String(clubId || '')) return false;
+    const raw = r[2];
+    const apiDate = raw instanceof Date
+      ? Utilities.formatDate(raw, configValue_('TIMEZONE','Asia/Kolkata'), 'yyyy-MM-dd')
+      : String(raw || '').slice(0,10);
+    return apiDate === dateText;
+  });
+
+  if (idx < 0) return null;
+
+  if (!Number(rows[idx][6])) {
+    sheets.meetings.getRange(idx+2,7).setValue(Number(meetingNo));
+    sheets.meetings.getRange(idx+2,6).setValue(new Date());
+    SpreadsheetApp.flush();
+    apiInvalidateMeetingCaches_(clubId, String(rows[idx][0] || ''));
+    rows[idx][6] = Number(meetingNo);
+  }
+
+  return {row_number:idx+2, values:rows[idx]};
+}
+
+function apiMirrorPlannerAssignmentToMeeting_(clubId, meetingNo, code, memberName) {
+  const found = apiFindMeetingForPlannerMeeting_(clubId, meetingNo);
+  if (!found) return {synced:false, reason:'NO_API_MEETING'};
+
+  const meetingId = String(found.values[0] || '');
+  const member = apiMemberByName_(clubId, memberName);
+  if (!member) {
+    throw new Error(
+      'Active member not found while syncing planner booking: ' + memberName
+    );
+  }
+
+  const sheets = apiEnsureSheets_();
+  const rows = sheets.items.getLastRow() >= 2
+    ? sheets.items.getRange(2,1,sheets.items.getLastRow()-1,11).getValues()
+    : [];
+  const idx = rows.findIndex(r =>
+    String(r[1] || '') === meetingId &&
+    String(r[2] || '') === String(clubId || '') &&
+    String(r[5] || '') === String(code || '')
+  );
+  if (idx < 0) {
+    throw new Error(
+      'API meeting item missing for Meeting ' + meetingNo + ': ' + code
+    );
+  }
+
+  const currentName = String(rows[idx][8] || '').trim();
+  if (currentName && currentName !== member.name) {
+    const e = new Error(
+      'API/planner assignment conflict for ' + code +
+      ': ' + currentName + ' vs ' + member.name
+    );
+    e.apiCode = 'SYNC_CONFLICT';
+    e.details = [{
+      code:String(code || ''),
+      api_member:currentName,
+      planner_member:member.name
+    }];
+    throw e;
+  }
+
+  const now = new Date();
+  sheets.items.getRange(idx+2,8,1,2)
+    .setValues([[member.member_id, member.name]]);
+  sheets.items.getRange(idx+2,11).setValue(now);
+  sheets.meetings.getRange(found.row_number,6).setValue(now);
+  SpreadsheetApp.flush();
+  apiInvalidateMeetingCaches_(clubId,meetingId);
+
+  return {
+    synced:true,
+    meeting_id:meetingId,
+    code:String(code || ''),
+    member_id:member.member_id
+  };
+}
+
+
 function apiCreateMeeting_(clubId,payload) {
   const dateText = String(payload.meeting_date || '').trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateText)) throw new Error('meeting_date must be YYYY-MM-DD');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateText)) {
+    throw new Error('meeting_date must be YYYY-MM-DD');
+  }
+
   const sheets = apiEnsureSheets_();
+
+  // Do not create duplicate API meetings for the same club/date.
+  const existing = sheets.meetings.getLastRow() >= 2
+    ? sheets.meetings.getRange(2,1,sheets.meetings.getLastRow()-1,7).getValues()
+    : [];
+  const duplicate = existing.find(r => {
+    if (String(r[1] || '') !== clubId) return false;
+    const raw = r[2];
+    const existingDate = raw instanceof Date
+      ? Utilities.formatDate(raw, configValue_('TIMEZONE','Asia/Kolkata'), 'yyyy-MM-dd')
+      : String(raw || '').slice(0,10);
+    return existingDate === dateText;
+  });
+  if (duplicate) {
+    const e = new Error('An API meeting already exists for ' + dateText);
+    e.apiCode = 'BAD_REQUEST';
+    e.details = {meeting_id:String(duplicate[0] || '')};
+    throw e;
+  }
+
   const id = apiNewId_('MTG');
   const now = new Date();
-  sheets.meetings.getRange(sheets.meetings.getLastRow()+1,1,1,7)
-    .setValues([[id,clubId,dateText,'DRAFT',now,now,'']]);
-
   const defaults = apiDefaultMeetingTemplate_(clubId).items;
-  const normalized = apiReplaceMeetingItems_(sheets.items,clubId,id,defaults);
+  const reconciled = apiReconcileItemsWithPlanner_(clubId,dateText,defaults);
+
+  sheets.meetings.getRange(sheets.meetings.getLastRow()+1,1,1,7)
+    .setValues([[
+      id,clubId,dateText,'DRAFT',now,now,
+      reconciled.planner_meeting_no || ''
+    ]]);
+
+  const normalized = apiReplaceMeetingItems_(
+    sheets.items,clubId,id,reconciled.items
+  );
   apiInvalidateMeetingCaches_(clubId,id);
 
   return apiCacheMeeting_({
@@ -372,7 +615,7 @@ function apiCreateMeeting_(clubId,payload) {
     club_id:clubId,
     meeting_date:dateText,
     status:'DRAFT',
-    planner_meeting_no:'',
+    planner_meeting_no:String(reconciled.planner_meeting_no || ''),
     items:normalized
   });
 }
@@ -559,33 +802,48 @@ function apiSaveMeeting_(clubId,payload) {
   const meetingId = String(payload.meeting_id || '');
   const saveMode = String(payload.save_mode || 'DRAFT').toUpperCase();
   if (['DRAFT','CONFIRMED'].indexOf(saveMode) < 0) {
-    const e = new Error('save_mode must be DRAFT or CONFIRMED'); e.apiCode='BAD_REQUEST'; throw e;
+    const e = new Error('save_mode must be DRAFT or CONFIRMED');
+    e.apiCode='BAD_REQUEST';
+    throw e;
   }
 
   const sheets = apiEnsureSheets_();
   const rec = apiFindMeetingRecord_(sheets,clubId,meetingId);
   const mr = rec.values;
-  if (String(mr[3]) === 'ACTIVE') throw new Error('Active meeting cannot be structurally edited in API V1');
-
-  apiValidateMeetingItems_(payload.items || [],clubId);
-  const normalized = apiReplaceMeetingItems_(sheets.items,clubId,meetingId,payload.items || []);
-
-  const nextStatus = saveMode === 'CONFIRMED' ? 'PLANNED' : 'DRAFT';
-  const now = new Date();
-  sheets.meetings.getRange(rec.row_number,4,1,3)
-    .setValues([[nextStatus,mr[4],now]]);
-
-  apiInvalidateMeetingCaches_(clubId,meetingId);
-
-  let plannerMeetingNo = String(mr[6] || '');
-  if (saveMode === 'CONFIRMED') {
-    const bridge = apiBridgePlannedMeetingIfEnabled_(clubId,meetingId);
-    if (bridge && bridge.synced) plannerMeetingNo = String(bridge.planner_meeting_no || '');
+  if (String(mr[3]) === 'ACTIVE') {
+    throw new Error('Active meeting cannot be structurally edited in API V1');
   }
 
   const meetingDate = mr[2] instanceof Date
     ? Utilities.formatDate(mr[2], configValue_('TIMEZONE','Asia/Kolkata'), 'yyyy-MM-dd')
     : String(mr[2] || '').slice(0,10);
+
+  // Import planner/WhatsApp assignments into any still-blank API slots.
+  // Conflicting non-blank assignments are rejected rather than overwritten.
+  const reconciled = apiReconcileItemsWithPlanner_(
+    clubId, meetingDate, payload.items || []
+  );
+
+  apiValidateMeetingItems_(reconciled.items,clubId);
+  const normalized = apiReplaceMeetingItems_(
+    sheets.items,clubId,meetingId,reconciled.items
+  );
+
+  const nextStatus = saveMode === 'CONFIRMED' ? 'PLANNED' : 'DRAFT';
+  const now = new Date();
+  const plannerNo = reconciled.planner_meeting_no || mr[6] || '';
+  sheets.meetings.getRange(rec.row_number,4,1,4)
+    .setValues([[nextStatus,mr[4],now,plannerNo]]);
+
+  apiInvalidateMeetingCaches_(clubId,meetingId);
+
+  let plannerMeetingNo = String(plannerNo || '');
+  if (saveMode === 'CONFIRMED') {
+    const bridge = apiBridgePlannedMeetingIfEnabled_(clubId,meetingId);
+    if (bridge && bridge.synced) {
+      plannerMeetingNo = String(bridge.planner_meeting_no || '');
+    }
+  }
 
   return apiCacheMeeting_({
     meeting_id:meetingId,
@@ -711,37 +969,66 @@ function apiApplyProjectionToPlannerRow_(row, projection) {
  * Custom sessions remain in API Meeting Items and are handled by Programme Planning.
  */
 function apiSyncMeetingToLegacyPlanner_(clubId, meetingId) {
-  const allowed = String(PropertiesService.getScriptProperties().getProperty(API_ALLOW_LEGACY_SYNC_PROPERTY_) || '').toUpperCase() === 'TRUE';
+  const allowed = String(
+    PropertiesService.getScriptProperties()
+      .getProperty(API_ALLOW_LEGACY_SYNC_PROPERTY_) || ''
+  ).toUpperCase() === 'TRUE';
   if (!allowed) {
     const err = new Error('Legacy sync is disabled in this environment');
     err.apiCode = 'LEGACY_SYNC_DISABLED';
     throw err;
   }
-  if (clubId !== API_DEFAULT_CLUB_ID_) throw new Error('Legacy adapter currently supports ATK only');
-  const meeting = apiGetMeeting_(clubId, meetingId);
+  if (clubId !== API_DEFAULT_CLUB_ID_) {
+    throw new Error('Legacy adapter currently supports ATK only');
+  }
+
+  let meeting = apiGetMeeting_(clubId, meetingId);
   const ss = apiSpreadsheet_();
   const planner = ss.getSheetByName('VPE Weekly Planner');
   if (!planner) throw new Error('VPE Weekly Planner missing');
 
-  const rows = planner.getRange(3,1,Math.max(0,planner.getLastRow()-2),28).getValues();
+  const rows = planner.getRange(
+    3,1,Math.max(0,planner.getLastRow()-2),28
+  ).getValues();
   const wanted = String(meeting.meeting_date);
-  let idx = rows.findIndex(r => {
+  const idx = rows.findIndex(r => {
     if (!(r[1] instanceof Date)) return false;
-    return Utilities.formatDate(r[1], configValue_('TIMEZONE','Asia/Kolkata'), 'yyyy-MM-dd') === wanted;
+    return Utilities.formatDate(
+      r[1], configValue_('TIMEZONE','Asia/Kolkata'), 'yyyy-MM-dd'
+    ) === wanted;
   });
-  if (idx < 0) throw new Error('No legacy planner row exists for meeting date '+wanted);
+  if (idx < 0) {
+    throw new Error('No legacy planner row exists for meeting date ' + wanted);
+  }
 
   const rowNo = idx + 3;
+
+  // Reconcile just before the write. This catches WhatsApp/planner bookings
+  // made after the API draft was opened and prevents silent overwrites.
+  const reconciled = apiReconcileItemsWithPlanner_(
+    clubId, meeting.meeting_date, meeting.items
+  );
+  if (reconciled.imported.length) {
+    apiReplaceMeetingItems_(
+      apiEnsureSheets_().items, clubId, meetingId, reconciled.items
+    );
+    apiInvalidateMeetingCaches_(clubId,meetingId);
+    meeting = apiGetMeeting_(clubId,meetingId);
+  }
+
   const projection = apiBuildLegacyPlannerProjection_(meeting);
 
-  // Speakers and their status columns.
   [['S1',7,9],['S2',11,13],['S3',15,17]].forEach(x => {
     planner.getRange(rowNo,x[1]).setValue(projection.speakers[x[0]] || '');
-    planner.getRange(rowNo,x[2]).setValue(projection.speakers[x[0]] ? 'Planned' : '');
+    planner.getRange(rowNo,x[2]).setValue(
+      projection.speakers[x[0]] ? 'Planned' : ''
+    );
   });
 
-  // Standard role columns.
-  ROLE_DEFS_.forEach(def => planner.getRange(rowNo,def.column).setValue(projection.roles[def.code] || ''));
+  ROLE_DEFS_.forEach(def =>
+    planner.getRange(rowNo,def.column)
+      .setValue(projection.roles[def.code] || '')
+  );
   SpreadsheetApp.flush();
 
   const meetingNo = Number(planner.getRange(rowNo,1).getValue());
@@ -754,7 +1041,13 @@ function apiSyncMeetingToLegacyPlanner_(clubId, meetingId) {
       break;
     }
   }
-  return {meeting_id:meetingId,planner_meeting_no:meetingNo,synced:true};
+
+  return {
+    meeting_id:meetingId,
+    planner_meeting_no:meetingNo,
+    synced:true,
+    imported_from_planner:reconciled.imported
+  };
 }
 
 
