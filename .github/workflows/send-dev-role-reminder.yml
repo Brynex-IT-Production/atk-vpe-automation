@@ -1,4 +1,4 @@
-name: Send DEV role reminder once
+name: Retry Meeting 453 Utility role reminder
 
 on:
   push:
@@ -18,13 +18,13 @@ jobs:
   send:
     runs-on: ubuntu-latest
     steps:
-      - name: Send approved role reminder to sole DEV recipient
+      - name: Retry failed Meeting 453 role reminders with Utility template
         shell: bash
         run: |
           response=$(curl --location --fail-with-body --silent --show-error \
             --header 'Content-Type: application/json' \
-            --data '{"system_action":"TEST_ROLE_TEMPLATE_ONLY","verify_token":"ATK_VPE_VERIFY_2026_X7K9M4P2"}' \
+            --data '{"system_action":"DEV_RETRY_ROLE_ACTIVATION","verify_token":"ATK_VPE_VERIFY_2026_X7K9M4P2","meeting_no":453}' \
             'https://script.google.com/macros/s/AKfycbwzHdJptr44J1aWN4UqHp6qN435kwFPbG8ngYGEYABqypF2urE0Jyd0hLd63M-wYVVE/exec')
           echo "$response"
-          echo "$response" | grep -q '"sent":true'
-          echo "$response" | grep -Eq '"meeting_no":[0-9]+'
+          echo "$response" | grep -Eq '"meeting_no":453'
+          echo "$response" | grep -Eq '"sent":[0-9]+'
