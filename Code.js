@@ -153,6 +153,20 @@ function doPost(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
 
+    if (
+      payload &&
+      payload.system_action === 'DEV_RETRY_ROLE_ACTIVATION' &&
+      payload.verify_token === VERIFY_TOKEN &&
+      configValue_('SYSTEM_MODE','') === 'DEV'
+    ) {
+      const meetingNo = Number(payload.meeting_no || 0);
+      const result = sendVacantRoleInvitesNow_(meetingNo);
+
+      return ContentService
+        .createTextOutput(JSON.stringify(result))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
     if (payload && payload.system_action === 'RESEND_DEV_VPE_INTRO' &&
         payload.verify_token === VERIFY_TOKEN) {
       return ContentService.createTextOutput(JSON.stringify(resendDevVpeIntro_()))
