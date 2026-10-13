@@ -1,3 +1,4 @@
+# Planner/API lifecycle, WhatsApp mirror and activation rollback regression gate.
 name: DEV Safe Regression
 
 on:
