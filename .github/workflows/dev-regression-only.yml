@@ -158,7 +158,7 @@ jobs:
           assert grammar.get('checks_passed') == grammar.get('checks_total') == 4, report
           lifecycle=report.get('planner_api_lifecycle',{})
           assert lifecycle.get('ok') is True, report
-          assert lifecycle.get('checks_passed') == lifecycle.get('checks_total') == 8, report
+          assert lifecycle.get('checks_passed') == lifecycle.get('checks_total') == 10, report
           assert report.get('core',{}).get('ok') is True, report
           assert report.get('configured_workflows',{}).get('ok') is True, report
           assert report.get('forced_enabled_workflows',{}).get('ok') is True, report
