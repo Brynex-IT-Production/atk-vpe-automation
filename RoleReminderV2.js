@@ -50,7 +50,7 @@ function roleReminderV3Spec_() {
     name: 'atk_role_reminder_v3',
     language: 'en_US',
     category: 'UTILITY',
-    body: 'ATK Meeting {{1}} is scheduled for {{2}}.',
+    body: 'ATK Meeting {{1}} is scheduled for {{2}} as planned.',
     examples: ['453', '19 October 2026'],
     buttons: [{type: 'QUICK_REPLY', text: 'View roles'}]
   };
