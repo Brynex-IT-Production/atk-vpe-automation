@@ -34,6 +34,27 @@ function doGet(e) {
       .setMimeType(ContentService.MimeType.TEXT);
   }
 
+  if (e && e.parameter &&
+      e.parameter.system_action === 'DEV_MASTER_REGRESSION' &&
+      e.parameter.verify_token === VERIFY_TOKEN) {
+    const systemMode = configValue_('SYSTEM_MODE','');
+    if (systemMode !== 'DEV') {
+      return ContentService
+        .createTextOutput(JSON.stringify({
+          ok:false,
+          diagnostic:'DEV_MASTER_REGRESSION_GUARD',
+          action_ok:true,
+          token_ok:true,
+          system_mode:String(systemMode || '')
+        }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    return ContentService
+      .createTextOutput(JSON.stringify(apiDevMasterRegressionSuite()))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
 
   const mode = e.parameter['hub.mode'];
   const token = e.parameter['hub.verify_token'];
