@@ -180,9 +180,39 @@ function handleGuidedReply_(member, phone, text, messageId) {
     const guidedStep = String(state.step || '').toUpperCase();
 
     if (steps.indexOf(guidedStep) === -1) {
-      // Block-flow state: ordinary conversational replies (for example,
-      // "I will share it tomorrow") are not speech-detail submissions.
-      // Keep the request pending and avoid corrupting the conversation state.
+      // Block-flow state: ordinary conversational replies are not speech-detail
+      // submissions. Set the right expectation once instead of pretending this
+      // is a general conversational bot.
+      const guidanceKey = [
+        'SPEAKER_DETAILS_AUTOMATED_GUIDANCE',
+        Number(n || 0),
+        String(state.related || ''),
+        member
+      ].join('|');
+
+      if (!hasReminderBeenSent_(guidanceKey)) {
+        const guidance =
+          'Hi ' + member + ',\n\n' +
+          'This is an automated message. I can only process your speech details when they are sent in the requested format, and I may not understand regular chat messages.\n\n' +
+          'When your details are ready, please copy, complete and send:\n\n' +
+          'Path:\n' +
+          'Level:\n' +
+          'Project:\n' +
+          'Title:\n' +
+          'Time:\n\n' +
+          'Thank you.';
+
+        const guidanceResult = sendWhatsAppText_(phone, guidance);
+        recordWorkflowOutbound_(
+          member,
+          phone,
+          'SPEAKER_DETAILS_AUTOMATED_GUIDANCE',
+          guidance,
+          Number(n || 0),
+          guidanceResult,
+          guidanceKey
+        );
+      }
       return true;
     }
 
