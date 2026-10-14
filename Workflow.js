@@ -2240,6 +2240,42 @@ function processSpeakerDetailPrompts_(onlyMeetingNo) {
 }
 
 
+
+/**
+ * Returns the latest reminder slot that is already due on the current local
+ * calendar day. This makes reminders resilient to delayed scheduler runs:
+ * a 7 AM slot can still be processed at 11 AM, and an 8 PM slot at 10 PM.
+ *
+ * Only the latest due slot is returned, so a late scheduler run does not send
+ * multiple missed reminders back-to-back. Existing idempotency keys still
+ * guarantee each slot is sent at most once.
+ */
+function latestDueReminderSlotToday_(now, timezone, reminderHours) {
+  const hours = (reminderHours || [])
+    .map(v => Number(v))
+    .filter(v => Number.isFinite(v) && v >= 0 && v <= 23)
+    .filter((v, i, a) => a.indexOf(v) === i)
+    .sort((a, b) => a - b);
+
+  if (!hours.length) return null;
+
+  const localHourNow = Number(Utilities.formatDate(now, timezone, 'H'));
+  const localMinuteNow = Number(Utilities.formatDate(now, timezone, 'm'));
+  const currentMinuteOfDay = localHourNow * 60 + localMinuteNow;
+
+  let dueHour = null;
+  hours.forEach(hour => {
+    if (hour * 60 <= currentMinuteOfDay) dueHour = hour;
+  });
+
+  if (dueHour === null) return null;
+
+  return {
+    dateKey: Utilities.formatDate(now, timezone, 'yyyyMMdd'),
+    hour: dueHour
+  };
+}
+
 function processSpeakerDetailReminders_() {
   if (!configBool_('SPEAKER_DETAILS_WORKFLOW_ENABLED')) return;
 
@@ -2250,14 +2286,15 @@ function processSpeakerDetailReminders_() {
 
   const timezone = configValue_('TIMEZONE', 'Asia/Kolkata');
   const now = new Date();
-  const localHour = Number(Utilities.formatDate(now, timezone, 'H'));
   const reminderHours = String(
     configValue_('SPEAKER_DETAILS_REMINDER_HOURS', '7,20')
   ).split(',')
     .map(v => Number(String(v).trim()))
     .filter(v => Number.isFinite(v));
 
-  if (reminderHours.indexOf(localHour) === -1) return;
+  const reminderSlot = latestDueReminderSlotToday_(now, timezone, reminderHours);
+  if (!reminderSlot) return;
+  const localHour = reminderSlot.hour;
 
   const successfulStates = new Set(['SENT', 'DELIVERED', 'READ', 'ACCEPTED']);
   const taskRows = tasks.getRange(2, 1, tasks.getLastRow() - 1, 18).getValues();
@@ -2291,7 +2328,7 @@ function processSpeakerDetailReminders_() {
     const phone = phoneForMember_(member);
     if (!phone || !isWhatsAppRecipientAllowed_(phone)) return;
 
-    const slotDate = Utilities.formatDate(now, timezone, 'yyyyMMdd');
+    const slotDate = reminderSlot.dateKey;
     const reminderKey = [
       'SPEAKER_DETAILS_REMINDER',
       meetingNo,
@@ -2781,14 +2818,15 @@ function processGrammarAssignmentReminder_() {
 
   const now = new Date();
   const timezone = configValue_('TIMEZONE', 'Asia/Kolkata');
-  const localHour = Number(Utilities.formatDate(now, timezone, 'H'));
   const reminderHours = String(
     configValue_('GRAMMAR_REMINDER_HOURS', '7,20')
   ).split(',')
     .map(v => Number(String(v).trim()))
     .filter(v => Number.isFinite(v));
 
-  if (reminderHours.indexOf(localHour) === -1) return;
+  const reminderSlot = latestDueReminderSlotToday_(now, timezone, reminderHours);
+  if (!reminderSlot) return;
+  const localHour = reminderSlot.hour;
 
   const rows = tasks.getRange(2, 1, tasks.getLastRow() - 1, 18).getValues();
   rows.forEach(row => {
@@ -2817,7 +2855,7 @@ function processGrammarAssignmentReminder_() {
       if ((now.getTime() - reviewAt.getTime()) < minHours * 60 * 60 * 1000) return;
       if (!hasOpenWhatsAppServiceWindow_(phone)) return;
 
-      const slotDate = Utilities.formatDate(now, timezone, 'yyyyMMdd');
+      const slotDate = reminderSlot.dateKey;
       const reminderKind = [
         'GRAMMAR_REVIEW_REMINDER',
         slotDate,
@@ -2843,7 +2881,7 @@ function processGrammarAssignmentReminder_() {
     if ((now.getTime() - promptAt.getTime()) < minHours * 60 * 60 * 1000) return;
     if (!hasOpenWhatsAppServiceWindow_(phone)) return;
 
-    const slotDate = Utilities.formatDate(now, timezone, 'yyyyMMdd');
+    const slotDate = reminderSlot.dateKey;
     const reminderKey = [
       'GRAMMAR_STAGE_REMINDER',
       meetingNo,
@@ -2889,7 +2927,6 @@ function processThemeRequestReminder_() {
 
   const now = new Date();
   const timezone = configValue_('TIMEZONE', 'Asia/Kolkata');
-  const localHour = Number(Utilities.formatDate(now, timezone, 'H'));
 
   const reminderHours = String(
     configValue_('THEME_REMINDER_HOURS', '7,20')
@@ -2897,7 +2934,9 @@ function processThemeRequestReminder_() {
     .map(v => Number(String(v).trim()))
     .filter(v => Number.isFinite(v));
 
-  if (reminderHours.indexOf(localHour) === -1) return;
+  const reminderSlot = latestDueReminderSlotToday_(now, timezone, reminderHours);
+  if (!reminderSlot) return;
+  const localHour = reminderSlot.hour;
 
   const reminderDaysBefore = String(
     configValue_('THEME_REMINDER_DAYS_BEFORE', '5,4')
