@@ -171,9 +171,9 @@ function handleGuidedReply_(member, phone, text, messageId) {
         'GRM|' + stage,
         'GRAMMAR_' + stage,
         'Hi ' + member + ',\n\n' +
-          'This is an automated message. I can only process your ' + label +
-          ' when it is sent in the requested format, and I may not understand regular chat messages.\n\n' +
-          'Please copy the next message, fill in the details, and send it back.',
+          'This is an automated message, so I may not be able to understand regular chat replies.\n\n' +
+          'Please use the format shared in the next message so I can record your details correctly.\n\n' +
+          'Thank you.',
         grammarStageCopyMessage_(stage)
       );
       return true;
@@ -215,8 +215,8 @@ function handleGuidedReply_(member, phone, text, messageId) {
         String(state.related || ''),
         'SPEAKER_DETAILS',
         'Hi ' + member + ',\n\n' +
-          'This is an automated message. I can only process your speech details when they are sent in the requested format, and I may not understand regular chat messages.\n\n' +
-          'Please copy the next message, fill in your details, and send it back.\n\n' +
+          'This is an automated message, so I may not be able to understand regular chat replies.\n\n' +
+          'Please use the format shared in the next message so I can record your details correctly.\n\n' +
           'Thank you.',
         speakerDetailsCopyMessage_()
       );
