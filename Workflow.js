@@ -381,6 +381,15 @@ function speakerDetailsCopyMessage_() {
 }
 
 function sendStructuredInputFallbackOnce_(member, phone, meetingNo, related, kind, instruction, formatText) {
+  // System-wide rule: structured-input workflows never pretend to understand
+  // ordinary chat. Use one standard expectation-setting message, then send the
+  // actual copy/paste block as a separate message.
+  const standardInstruction =
+    'Hi ' + member + ',\n\n' +
+    'This is an automated message, so I may not be able to understand regular chat replies.\n\n' +
+    'Please use the format shared in the next message so I can record your details correctly.\n\n' +
+    'Thank you.';
+
   const baseKey = [
     String(kind || 'STRUCTURED_INPUT') + '_AUTOMATED_GUIDANCE',
     Number(meetingNo || 0),
@@ -389,10 +398,10 @@ function sendStructuredInputFallbackOnce_(member, phone, meetingNo, related, kin
   ].join('|');
 
   if (!hasReminderBeenSent_(baseKey + '|INFO')) {
-    const infoResult = sendWhatsAppText_(phone, instruction);
+    const infoResult = sendWhatsAppText_(phone, standardInstruction);
     recordWorkflowOutbound_(
       member, phone, String(kind || 'STRUCTURED_INPUT') + '_AUTOMATED_GUIDANCE',
-      instruction, Number(meetingNo || 0), infoResult, baseKey + '|INFO'
+      standardInstruction, Number(meetingNo || 0), infoResult, baseKey + '|INFO'
     );
     if (!infoResult || !infoResult.ok) return false;
   }
