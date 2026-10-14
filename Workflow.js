@@ -2208,7 +2208,10 @@ function processSpeakerDetailPrompts_(onlyMeetingNo) {
           kind: 'SPEAKER_DETAILS',
           meetingNo: meetingNo,
           related: related,
-          member: member
+          member: member,
+          mode: 'BLOCK',
+          step: 'BLOCK',
+          data: {}
         });
         introSent = true;
       }
