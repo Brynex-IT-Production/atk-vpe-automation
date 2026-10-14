@@ -2230,11 +2230,7 @@ function processSpeakerDetailPrompts_(onlyMeetingNo) {
 
         if (!result.ok) return;
 
-        const copyBody = speakerDetailsCopyMessage_();
-        const copyResult = sendWhatsAppText_(phone, copyBody);
-        if (!copyResult || !copyResult.ok) return;
-
-        setConversation_(phone, {
+        const blockState = {
           kind: 'SPEAKER_DETAILS',
           meetingNo: meetingNo,
           related: related,
@@ -2242,7 +2238,23 @@ function processSpeakerDetailPrompts_(onlyMeetingNo) {
           mode: 'BLOCK',
           step: 'BLOCK',
           data: {}
-        });
+        };
+
+        // Outside the service window, the approved Meta template is the
+        // re-entry message. Do not attempt a free-form second message yet.
+        // Preserve the speaker context so the member's next reply opens the
+        // service window and receives the separate copy/paste block.
+        if (result.channelMode === 'TEMPLATE') {
+          setConversation_(phone, blockState);
+          introSent = true;
+          return;
+        }
+
+        const copyBody = speakerDetailsCopyMessage_();
+        const copyResult = sendWhatsAppText_(phone, copyBody);
+        if (!copyResult || !copyResult.ok) return;
+
+        setConversation_(phone, blockState);
         introSent = true;
       }
 
@@ -2411,6 +2423,16 @@ function processSpeakerDetailReminders_() {
           formatText, meetingNo, formatResult, formatKey
         );
       }
+    } else if (result && result.ok && result.channelMode === 'TEMPLATE') {
+      setConversation_(phone, {
+        kind: 'SPEAKER_DETAILS',
+        meetingNo: meetingNo,
+        related: related,
+        member: member,
+        mode: 'BLOCK',
+        step: 'BLOCK',
+        data: {}
+      });
     }
 
     logAutomation_(
