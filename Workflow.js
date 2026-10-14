@@ -315,14 +315,6 @@ function parseGrammarStageBlock_(text, stage) {
     };
   }
 
-  if (!fields.item && !fields.meaning && !fields.usage &&
-      raw && raw.indexOf('\n') === -1 &&
-      raw.indexOf(':') === -1 &&
-      !/\s[-–—]\s/.test(raw) &&
-      raw.length <= 120) {
-    fields.item = raw;
-  }
-
   return {
     recognized:['item','meaning','usage']
       .filter(key => String(fields[key] || '').trim()).length,
@@ -384,6 +376,39 @@ function grammarStageCopyMessage_(stage, editMode) {
   return label + ':\nMeaning:\nUsage:';
 }
 
+function speakerDetailsCopyMessage_() {
+  return 'Path:\nLevel:\nProject:\nTitle:\nTime:';
+}
+
+function sendStructuredInputFallbackOnce_(member, phone, meetingNo, related, kind, instruction, formatText) {
+  const baseKey = [
+    String(kind || 'STRUCTURED_INPUT') + '_AUTOMATED_GUIDANCE',
+    Number(meetingNo || 0),
+    String(related || ''),
+    String(member || '')
+  ].join('|');
+
+  if (!hasReminderBeenSent_(baseKey + '|INFO')) {
+    const infoResult = sendWhatsAppText_(phone, instruction);
+    recordWorkflowOutbound_(
+      member, phone, String(kind || 'STRUCTURED_INPUT') + '_AUTOMATED_GUIDANCE',
+      instruction, Number(meetingNo || 0), infoResult, baseKey + '|INFO'
+    );
+    if (!infoResult || !infoResult.ok) return false;
+  }
+
+  if (!hasReminderBeenSent_(baseKey + '|FORMAT')) {
+    const formatResult = sendWhatsAppText_(phone, formatText);
+    recordWorkflowOutbound_(
+      member, phone, String(kind || 'STRUCTURED_INPUT') + '_COPY_FORMAT',
+      formatText, Number(meetingNo || 0), formatResult, baseKey + '|FORMAT'
+    );
+    if (!formatResult || !formatResult.ok) return false;
+  }
+
+  return true;
+}
+
 function grammarMissingFieldsMessage_(stage, details) {
   const label = String(stage || '').toUpperCase() === 'IDIOM' ? 'Idiom' : 'Word';
   const missing = [];
@@ -391,12 +416,20 @@ function grammarMissingFieldsMessage_(stage, details) {
   if (!String(details.meaning || '').trim()) missing.push('Meaning');
   if (!String(details.usage || '').trim()) missing.push('Usage');
 
-  const lines = missing.map(field => field + ':').join('\n');
   const human = missing.length === 1 ? missing[0] :
     missing.length === 2 ? missing[0] + ' and ' + missing[1] :
     missing.slice(0, -1).join(', ') + ' and ' + missing[missing.length - 1];
 
-  return 'Got it. I still need the ' + human + '.\n\n' + lines;
+  return 'Got it. I still need the ' + human + '. Please copy the next message, complete it, and send it back.';
+}
+
+function grammarMissingFieldsCopyMessage_(stage, details) {
+  const label = String(stage || '').toUpperCase() === 'IDIOM' ? 'Idiom' : 'Word';
+  const fields = [];
+  if (!String(details.item || '').trim()) fields.push(label + ':');
+  if (!String(details.meaning || '').trim()) fields.push('Meaning:');
+  if (!String(details.usage || '').trim()) fields.push('Usage:');
+  return fields.join('\n');
 }
 
 /**
@@ -480,7 +513,7 @@ function grammarStageReminderMessage_(member, meetingNo, stage) {
   return (
     'Hi ' + member + ',\n\n' +
     'Just a reminder about the ' + label + ' for ATK Meeting ' + meetingNo + '.\n\n' +
-    grammarStageCopyMessage_(stage)
+    'Please copy the next message, complete it, and send it back.'
   );
 }
 
@@ -992,6 +1025,8 @@ function handleGrammarApprovalReply_(member, phone, meetingNo, stage, choice, me
   if (String(choice || '').toUpperCase() === 'EDIT') {
     active.step = normalizedStage + '_EDIT';
     setConversation_(phone, active);
+    sendWhatsAppText_(phone,
+      'Please copy the next message, make the changes, and send it back.');
     sendWhatsAppText_(phone, grammarApprovalEditFormat_(normalizedStage));
   }
 }
@@ -1034,8 +1069,9 @@ function handleGrammarStageSubmission_(member, phone, requestedMeetingNo, stage,
     sendWhatsAppText_(
       phone,
       received + ' details were received, but I am currently waiting for the ' +
-      wanted + ' of the Day.\n\n' + grammarStageCopyMessage_(normalizedStage)
+      wanted + ' of the Day. Please copy the next message, complete it, and send it back.'
     );
+    sendWhatsAppText_(phone, grammarStageCopyMessage_(normalizedStage));
     return;
   }
 
@@ -1057,6 +1093,7 @@ function handleGrammarStageSubmission_(member, phone, requestedMeetingNo, stage,
       data:details
     });
     sendWhatsAppText_(phone, grammarMissingFieldsMessage_(normalizedStage, details));
+    sendWhatsAppText_(phone, grammarMissingFieldsCopyMessage_(normalizedStage, details));
     return;
   }
 
@@ -1687,7 +1724,8 @@ function handleGrammarSubmission_(member, phone, requestedMeetingNo, body, messa
   const details = parseGrammarDetailsBlock_(body);
   if (details.recognized < 4) {
     sendWhatsAppText_(phone,
-      'Please send all four details in one message using this format:\n\n' +
+      'Please copy the next message, fill in all four details, and send it back.');
+    sendWhatsAppText_(phone,
       'Word:\nWord meaning:\nIdiom:\nIdiom meaning:');
     return;
   }
@@ -2044,7 +2082,8 @@ function handleSpeakerDetailsSubmission_(member, phone, requestedMeetingNo, body
       sendWhatsAppText_(phone,
         'Please add the missing detail' + (missing.length > 1 ? 's' : '') +
         ': ' + missing.map(key => key.charAt(0).toUpperCase() + key.slice(1)).join(', ') +
-        '\n\nPath:\nLevel:\nProject:\nTitle:\nTime:');
+        '. Please copy the next message, complete it, and send it back.');
+      sendWhatsAppText_(phone, speakerDetailsCopyMessage_());
       return;
     }
 
@@ -2059,7 +2098,8 @@ function handleSpeakerDetailsSubmission_(member, phone, requestedMeetingNo, body
     parts = String(body || '').split('|').map(v => v.trim());
     if (parts.length < 5 || parts.slice(0, 5).some(v => !v)) {
       sendWhatsAppText_(phone,
-        'Please use this format:\n\nPath:\nLevel:\nProject:\nTitle:\nTime:');
+        'Please copy the next message, fill in your speech details, and send it back.');
+      sendWhatsAppText_(phone, speakerDetailsCopyMessage_());
       return;
     }
   }
@@ -2161,24 +2201,11 @@ function processSpeakerDetailPrompts_(onlyMeetingNo) {
       let introSent = hasReminderBeenSent_(key);
 
       if (!introSent) {
-        const body = activeTemplate === 'atk_speaker_details_v3'
-          ? (
-              'Hi ' + member + ',\n\n' +
-              'You’re confirmed as a speaker for ATK Meeting ' + meetingNo + ' 🎤\n\n' +
-              'Please share your speech details in the format below. Here’s an example:\n\n' +
-              'Path: Presentation Mastery\n' +
-              'Level: 1\n' +
-              'Project: 3\n' +
-              'Title: My Ambition\n' +
-              'Time: 7 minutes'
-            )
-          : (
-              'Hi ' + member + ',\n\n' +
-              'You’re confirmed as a speaker for ATK Meeting ' + meetingNo + ' 🎤\n\n' +
-              'Let’s get your speech details ready for the agenda.\n\n' +
-              'Please fill the below details.\n\n' +
-              'Thank you.'
-            );
+        const body =
+          'Hi ' + member + ',\n\n' +
+          'You’re confirmed as a speaker for ATK Meeting ' + meetingNo + ' 🎤\n\n' +
+          'Please copy the next message, fill in your speech details, and send it back.\n\n' +
+          'Thank you.';
 
         const result = sendAutomatedText_(
           phone,
@@ -2194,13 +2221,7 @@ function processSpeakerDetailPrompts_(onlyMeetingNo) {
 
         if (!result.ok) return;
 
-        const copyBody =
-          'Please copy the message below, replace the details with yours, and send it back:\n\n' +
-          'Path:\n' +
-          'Level:\n' +
-          'Project:\n' +
-          'Title:\n' +
-          'Time:';
+        const copyBody = speakerDetailsCopyMessage_();
         const copyResult = sendWhatsAppText_(phone, copyBody);
         if (!copyResult || !copyResult.ok) return;
 
@@ -2346,13 +2367,7 @@ function processSpeakerDetailReminders_() {
     const body =
       'Hi ' + member + ',\n\n' +
       'Just a reminder about your speech details for ATK Meeting ' + meetingNo + '.\n\n' +
-      'We’re still waiting for:\n\n' +
-      'Path:\n' +
-      'Level:\n' +
-      'Project:\n' +
-      'Title:\n' +
-      'Time:\n\n' +
-      'Please send the pending details when you can.\n\n' +
+      'Please copy the next message, complete your details, and send it back.\n\n' +
       'Thank you.';
 
     const result = sendAutomatedText_(
@@ -2371,6 +2386,23 @@ function processSpeakerDetailReminders_() {
       result,
       reminderKey
     );
+
+    // A pure copy/paste format must always be its own message. It can only be
+    // sent immediately when the customer-service window is open. If the
+    // scheduled reminder had to use a Meta template, the approved legacy
+    // template remains the temporary fallback until the replacement template
+    // with a re-entry button is approved.
+    if (result && result.ok && result.channelMode === 'FREEFORM') {
+      const formatKey = reminderKey + '|FORMAT';
+      if (!hasReminderBeenSent_(formatKey)) {
+        const formatText = speakerDetailsCopyMessage_();
+        const formatResult = sendWhatsAppText_(phone, formatText);
+        recordWorkflowOutbound_(
+          member, phone, 'SPEAKER_DETAILS_REMINDER_FORMAT',
+          formatText, meetingNo, formatResult, formatKey
+        );
+      }
+    }
 
     logAutomation_(
       'Speaker Details',
@@ -2908,6 +2940,18 @@ function processGrammarAssignmentReminder_() {
       result,
       reminderKey
     );
+
+    if (result && result.ok) {
+      const formatKey = reminderKey + '|FORMAT';
+      if (!hasReminderBeenSent_(formatKey)) {
+        const formatText = grammarStageCopyMessage_(stage);
+        const formatResult = sendWhatsAppText_(phone, formatText);
+        recordWorkflowOutbound_(
+          member, phone, 'GRAMMAR_STAGE_REMINDER_FORMAT',
+          formatText, meetingNo, formatResult, formatKey
+        );
+      }
+    }
 
     logAutomation_(
       'Grammarian',
