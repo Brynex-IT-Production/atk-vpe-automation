@@ -162,23 +162,45 @@ function handleGuidedReply_(member, phone, text, messageId) {
   }
 
   if (kind === 'SPEAKER_DETAILS') {
+    // The current speaker-details template uses a single copy/fill block.
+    // Older guided conversations stored step/data, while the block flow only
+    // stored meeting/slot/member. Never assume guided state exists.
+    const block = parseSpeakerDetailsBlock_(answer);
+    if (block && block.recognized >= 2) {
+      handleSpeakerDetailsSubmission_(member, phone, n, block, messageId);
+      return true;
+    }
+
     const steps = ['TITLE', 'PATH', 'LEVEL', 'PROJECT'];
     const prompts = {
       TITLE: 'Which Path is this speech in?',
       PATH: 'What is the Level?',
       LEVEL: 'What is the Project name?'
     };
-    if (answer.length < 1) return true;
-    state.data[state.step] = answer;
-    const index = steps.indexOf(state.step);
+    const guidedStep = String(state.step || '').toUpperCase();
+
+    if (steps.indexOf(guidedStep) === -1) {
+      // Block-flow state: ordinary conversational replies (for example,
+      // "I will share it tomorrow") are not speech-detail submissions.
+      // Keep the request pending and avoid corrupting the conversation state.
+      return true;
+    }
+
+    if (!state.data || typeof state.data !== 'object' || Array.isArray(state.data)) {
+      state.data = {};
+    }
+
+    state.data[guidedStep] = answer;
+    const index = steps.indexOf(guidedStep);
     if (index < 3) {
       state.step = steps[index + 1];
       setConversation_(phone, state);
       sendWhatsAppText_(phone, prompts[steps[index]]);
     } else {
       clearConversation_(phone);
-      handleSpeakerDetailsSubmission_(member, phone, n, steps.map(s => state.data[s]).join(' | '), messageId);
-      promptSpeakerIntro_(member, phone, n, state.related);
+      handleSpeakerDetailsSubmission_(
+        member, phone, n, steps.map(s => state.data[s]).join(' | '), messageId
+      );
     }
     return true;
   }
