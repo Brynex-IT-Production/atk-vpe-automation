@@ -154,6 +154,23 @@ function handleGuidedReply_(member, phone, text, messageId) {
 
     const details = parseGrammarStageBlock_(answer, stage);
 
+    if (!details.oppositeStage && Number(details.recognized || 0) === 0) {
+      const label = stage === 'IDIOM' ? 'Idiom of the Day' : 'Word of the Day';
+      sendStructuredInputFallbackOnce_(
+        member,
+        phone,
+        Number(n || 0),
+        'GRM|' + stage,
+        'GRAMMAR_' + stage,
+        'Hi ' + member + ',\n\n' +
+          'This is an automated message. I can only process your ' + label +
+          ' when it is sent in the requested format, and I may not understand regular chat messages.\n\n' +
+          'Please copy the next message, fill in the details, and send it back.',
+        grammarStageCopyMessage_(stage)
+      );
+      return true;
+    }
+
     // Canonical manual-first design: accept complete or partial structured
     // replies here. The workflow layer merges partial fields and asks only for
     // whatever is still missing.
@@ -181,38 +198,20 @@ function handleGuidedReply_(member, phone, text, messageId) {
 
     if (steps.indexOf(guidedStep) === -1) {
       // Block-flow state: ordinary conversational replies are not speech-detail
-      // submissions. Set the right expectation once instead of pretending this
-      // is a general conversational bot.
-      const guidanceKey = [
-        'SPEAKER_DETAILS_AUTOMATED_GUIDANCE',
+      // submissions. Set the right expectation once and keep the copy/paste
+      // block as its own message.
+      sendStructuredInputFallbackOnce_(
+        member,
+        phone,
         Number(n || 0),
         String(state.related || ''),
-        member
-      ].join('|');
-
-      if (!hasReminderBeenSent_(guidanceKey)) {
-        const guidance =
-          'Hi ' + member + ',\n\n' +
+        'SPEAKER_DETAILS',
+        'Hi ' + member + ',\n\n' +
           'This is an automated message. I can only process your speech details when they are sent in the requested format, and I may not understand regular chat messages.\n\n' +
-          'When your details are ready, please copy, complete and send:\n\n' +
-          'Path:\n' +
-          'Level:\n' +
-          'Project:\n' +
-          'Title:\n' +
-          'Time:\n\n' +
-          'Thank you.';
-
-        const guidanceResult = sendWhatsAppText_(phone, guidance);
-        recordWorkflowOutbound_(
-          member,
-          phone,
-          'SPEAKER_DETAILS_AUTOMATED_GUIDANCE',
-          guidance,
-          Number(n || 0),
-          guidanceResult,
-          guidanceKey
-        );
-      }
+          'Please copy the next message, fill in your details, and send it back.\n\n' +
+          'Thank you.',
+        speakerDetailsCopyMessage_()
+      );
       return true;
     }
 
