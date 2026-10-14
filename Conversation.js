@@ -97,6 +97,14 @@ function startGuidedRequest_(member, phone, kind, meetingNo, related, role) {
 function handleGuidedReply_(member, phone, text, messageId) {
   const state = activeConversation_(phone);
   if (!state) return false;
+
+  // Conversation records can survive workflow/template changes. Always
+  // normalize mutable state before any handler writes into it so a legacy or
+  // partially-created conversation can never throw on state.data[...] access.
+  if (!state.data || typeof state.data !== 'object' || Array.isArray(state.data)) {
+    state.data = {};
+  }
+
   const answer = String(text || '').trim();
   if (!answer || /^(ROLE|ROLES|ADMIN STATUS|ADMIN SETUP|ADMIN EXCEPTIONS)$/i.test(answer)) return false;
 
