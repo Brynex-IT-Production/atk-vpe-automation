@@ -380,6 +380,10 @@ function speakerDetailsCopyMessage_() {
   return 'Path:\nLevel:\nProject:\nTitle:\nTime:';
 }
 
+function themeCopyMessage_() {
+  return 'Theme:';
+}
+
 function sendStructuredInputFallbackOnce_(member, phone, meetingNo, related, kind, instruction, formatText) {
   // System-wide rule: structured-input workflows never pretend to understand
   // ordinary chat. Use one standard expectation-setting message, then send the
@@ -1485,7 +1489,21 @@ function sendImmediateAssignmentPrompts_(meetingNo, roleDef, member, phone) {
   const request = startGuidedRequest_(member, phone, kind, meetingNo, roleDef.code, roleDef.name);
   if (!request) return;
   const result = sendWhatsAppText_(phone, request.text);
-  if (result.ok) setConversation_(phone, request.state);
+  if (result.ok) {
+    setConversation_(phone, request.state);
+
+    if (kind === 'THEME') {
+      const formatKey = ['ASSIGNMENT_PROMPT', meetingNo, roleDef.code, member, 'FORMAT'].join('|');
+      if (!hasReminderBeenSent_(formatKey)) {
+        const formatText = themeCopyMessage_();
+        const formatResult = sendWhatsAppText_(phone, formatText);
+        recordWorkflowOutbound_(
+          member, phone, 'THEME_REQUEST_FORMAT',
+          formatText, meetingNo, formatResult, formatKey
+        );
+      }
+    }
+  }
   recordWorkflowOutbound_(member, phone, 'ASSIGNMENT_PROMPT',
     request.text, meetingNo, result,
     ['ASSIGNMENT_PROMPT', meetingNo, roleDef.code, member].join('|'));
@@ -2788,7 +2806,21 @@ function processAssignedRolePrompts_(onlyMeetingNo) {
       : [member, meetingNo, meetingNo];
     const result = sendAutomatedText_(phone, kind, prompt.text, params);
     recordWorkflowOutbound_(member, phone, kind, prompt.text, meetingNo, result, key);
-    if (result.ok) setConversation_(phone, prompt.state);
+    if (result.ok) {
+      setConversation_(phone, prompt.state);
+
+      if (type === 'THEME' && result.channelMode === 'FREEFORM') {
+        const formatKey = key + '|FORMAT';
+        if (!hasReminderBeenSent_(formatKey)) {
+          const formatText = themeCopyMessage_();
+          const formatResult = sendWhatsAppText_(phone, formatText);
+          recordWorkflowOutbound_(
+            member, phone, 'THEME_REQUEST_FORMAT',
+            formatText, meetingNo, formatResult, formatKey
+          );
+        }
+      }
+    }
   });
 }
 
@@ -3070,8 +3102,7 @@ function processThemeRequestReminder_() {
       'Hi ' + member + ',\n\n' +
       'Just a reminder about the meeting theme for ATK Meeting ' + meetingNo + ' 🎤\n\n' +
       'We haven’t received the theme yet.\n\n' +
-      'Please share it today so that all the role players can align with it.\n\n' +
-      'Just reply with your theme.\n\n' +
+      'Please copy the next message, add the theme, and send it back.\n\n' +
       'Thank you.';
 
     const result = sendAutomatedText_(
@@ -3090,6 +3121,18 @@ function processThemeRequestReminder_() {
       result,
       reminderKey
     );
+
+    if (result && result.ok && result.channelMode === 'FREEFORM') {
+      const formatKey = reminderKey + '|FORMAT';
+      if (!hasReminderBeenSent_(formatKey)) {
+        const formatText = themeCopyMessage_();
+        const formatResult = sendWhatsAppText_(phone, formatText);
+        recordWorkflowOutbound_(
+          member, phone, 'THEME_REQUEST_REMINDER_FORMAT',
+          formatText, meetingNo, formatResult, formatKey
+        );
+      }
+    }
 
     logAutomation_(
       'TMOD Theme',
