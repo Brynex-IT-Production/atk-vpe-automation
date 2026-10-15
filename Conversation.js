@@ -80,8 +80,10 @@ function startGuidedRequest_(member, phone, kind, meetingNo, related, role) {
   };
   let text = '';
   if (kind === 'THEME') {
-    text = 'Hi ' + member + ', please reply with the theme for ATK Meeting ' + meetingNo +
-      '. A plain reply is fine; we will save it for the agenda.';
+    text =
+      'Hi ' + member + ',\n\n' +
+      'Please copy the next message, add the theme for ATK Meeting ' + meetingNo +
+      ', and send it back.\n\nThank you.';
   } else if (kind === 'GRAMMAR') {
     text = grammarStageIntroMessage_(member, meetingNo, 'WORD') +
       '\n\n' + grammarStageCopyMessage_('WORD');
@@ -120,12 +122,17 @@ function handleGuidedReply_(member, phone, text, messageId) {
   const kind = state.kind;
   const n = state.meetingNo;
   if (kind === 'THEME') {
-    if (answer.length < 3) {
-      sendWhatsAppText_(phone, 'Please reply with the full theme.');
-      return true;
-    }
-    clearConversation_(phone);
-    handleThemeSubmission_(member, phone, n, answer, messageId);
+    // Theme is a structured input too. Do not interpret ordinary chat as a
+    // meeting theme. The accepted shape is explicitly "Theme: ...".
+    sendStructuredInputFallbackOnce_(
+      member,
+      phone,
+      Number(n || 0),
+      String(state.related || 'TMOD'),
+      'THEME',
+      '',
+      themeCopyMessage_()
+    );
     return true;
   }
 
