@@ -64,7 +64,7 @@ function isApprovedRoleCallUtilityTemplate_(templateName) {
   const rows = sheet.getRange(48, 2, sheet.getLastRow() - 47, 3).getValues();
   return rows.some(row =>
     String(row[0] || '') === templateName &&
-    /^APPROVED\\s*·\\s*UTILITY$/i.test(String(row[2] || '').trim())
+    /^APPROVED\s*·\s*UTILITY$/i.test(String(row[2] || '').trim())
   );
 }
 
