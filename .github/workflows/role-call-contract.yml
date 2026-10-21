@@ -18,4 +18,6 @@ jobs:
         with:
           node-version: '24'
       - name: Verify Utility V3 role calls and button-only contract
-        run: node tests/role-call-contract.test.js
+        run: |
+          node tests/role-call-contract.test.js
+          node tests/daily-role-reminders.test.js
