@@ -65,6 +65,40 @@ function phase1ScheduledTick() {
   }
 
   syncPhase1Tasks_();
+  // One-time recovery kickoff for ATK Meeting 454 (26 Oct 2026).
+  // The meeting was activated directly in the DEV data store after Meeting 453
+  // was closed, so the normal API activation kickoff did not run.
+  // Guard this by active meeting ID, DEV mode and a durable one-time property.
+  if (String(configValue_('SYSTEM_MODE', '')).toUpperCase() === 'DEV' &&
+      meetingAutomationEligible_(454)) {
+    const props = PropertiesService.getScriptProperties();
+    const kickoffKey = 'DEV_MEETING_454_RECOVERY_KICKOFF_20261021';
+    if (!props.getProperty(kickoffKey)) {
+      const kickoffLock = LockService.getScriptLock();
+      if (kickoffLock.tryLock(10000)) {
+        try {
+          if (!props.getProperty(kickoffKey)) {
+            const report = apiRunMeetingActivationKickoffSafely_(454);
+            if (report && report.role_invites !== false) {
+              props.setProperty(kickoffKey, JSON.stringify({
+                completed_at:new Date().toISOString(),
+                result:report
+              }));
+              logAutomation_('Meeting Activation', 454, '',
+                'One-time kickoff after DEV recovery', 'Success',
+                JSON.stringify(report));
+            } else {
+              logAutomation_('Meeting Activation', 454, '',
+                'One-time kickoff after DEV recovery', 'Error',
+                JSON.stringify(report));
+            }
+          }
+        } finally {
+          kickoffLock.releaseLock();
+        }
+      }
+    }
+  }
   processVacantRoleReminders_();
   processSpeakerDetailPrompts_();
   processSpeakerDetailReminders_();
