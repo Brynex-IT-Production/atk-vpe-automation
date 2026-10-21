@@ -100,6 +100,38 @@ function phase1ScheduledTick() {
     }
   }
   processVacantRoleReminders_();
+
+  // VPE explicitly requested one more role call for Meeting 454 on 21 Oct.
+  // Recheck vacancy and membership at the time of sending, avoid assigned
+  // members and speakers, and use the approved View roles button only.
+  if (String(configValue_('SYSTEM_MODE', '')).toUpperCase() === 'DEV' &&
+      meetingAutomationEligible_(454) &&
+      configBool_('ROLE_SELECTION_ENABLED')) {
+    const props = PropertiesService.getScriptProperties();
+    const recallKey = 'ATK454_ROLE_RECALL_DONE_20261021';
+    if (!props.getProperty(recallKey)) {
+      const recallLock = LockService.getScriptLock();
+      if (recallLock.tryLock(1000)) {
+        try {
+          if (!props.getProperty(recallKey)) {
+            const report = sendVacantRoleInvitesNow_(454, 'ROLE_RECALL_20261021');
+            props.setProperty(recallKey, JSON.stringify({
+              at: new Date().toISOString(), report: report
+            }));
+            logAutomation_('Role Selection', 454, '',
+              'Requested second View roles call', 'Success',
+              JSON.stringify(report));
+          }
+        } catch (error) {
+          logAutomation_('Role Selection', 454, '',
+            'Requested second View roles call', 'Error',
+            String(error && error.message || error));
+        } finally {
+          recallLock.releaseLock();
+        }
+      }
+    }
+  }
   processSpeakerDetailPrompts_();
   processSpeakerDetailReminders_();
   processAssignedRolePrompts_();
@@ -743,7 +775,12 @@ function processVacantRoleReminders_() {
   });
 }
 
-function sendVacantRoleInvitesNow_(meetingNo) {
+function sendVacantRoleInvitesNow_(meetingNo, resendKey) {
+  // An explicitly requested second call uses a separate idempotency namespace.
+  // All other callers retain the original activation key.
+  const invitationPrefix = Number(meetingNo) === 454 &&
+    resendKey === 'ROLE_RECALL_20261021'
+      ? 'ROLE_RECALL_20261021' : 'ROLE_ACTIVATION';
   if (!configBool_('ROLE_SELECTION_ENABLED')) return {sent:0,eligible:0,open_roles:0};
   if (!meetingAutomationEligible_(meetingNo)) return {sent:0,eligible:0,open_roles:0,blocked:'MEETING_NOT_ACTIVE'};
 
@@ -795,7 +832,7 @@ function sendVacantRoleInvitesNow_(meetingNo) {
     if (!isWhatsAppRecipientAllowed_(member.phone)) return;
 
     const idempotency = [
-      'ROLE_ACTIVATION',
+      invitationPrefix,
       meetingNo,
       member.name
     ].join('|');
