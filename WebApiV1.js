@@ -171,7 +171,7 @@ function apiHandleRequest_(payload) {
     const code = String(err && err.apiCode || 'INTERNAL_ERROR');
     const clientCodes = [
       'BAD_REQUEST','NOT_FOUND','MEETING_NOT_READY','LEGACY_SYNC_DISABLED',
-      'SYNC_CONFLICT','SYNC_MEMBER_NOT_FOUND'
+      'SYNC_CONFLICT','SYNC_MEMBER_NOT_FOUND','ANOTHER_MEETING_ACTIVE'
     ];
     const status = code === 'NOT_FOUND' ? 404 : (clientCodes.indexOf(code) >= 0 ? 400 : 500);
     return {status:status,error:{
@@ -958,6 +958,9 @@ function apiSaveMeeting_(clubId,payload) {
   const sheets = apiEnsureSheets_();
   const rec = apiFindMeetingRecord_(sheets,clubId,meetingId);
   const mr = rec.values;
+  // Snapshot assignments before replacing items. Confirmation notifications compare
+  // old vs new speaker bookings and must not fail after persisting the plan.
+  const beforeItems = apiGetMeeting_(clubId,meetingId).items || [];
   if (String(mr[3]) === 'ACTIVE') {
     throw new Error('Active meeting cannot be structurally edited in API V1');
   }
