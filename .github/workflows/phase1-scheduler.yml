@@ -2,7 +2,8 @@ name: ATK Phase 1 Half-Hourly Scheduler
 
 on:
   schedule:
-    - cron: '12,42 * * * *'
+    - cron: '12,42 * * * *' # half-hourly fallback, UTC
+    - cron: '46 2,14 * * *' # near 08:15 and 20:15 IST (08:16 / 20:16)
   workflow_dispatch:
 
 permissions:

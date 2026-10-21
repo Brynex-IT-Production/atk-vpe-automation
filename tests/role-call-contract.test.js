@@ -84,7 +84,7 @@ response = context.sendApprovedRoleCall_('919746462423', 454, '2026-02-30');
 assert.equal(response.ok, false);
 assert.equal(sends.length, sentCount);
 
-assert.ok(tasks.includes('sendApprovedRoleCall_(member.phone, meetingNo, meetingDate)'));
+assert.ok(tasks.includes('sendApprovedRoleCall_(member.phone, meetingNo, date)'));
 assert.ok(tasks.includes('sendApprovedRoleCall_(member.phone, meetingNo, row[1])'));
 assert.ok(!tasks.includes("'atk_role_reminder_v2'"));
 assert.ok(!webApi.includes("'atk_role_reminder_v2'"));
