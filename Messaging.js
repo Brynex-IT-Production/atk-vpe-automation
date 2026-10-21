@@ -51,6 +51,23 @@ function hasOpenWhatsAppServiceWindow_(phone) {
   return (new Date().getTime() - lastInbound.getTime()) <= hours * 60 * 60 * 1000;
 }
 
+
+/**
+ * Meta can reclassify a template after approval. Ensure role calls are
+ * sent only while the selected version is both APPROVED and UTILITY.
+ * Approval status is synchronized against Meta before each scheduler tick.
+ */
+function isApprovedRoleCallUtilityTemplate_(templateName) {
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID)
+    .getSheetByName('Automation Config');
+  if (!sheet || sheet.getLastRow() < 48) return false;
+  const rows = sheet.getRange(48, 2, sheet.getLastRow() - 47, 3).getValues();
+  return rows.some(row =>
+    String(row[0] || '') === templateName &&
+    /^APPROVED\\s*·\\s*UTILITY$/i.test(String(row[2] || '').trim())
+  );
+}
+
 function templateNameForKind_(kind) {
   const normalizedKind = String(kind || '').toUpperCase();
 
@@ -58,7 +75,7 @@ function templateNameForKind_(kind) {
   // approved template is unavailable, defer rather than send legacy text.
   if (normalizedKind === 'ROLE_REMINDER') {
     const template = 'atk_role_reminder_v3';
-    return isApprovedTemplate_(template) ? template : '';
+    return isApprovedRoleCallUtilityTemplate_(template) ? template : '';
   }
 
   const preferredConfig = {
