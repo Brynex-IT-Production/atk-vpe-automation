@@ -717,28 +717,27 @@ function processVacantRoleReminders_() {
       const idempotency = ['ROLE_REMINDER', meetingNo, daysLeft, member.name].join('|');
       if (hasReminderBeenSent_(idempotency)) return;
 
-      const roleNames = openRoles.map(r => r.name).join(', ');
-      const revised = templateNameForKind_('ROLE_REMINDER') === 'atk_role_reminder_v2';
-      const text = revised
-        ? 'Hi,\n\nHope you are attending the meeting this week.\n\n' +
-          'Please tap below to see the available roles for ATK Meeting No. ' +
-          meetingNo + '.\n\nThank you.'
-        : 'ATK Meeting ' + meetingNo + ' still has open roles: ' + roleNames +
-          '.\n\nIf you would like to take one, reply ROLE to see the live available list.';
-      const result = revised
-        ? sendAutomatedQuickReply_(member.phone, 'ROLE_REMINDER', {
-            messaging_product: 'whatsapp',
-            recipient_type: 'individual',
-            to: member.phone,
-            type: 'interactive',
-            interactive: {
-              type: 'button',
-              body: {text: text},
-              action: {buttons: [{type: 'reply', reply: {id: 'ROLE_MENU', title: 'View roles'}}]}
-            }
-          }, [meetingNo], 'ROLE_MENU|' + meetingNo)
-        : sendAutomatedText_(member.phone, 'ROLE_REMINDER', text,
-            [member.name, meetingNo, roleNames]);
+      const text = 'Hi,\n\n' +
+        'Hope you are attending the meeting this week.\n\n' +
+        'Please tap below to see the available roles for ATK Meeting No. ' +
+        meetingNo + '.\n\nThank you.';
+      const result = sendAutomatedQuickReply_(
+        member.phone, 'ROLE_REMINDER',
+        {
+          messaging_product: 'whatsapp',
+          recipient_type: 'individual',
+          to: member.phone,
+          type: 'interactive',
+          interactive: {
+            type: 'button',
+            body: {text: text},
+            action: {buttons: [
+              {type: 'reply', reply: {id: 'ROLE_MENU', title: 'View roles'}}
+            ]}
+          }
+        },
+        [meetingNo], 'ROLE_MENU|' + meetingNo
+      );
       recordReminderSend_(idempotency, member, meetingNo, result, text);
     });
   });
@@ -802,46 +801,27 @@ function sendVacantRoleInvitesNow_(meetingNo) {
     ].join('|');
     if (hasReminderBeenSent_(idempotency)) return;
 
-    const roleNames = openRoles.map(r => r.name).join(', ');
-    const revised = templateNameForKind_('ROLE_REMINDER') === 'atk_role_reminder_v2';
-    const text = revised
-      ? 'Hi,\n\n' +
-        'Hope you are attending the meeting this week.\n\n' +
-        'Please tap below to see the available roles for ATK Meeting No. ' +
-        meetingNo + '.\n\nThank you.'
-      : 'ATK Meeting ' + meetingNo + ' still has open roles: ' + roleNames +
-        '.\n\nIf you would like to take one, reply ROLE to see the live available list.';
-
-    const result = revised
-      ? sendAutomatedQuickReply_(
-          member.phone,
-          'ROLE_REMINDER',
-          {
-            messaging_product:'whatsapp',
-            recipient_type:'individual',
-            to:member.phone,
-            type:'interactive',
-            interactive:{
-              type:'button',
-              body:{text:text},
-              action:{
-                buttons:[{
-                  type:'reply',
-                  reply:{id:'ROLE_MENU',title:'View roles'}
-                }]
-              }
-            }
-          },
-          [meetingNo],
-          'ROLE_MENU|' + meetingNo
-        )
-      : sendAutomatedText_(
-          member.phone,
-          'ROLE_REMINDER',
-          text,
-          [member.name, meetingNo, roleNames]
-        );
-
+    const text = 'Hi,\n\n' +
+      'Hope you are attending the meeting this week.\n\n' +
+      'Please tap below to see the available roles for ATK Meeting No. ' +
+      meetingNo + '.\n\nThank you.';
+    const result = sendAutomatedQuickReply_(
+      member.phone, 'ROLE_REMINDER',
+      {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: member.phone,
+        type: 'interactive',
+        interactive: {
+          type: 'button',
+          body: {text: text},
+          action: {buttons: [
+            {type: 'reply', reply: {id: 'ROLE_MENU', title: 'View roles'}}
+          ]}
+        }
+      },
+      [meetingNo], 'ROLE_MENU|' + meetingNo
+    );
     recordReminderSend_(
       idempotency,
       member,
