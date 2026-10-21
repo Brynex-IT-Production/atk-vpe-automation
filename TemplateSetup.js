@@ -56,7 +56,8 @@ function submitSpeechBookingConfirmationTemplateFromDev_() {
 
 function getAtkWhatsAppTemplateSpecs_() {
   return [
-    roleReminderV2Spec_(),
+    roleReminderV3Spec_(),
+    roleReminderV2Spec_(), // Historical Meta template only; no sends use V2.
     speechInviteV2Spec_(),
     themeRequestV2Spec_(),
     themeReminderV2Spec_(),
@@ -505,22 +506,10 @@ function testApprovedTemplatesToVpe_() {
 
 
 function testRoleReminderTemplateToVpe_() {
-  const member = configValue_('VPE_MEMBER_NAME', 'Riyas AF');
-  const phone = phoneForMember_(member);
-  if (!phone) throw new Error('VPE WhatsApp number not found.');
+  // Use the same Utility V3 sender as real activations. This helper is
+  // restricted to DEV TEST mode with the VPE as sole allowlisted recipient.
+  return sendDevRoleReminderForNextVacancy_();
 
-  const meetingNo = 450;
-  const result = sendWhatsAppTemplate_(
-    phone,
-    configValue_('WA_TEMPLATE_ROLE_REMINDER', 'atk_role_reminder'),
-    [member, meetingNo, 'Timer, Grammarian'],
-    null
-  );
-
-  return {
-    ok: Boolean(result && result.ok),
-    result: result
-  };
 }
 
 
