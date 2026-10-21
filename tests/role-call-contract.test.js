@@ -65,12 +65,11 @@ assert.equal(sends[2][1], 'atk_role_reminder_v3');
 assert.deepEqual(Array.from(sends[2][2]), [456, '9 November 2026']);
 
 const sentCount = sends.length;
-approved = false;
+approvalStatus = 'REJECTED · UTILITY';
 response = context.sendApprovedRoleCall_('919746462423', 454, '2026-10-26');
 assert.equal(response.ok, false);
 assert.equal(response.deferred, true);
 assert.equal(sends.length, sentCount);
-approved = true;
 approvalStatus = 'APPROVED · MARKETING';
 response = context.sendApprovedRoleCall_('919746462423', 454, '2026-10-26');
 assert.equal(response.ok, false);
