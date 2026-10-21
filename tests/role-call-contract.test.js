@@ -17,6 +17,18 @@ const context = {
 vm.createContext(context);
 vm.runInContext(source, context);
 let approved = true;
+let approvalStatus = 'APPROVED · UTILITY';
+context.SPREADSHEET_ID = 'unit-test-only';
+context.SpreadsheetApp = {
+  openById: () => ({
+    getSheetByName: () => ({
+      getLastRow: () => 48,
+      getRange: () => ({
+        getValues: () => [['atk_role_reminder_v3', '', approvalStatus]]
+      })
+    })
+  })
+};
 const sends = [];
 context.isApprovedTemplate_ = name => approved && name === 'atk_role_reminder_v3';
 context.sendWhatsAppTemplate_ = (...args) => {
@@ -53,12 +65,21 @@ assert.equal(sends[2][1], 'atk_role_reminder_v3');
 assert.deepEqual(Array.from(sends[2][2]), [456, '9 November 2026']);
 
 const sentCount = sends.length;
-approved = false;
+approvalStatus = 'REJECTED · UTILITY';
 response = context.sendApprovedRoleCall_('919746462423', 454, '2026-10-26');
 assert.equal(response.ok, false);
 assert.equal(response.deferred, true);
 assert.equal(sends.length, sentCount);
-approved = true;
+approvalStatus = 'APPROVED · MARKETING';
+response = context.sendApprovedRoleCall_('919746462423', 454, '2026-10-26');
+assert.equal(response.ok, false);
+assert.equal(response.deferred, true);
+assert.equal(sends.length, sentCount);
+approvalStatus = 'PENDING · UTILITY';
+response = context.sendApprovedRoleCall_('919746462423', 454, '2026-10-26');
+assert.equal(response.ok, false);
+assert.equal(sends.length, sentCount);
+approvalStatus = 'APPROVED · UTILITY';
 response = context.sendApprovedRoleCall_('919746462423', 454, '2026-02-30');
 assert.equal(response.ok, false);
 assert.equal(sends.length, sentCount);
