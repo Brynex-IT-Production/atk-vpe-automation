@@ -286,7 +286,21 @@ function syncAtkTemplateApprovalStatus_() {
   const props = PropertiesService.getScriptProperties();
   const token = props.getProperty('META_ACCESS_TOKEN');
   const wabaId = props.getProperty('WA_WABA_ID');
-  if (!token || !wabaId) return;
+  if (!token || !wabaId) {
+    // Log only booleans; never expose the actual Meta credentials.
+    const diagKey = 'ATK_ROLE_V3_MISSING_META_CREDENTIALS_20261021';
+    if (!props.getProperty(diagKey)) {
+      logAutomation_('WhatsApp Templates', '', '',
+        'Role reminder v3 live Meta status', 'Error',
+        JSON.stringify({
+          reason: 'Meta approval lookup credentials unavailable',
+          has_meta_access_token: Boolean(token),
+          has_wa_waba_id: Boolean(wabaId)
+        }));
+      props.setProperty(diagKey, 'logged');
+    }
+    return;
+  }
 
   // One-time read-only lookup: the separately submitted Utility V3 template
   // was not included in the ordinary approval-sync template registry.
