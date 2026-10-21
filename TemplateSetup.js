@@ -288,6 +288,48 @@ function syncAtkTemplateApprovalStatus_() {
   const wabaId = props.getProperty('WA_WABA_ID');
   if (!token || !wabaId) return;
 
+  // One-time read-only lookup: the separately submitted Utility V3 template
+  // was not included in the ordinary approval-sync template registry.
+  // Never create/modify a Meta template or send a WhatsApp message here.
+  const v3AuditKey = 'ATK_ROLE_REMINDER_V3_META_AUDIT_20261021';
+  if (String(configValue_('SYSTEM_MODE', '')).toUpperCase() === 'DEV' &&
+      !props.getProperty(v3AuditKey)) {
+    try {
+      const v3Url = 'https://graph.facebook.com/v26.0/' +
+        encodeURIComponent(wabaId) +
+        '/message_templates?name=atk_role_reminder_v3' +
+        '&fields=id,name,status,category,language';
+      const v3Response = UrlFetchApp.fetch(v3Url, {
+        method: 'get',
+        headers: {Authorization: 'Bearer ' + token},
+        muteHttpExceptions: true
+      });
+      const http = v3Response.getResponseCode();
+      const body = v3Response.getContentText();
+      const payload = JSON.parse(body || '{}');
+      const matched = (payload.data || []).find(t =>
+        t.name === 'atk_role_reminder_v3' && t.language === 'en_US'
+      );
+      const result = {
+        name: 'atk_role_reminder_v3',
+        http: http,
+        id: matched && matched.id || '',
+        status: matched && matched.status || 'NOT_FOUND',
+        category: matched && matched.category || '',
+        error: http >= 400 ? String(body).slice(0,900) : ''
+      };
+      logAutomation_('WhatsApp Templates', '', '',
+        'Role reminder v3 live Meta status',
+        http >= 200 && http < 300 && matched ? 'Success' : 'Error',
+        JSON.stringify(result));
+      props.setProperty(v3AuditKey, JSON.stringify(result));
+    } catch (error) {
+      logAutomation_('WhatsApp Templates', '', '',
+        'Role reminder v3 live Meta status', 'Error',
+        String(error && error.message || error));
+    }
+  }
+
   const specs = getAtkWhatsAppTemplateSpecs_();
   const wanted = new Set(specs.map(s => s.name));
 
