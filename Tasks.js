@@ -697,60 +697,141 @@ function buildPhase1StatusText_() {
  * Reminder logic is intentionally gated. It creates no outbound messages unless
  * VACANT_ROLE_REMINDERS_ENABLED is explicitly TRUE.
  */
+/**
+ * Pure scheduling decision. Calendar and clock are already localized to IST.
+ * Each send remains due for 120 minutes so delayed scheduler ticks are safe.
+ * Expired slots are skipped rather than flooding members after a long outage.
+ */
+function dueVacantRoleCallSlot_(todayKey, nowMinutes, meetingDayKey, startDate, timesCsv) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(todayKey) ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(meetingDayKey) ||
+      todayKey >= meetingDayKey || todayKey < startDate) return null;
+  const times = String(timesCsv || '').split(',').map(v => v.trim());
+  if (times.length !== 2 ||
+      !times.every(v => /^([01]\d|2[0-3]):[0-5]\d$/.test(v))) {
+    throw new Error('ROLE_REMINDER_TIMES must be HH:mm,HH:mm (IST).');
+  }
+  const timeToMinutes = v => Number(v.slice(0,2)) * 60 + Number(v.slice(3,5));
+  const morning = timeToMinutes(times[0]);
+  const evening = timeToMinutes(times[1]);
+  if (morning >= evening) throw new Error('Morning role-call time must precede evening.');
+  const catchupMinutes = 120;
+  if (nowMinutes >= evening && nowMinutes < evening + catchupMinutes) {
+    return {date:todayKey, slot:'PM', due_time:times[1]};
+  }
+  if (nowMinutes >= morning && nowMinutes < morning + catchupMinutes) {
+    return {date:todayKey, slot:'AM', due_time:times[0]};
+  }
+  return null;
+}
+
+/** Twice-daily approved Utility role calls; any late scheduler run catches up. */
 function processVacantRoleReminders_() {
-  if (!configBool_('VACANT_ROLE_REMINDERS_ENABLED')) return;
+  if (!configBool_('VACANT_ROLE_REMINDERS_ENABLED') ||
+      !configBool_('ROLE_SELECTION_ENABLED')) return;
 
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  const planner = ss.getSheetByName('VPE Weekly Planner');
-  const members = ss.getSheetByName('Member Master');
-  if (!planner || !members) return;
+  // A global lock protects the outbox idempotency read + Meta send + append.
+  // If a prior tick still runs, the next tick retries the due window.
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(2500)) return;
+  try {
+    const zone = configValue_('TIMEZONE', 'Asia/Kolkata');
+    const now = new Date();
+    const dayKey = Utilities.formatDate(now, zone, 'yyyy-MM-dd');
+    const clock = Utilities.formatDate(now, zone, 'HH:mm');
+    const nowMinutes = Number(clock.slice(0,2)) * 60 + Number(clock.slice(3,5));
+    const startDate = String(configValue_('ROLE_REMINDER_START_DATE', '2026-10-22'));
+    const timesCsv = configValue_('ROLE_REMINDER_TIMES', '08:15,20:15');
 
-  const today = startOfDay_(new Date());
-  const configuredDays = String(configValue_('ROLE_REMINDER_DAYS', '7,3'))
-    .split(',')
-    .map(v => Number(String(v).trim()))
-    .filter(v => Number.isFinite(v) && v >= 0);
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const planner = ss.getSheetByName('VPE Weekly Planner');
+    const members = ss.getSheetByName('Member Master');
+    const outbox = ss.getSheetByName('WA Outbox');
+    if (!planner || !members || !outbox) return;
 
-  const plannerRows = planner.getRange(3, 1, Math.max(0, planner.getLastRow() - 2), 28).getValues();
-  const memberRows = members.getRange(2, 1, Math.max(0, members.getLastRow() - 1), 4).getValues();
+    const plannerCount = Math.max(0, planner.getLastRow() - 2);
+    if (!plannerCount) return;
+    const plannerRows = planner.getRange(3,1,plannerCount,28).getValues();
+    const memberCount = Math.max(0, members.getLastRow() - 1);
+    if (!memberCount) return;
+    const memberRows = members.getRange(2,1,memberCount,4).getValues();
+    const previouslyAttempted = new Set(
+      outbox.getLastRow() >= 2
+        ? outbox.getRange(2,16,outbox.getLastRow()-1,1)
+            .getValues().flat().map(v => String(v || '').trim()).filter(Boolean)
+        : []
+    );
 
-  plannerRows.forEach(row => {
-    const meetingNo = Number(row[0]);
-    const meetingDate = row[1];
-    const status = String(row[2] || '');
-    if (!meetingNo || !(meetingDate instanceof Date) || status === 'Completed' || status === 'Cancelled') return;
-    if (!meetingAutomationEligible_(meetingNo)) return;
+    plannerRows.forEach(row => {
+      const meetingNo = Number(row[0]);
+      const date = row[1];
+      const status = String(row[2] || '');
+      if (!meetingNo || !(date instanceof Date) ||
+          status === 'Completed' || status === 'Cancelled' ||
+          !meetingAutomationEligible_(meetingNo)) return;
 
-    const daysLeft = Math.round((startOfDay_(meetingDate) - today) / 86400000);
-    if (configuredDays.indexOf(daysLeft) === -1) return;
+      const meetingDayKey = Utilities.formatDate(date, zone, 'yyyy-MM-dd');
+      const due = dueVacantRoleCallSlot_(
+        dayKey, nowMinutes, meetingDayKey, startDate, timesCsv);
+      if (!due) return;
 
-    const openRoles = availableRoleDefs_(row);
-    if (!openRoles.length) return;
+      const openRoles = availableRoleDefs_(row);
+      if (!openRoles.length) return; // Automatically stop when roles are filled.
 
-    const speakers = new Set([row[6], row[10], row[14]].map(v => String(v || '').trim()).filter(Boolean));
-    const assigned = new Set(ROLE_DEFS_.map(def => String(row[def.column - 1] || '').trim()).filter(Boolean));
-
-    const eligible = memberRows
-      .filter(mr => String(mr[3] || '').trim() === 'Active')
-      .map(mr => ({
-        name: String(mr[1] || '').trim(),
-        phone: normalizePhone_(mr[2] || '')
-      }))
-      .filter(m => m.name && m.phone && !speakers.has(m.name) && !assigned.has(m.name));
-
-    eligible.forEach(member => {
-      // In DEV, do not create failed outbox entries for members outside the test allowlist.
-      if (!isWhatsAppRecipientAllowed_(member.phone)) return;
-      const idempotency = ['ROLE_REMINDER', meetingNo, daysLeft, member.name].join('|');
-      if (hasReminderBeenSent_(idempotency)) return;
-
-      const dateText = roleCallDateText_(meetingDate);
-      const text = 'ATK Meeting ' + meetingNo +
+      const speakers = new Set([row[6],row[10],row[14]]
+        .map(v => String(v || '').trim()).filter(Boolean));
+      const assigned = new Set(ROLE_DEFS_
+        .map(def => String(row[def.column - 1] || '').trim()).filter(Boolean));
+      const seenPhones = new Set();
+      const dateText = roleCallDateText_(date);
+      const messageText = 'ATK Meeting ' + meetingNo +
         ' is scheduled for ' + dateText + ' as planned.';
-      const result = sendApprovedRoleCall_(member.phone, meetingNo, meetingDate);
-      recordReminderSend_(idempotency, member, meetingNo, result, text);
+      let sent = 0, failed = 0, skipped = 0;
+      memberRows.forEach(mr => {
+        if (String(mr[3] || '').trim() !== 'Active') return;
+        const member = {
+          name:String(mr[1] || '').trim(),
+          phone:normalizePhone_(mr[2] || '')
+        };
+        if (!member.name || !member.phone || speakers.has(member.name) ||
+            assigned.has(member.name) || seenPhones.has(member.phone) ||
+            !isWhatsAppRecipientAllowed_(member.phone)) return;
+        seenPhones.add(member.phone);
+
+        const key = [
+          'ROLE_DAILY', meetingNo, due.date, due.slot, member.name
+        ].join('|');
+        if (previouslyAttempted.has(key)) {skipped++; return;}
+
+        // Record every attempt (including failures). Never automatically
+        // retry the same slot: a delayed webhook must not cause duplicates.
+        let result;
+        try {
+          result = sendApprovedRoleCall_(member.phone, meetingNo, date);
+        } catch (error) {
+          result = {ok:false,error:String(error && error.message || error)};
+        }
+        result = result || {ok:false,error:'No response from Meta'};
+        recordReminderSend_(key, member, meetingNo, result, messageText);
+        previouslyAttempted.add(key);
+        if (result.ok) sent++;
+        else failed++;
+      });
+
+      if (sent || failed) {
+        logAutomation_('Role Selection', meetingNo, '',
+          'Twice-daily Utility role call ' + due.slot,
+          failed ? 'Partial' : 'Success',
+          JSON.stringify({
+            date:due.date,due_time_ist:due.due_time,
+            sent:sent,failed:failed,already_attempted:skipped,
+            open_roles:openRoles.map(r => r.name)
+          }));
+      }
     });
-  });
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function sendVacantRoleInvitesNow_(meetingNo, resendKey) {
