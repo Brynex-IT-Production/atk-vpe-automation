@@ -57,7 +57,7 @@ function templateNameForKind_(kind) {
   // Open-role invitations must always have a View roles button. If the
   // approved template is unavailable, defer rather than send legacy text.
   if (normalizedKind === 'ROLE_REMINDER') {
-    const template = 'atk_role_reminder_v2';
+    const template = 'atk_role_reminder_v3';
     return isApprovedTemplate_(template) ? template : '';
   }
 
@@ -93,7 +93,59 @@ function templateNameForKind_(kind) {
   ).trim();
 }
 
+
+/** Human-readable local date for the approved Utility role-call template. */
+function roleCallDateText_(meetingDate) {
+  const zone = configValue_('TIMEZONE', 'Asia/Kolkata');
+  if (meetingDate instanceof Date && !isNaN(meetingDate.getTime())) {
+    return Utilities.formatDate(meetingDate, zone, 'd MMMM yyyy');
+  }
+  const value = String(meetingDate || '').trim();
+  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (iso) {
+    const year = Number(iso[1]), month = Number(iso[2]), day = Number(iso[3]);
+    const check = new Date(Date.UTC(year, month - 1, day));
+    if (check.getUTCFullYear() !== year ||
+        check.getUTCMonth() !== month - 1 || check.getUTCDate() !== day) {
+      throw new Error('Invalid role-call meeting date.');
+    }
+    const months = ['January','February','March','April','May','June',
+      'July','August','September','October','November','December'];
+    return day + ' ' + months[month - 1] + ' ' + year;
+  }
+  if (/^\d{1,2} [A-Za-z]+ \d{4}$/.test(value)) return value;
+  throw new Error('Role call requires a valid meeting date.');
+}
+
+/** Permanent single path: approved Utility V3 with a View roles quick reply. */
+function sendApprovedRoleCall_(phone, meetingNo, meetingDate) {
+  const destination = normalizePhone_(phone);
+  if (!destination || !Number.isInteger(Number(meetingNo)) ||
+      Number(meetingNo) <= 0) {
+    return {ok:false, error:'Role call requires a recipient and meeting number.'};
+  }
+  const template = templateNameForKind_('ROLE_REMINDER');
+  if (template !== 'atk_role_reminder_v3') {
+    return {ok:false, deferred:true,
+      error:'Approved Utility V3 role template unavailable; no fallback allowed.'};
+  }
+  let dateText;
+  try { dateText = roleCallDateText_(meetingDate); }
+  catch (error) { return {ok:false, error:String(error && error.message || error)}; }
+  const result = sendWhatsAppTemplate_(
+    destination, template, [Number(meetingNo), dateText],
+    'ROLE_MENU|' + Number(meetingNo)
+  );
+  if (result) result.channelMode = 'TEMPLATE';
+  return result;
+}
+
 function sendAutomatedText_(phone, kind, freeformBody, templateParams) {
+  // Prevent any caller from using freeform or Marketing for role calls.
+  if (String(kind || '').toUpperCase() === 'ROLE_REMINDER') {
+    const args = templateParams || [];
+    return sendApprovedRoleCall_(phone, args[0], args[1]);
+  }
   const destination = normalizePhone_(phone);
   if (!destination) return { ok: false, error: 'Missing destination phone.' };
 
@@ -129,7 +181,7 @@ function sendAutomatedText_(phone, kind, freeformBody, templateParams) {
 
   const params = templateParams || [];
   const parameterCount = {
-    atk_role_reminder_v2: 1, atk_speech_invite_v2: 1,
+    atk_role_reminder_v2: 1, atk_role_reminder_v3: 2, atk_speech_invite_v2: 1,
     atk_theme_guided: 2, atk_theme_request_v2: 2, atk_theme_reminder_v3: 2,
     atk_grammar_request: 3,
     atk_intro_guided: 3, atk_speaker_guided: 2,
@@ -149,6 +201,11 @@ function sendAutomatedText_(phone, kind, freeformBody, templateParams) {
 }
 
 function sendAutomatedQuickReply_(phone, kind, freeformPayload, templateParams, buttonPayload) {
+  // Prevent any caller from using freeform or Marketing for role calls.
+  if (String(kind || '').toUpperCase() === 'ROLE_REMINDER') {
+    const args = templateParams || [];
+    return sendApprovedRoleCall_(phone, args[0], args[1]);
+  }
   const destination = normalizePhone_(phone);
   if (!destination) return { ok: false, error: 'Missing destination phone.' };
 

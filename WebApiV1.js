@@ -1914,8 +1914,8 @@ function apiDevWhatsAppBridgePreviewTest() {
   if (!configBool_('ROLE_SELECTION_ENABLED')) {
     throw new Error('ROLE_SELECTION_ENABLED must be TRUE for this preview.');
   }
-  if (!isApprovedTemplate_('atk_role_reminder_v2')) {
-    throw new Error('atk_role_reminder_v2 is not marked APPROVED.');
+  if (!isApprovedTemplate_('atk_role_reminder_v3')) {
+    throw new Error('atk_role_reminder_v3 is not marked APPROVED.');
   }
 
   const member = configValue_('VPE_MEMBER_NAME','Riyas AF');
@@ -2017,8 +2017,8 @@ function apiDevWhatsAppBridgePreviewTest() {
     };
     props.setProperty(API_DEV_ROLE_PREVIEW_PROPERTY_,JSON.stringify(preview));
 
-    const result=sendWhatsAppTemplate_(
-      phone,'atk_role_reminder_v2',[preview.meetingNo],'ROLE_MENU'
+    const result=sendApprovedRoleCall_(
+      phone,preview.meetingNo,preview.meetingDate
     );
     if (!result || !result.ok) {
       props.deleteProperty(API_DEV_ROLE_PREVIEW_PROPERTY_);
@@ -2349,7 +2349,7 @@ function apiDevWhatsAppRoleBookingTest() {
       meetingDate:dateText,available:available,expiresAt:state.expiresAt
     }));
 
-    const result=sendWhatsAppTemplate_(phone,'atk_role_reminder_v2',[state.meetingNo],'ROLE_MENU');
+    const result=sendApprovedRoleCall_(phone,state.meetingNo,dateText);
     if (!result || !result.ok) throw new Error('Role booking template failed: '+String(result&&result.error||'Unknown Meta error'));
 
     const report={
@@ -3890,8 +3890,8 @@ function apiDevWhatsAppGoldenPathTest() {
   if (!configBool_('TASK_ENGINE_ENABLED')) {
     throw new Error('TASK_ENGINE_ENABLED must be TRUE.');
   }
-  if (!isApprovedTemplate_('atk_role_reminder_v2')) {
-    throw new Error('atk_role_reminder_v2 must be APPROVED.');
+  if (!isApprovedTemplate_('atk_role_reminder_v3')) {
+    throw new Error('atk_role_reminder_v3 must be APPROVED.');
   }
 
   const member=configValue_('VPE_MEMBER_NAME','Riyas AF');
@@ -4041,8 +4041,8 @@ function apiDevWhatsAppGoldenPathTest() {
       expiresAt:expiresAt
     }));
 
-    const result=sendWhatsAppTemplate_(
-      phone,'atk_role_reminder_v2',[meetingNo],'ROLE_MENU'
+    const result=sendApprovedRoleCall_(
+      phone,meetingNo,dateText
     );
     if (!result || !result.ok) {
       throw new Error(

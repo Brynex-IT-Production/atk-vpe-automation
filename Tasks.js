@@ -57,12 +57,7 @@ function phase1ScheduledTick() {
     logAutomation_('WhatsApp Templates', '', '', 'Approval status sync', 'Error', String(error));
   }
 
-  try {
-    sendApprovedRoleReminderV2DevTestOnce_();
-  } catch (error) {
-    logAutomation_('WhatsApp Templates', '', '', 'Role reminder v2 DEV test',
-      'Error', String(error));
-  }
+  // Retired the one-off Marketing V2 template test; role calls use Utility V3.
 
   syncPhase1Tasks_();
   // One-time recovery kickoff for ATK Meeting 454 (26 Oct 2026).
@@ -749,27 +744,10 @@ function processVacantRoleReminders_() {
       const idempotency = ['ROLE_REMINDER', meetingNo, daysLeft, member.name].join('|');
       if (hasReminderBeenSent_(idempotency)) return;
 
-      const text = 'Hi,\n\n' +
-        'Hope you are attending the meeting this week.\n\n' +
-        'Please tap below to see the available roles for ATK Meeting No. ' +
-        meetingNo + '.\n\nThank you.';
-      const result = sendAutomatedQuickReply_(
-        member.phone, 'ROLE_REMINDER',
-        {
-          messaging_product: 'whatsapp',
-          recipient_type: 'individual',
-          to: member.phone,
-          type: 'interactive',
-          interactive: {
-            type: 'button',
-            body: {text: text},
-            action: {buttons: [
-              {type: 'reply', reply: {id: 'ROLE_MENU', title: 'View roles'}}
-            ]}
-          }
-        },
-        [meetingNo], 'ROLE_MENU|' + meetingNo
-      );
+      const dateText = roleCallDateText_(meetingDate);
+      const text = 'ATK Meeting ' + meetingNo +
+        ' is scheduled for ' + dateText + ' as planned.';
+      const result = sendApprovedRoleCall_(member.phone, meetingNo, meetingDate);
       recordReminderSend_(idempotency, member, meetingNo, result, text);
     });
   });
@@ -838,27 +816,10 @@ function sendVacantRoleInvitesNow_(meetingNo, resendKey) {
     ].join('|');
     if (hasReminderBeenSent_(idempotency)) return;
 
-    const text = 'Hi,\n\n' +
-      'Hope you are attending the meeting this week.\n\n' +
-      'Please tap below to see the available roles for ATK Meeting No. ' +
-      meetingNo + '.\n\nThank you.';
-    const result = sendAutomatedQuickReply_(
-      member.phone, 'ROLE_REMINDER',
-      {
-        messaging_product: 'whatsapp',
-        recipient_type: 'individual',
-        to: member.phone,
-        type: 'interactive',
-        interactive: {
-          type: 'button',
-          body: {text: text},
-          action: {buttons: [
-            {type: 'reply', reply: {id: 'ROLE_MENU', title: 'View roles'}}
-          ]}
-        }
-      },
-      [meetingNo], 'ROLE_MENU|' + meetingNo
-    );
+    const dateText = roleCallDateText_(row[1]);
+    const text = 'ATK Meeting ' + meetingNo +
+      ' is scheduled for ' + dateText + ' as planned.';
+    const result = sendApprovedRoleCall_(member.phone, meetingNo, row[1]);
     recordReminderSend_(
       idempotency,
       member,
@@ -1028,13 +989,13 @@ function sendDevRoleReminderForNextVacancy_() {
     return {ok:false,sent:false,reason:'NO_AVAILABLE_FUTURE_MEETING'};
   }
 
-  const templateName = templateNameForKind_('ROLE_REMINDER') || 'atk_role_reminder_v2';
+  const templateName = templateNameForKind_('ROLE_REMINDER');
   if (!isApprovedTemplate_(templateName)) {
     throw new Error('Approved role reminder template is unavailable: ' + templateName);
   }
 
-  const result = sendWhatsAppTemplate_(
-    phone, templateName, [meeting.meetingNo], 'ROLE_MENU|' + meeting.meetingNo);
+  const result = sendApprovedRoleCall_(
+    phone, meeting.meetingNo, meeting.meetingDate);
 
   logAutomation_('Role Selection', meeting.meetingNo, member,
     'DEV role reminder test sent',
@@ -1056,45 +1017,9 @@ function sendDevRoleReminderForNextVacancy_() {
  * DEV scheduler, never through the member reminder pilot.
  */
 function sendApprovedRoleReminderV2DevTestOnce_() {
-  if (configValue_('SYSTEM_MODE', '') !== 'DEV' ||
-      configValue_('WA_SEND_MODE', '') !== 'TEST' ||
-      configBool_('VACANT_ROLE_REMINDERS_ENABLED')) return;
+  // Deliberately disabled; Marketing V2 is not allowed for role calls.
+  return {ok:false, disabled:true, reason:'Replaced by approved Utility V3'};
 
-  const templateName = 'atk_role_reminder_v2';
-  const testKey = 'DEV_ROLE_V2_TEST|945075534849918';
-  const props = PropertiesService.getScriptProperties();
-  const lock = LockService.getScriptLock();
-  lock.waitLock(10000);
-  try {
-    if (props.getProperty(testKey) || hasReminderBeenSent_(testKey)) return;
-    if (!isApprovedTemplate_(templateName)) return;
-
-    const member = configValue_('VPE_MEMBER_NAME', 'Riyas AF');
-    const phone = normalizePhone_(phoneForMember_(member));
-    const allowlist = String(configValue_('WA_TEST_RECIPIENTS', ''))
-      .split(',').map(normalizePhone_).filter(Boolean);
-    if (member !== 'Riyas AF' || allowlist.length !== 1 ||
-        allowlist[0] !== phone || !isWhatsAppRecipientAllowed_(phone)) {
-      throw new Error('DEV role test requires Riyas as the sole allowlisted recipient.');
-    }
-
-    const meetingNo = 451;
-    const result = sendWhatsAppTemplate_(
-      phone, templateName, [meetingNo], 'ROLE_MENU');
-    const body = 'View roles DEV test for ATK Meeting No. ' + meetingNo;
-    if (result && result.ok) {
-      // Write the guard before logging so a later logging error cannot resend.
-      props.setProperty(testKey, result.messageId || 'META_ACCEPTED');
-    }
-    recordReminderSend_(testKey, {name: member, phone: phone},
-      meetingNo, result || {ok: false, error: 'No Meta response'}, body);
-    logAutomation_('WhatsApp Templates', meetingNo, member,
-      'Role reminder v2 DEV test',
-      result && result.ok ? 'Sent' : 'Error',
-      result && (result.messageId || result.error) || 'No Meta response');
-  } finally {
-    lock.releaseLock();
-  }
 }
 
 
