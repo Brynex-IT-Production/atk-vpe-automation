@@ -28,14 +28,18 @@ expected(day,8,15,'AM');
 expected(day,8,19,'AM'); // scheduler a few minutes late
 expected(day,8,42,'AM'); // half-hour fallback
 expected(day,10,14,'AM'); // delayed runner within catch-up window
-expected(day,10,15,null); // stale notifications expire
+expected(day,10,15,'AM'); // 2h late still eligible
+expected(day,11,14,'AM'); // 3h recovery handles delayed GitHub runners
+expected(day,11,15,null); // stale notifications expire
 expected(day,12,0,null);
 expected(day,20,14,null);
 expected(day,20,15,'PM');
 expected(day,20,19,'PM'); // scheduler delayed
 expected(day,20,42,'PM'); // fallback
 expected(day,22,14,'PM');
-expected(day,22,15,null);
+expected(day,22,15,'PM');
+expected(day,23,14,'PM');
+expected(day,23,15,null);
 expected('2026-10-25',20,42,'PM');
 expected('2026-10-26',8,42,null); // meeting day: no role blasts
 expected('2026-10-27',8,42,null); // expired meeting
