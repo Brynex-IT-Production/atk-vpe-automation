@@ -699,7 +699,7 @@ function buildPhase1StatusText_() {
  */
 /**
  * Pure scheduling decision. Calendar and clock are already localized to IST.
- * Each send remains due for 120 minutes so delayed scheduler ticks are safe.
+ * Each send remains due for 180 minutes so delayed scheduler ticks are safe.
  * Expired slots are skipped rather than flooding members after a long outage.
  */
 function dueVacantRoleCallSlot_(todayKey, nowMinutes, meetingDayKey, startDate, timesCsv) {
@@ -715,7 +715,7 @@ function dueVacantRoleCallSlot_(todayKey, nowMinutes, meetingDayKey, startDate, 
   const morning = timeToMinutes(times[0]);
   const evening = timeToMinutes(times[1]);
   if (morning >= evening) throw new Error('Morning role-call time must precede evening.');
-  const catchupMinutes = 120;
+  const catchupMinutes = 180;
   if (nowMinutes >= evening && nowMinutes < evening + catchupMinutes) {
     return {date:todayKey, slot:'PM', due_time:times[1]};
   }
