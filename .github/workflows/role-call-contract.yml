@@ -21,3 +21,4 @@ jobs:
         run: |
           node tests/role-call-contract.test.js
           node tests/daily-role-reminders.test.js
+          node tests/api-meeting-read-contract.test.js
