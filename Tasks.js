@@ -96,6 +96,48 @@ function phase1ScheduledTick() {
   }
   processVacantRoleReminders_();
 
+  // Authorized one-time Meeting 455 role call, after the VPE confirmed the
+  // 2 Nov TMOD and all 3 speakers. Uses the existing approved Utility V3
+  // View roles template; no new template submission or automatic resend.
+  if (String(configValue_('SYSTEM_MODE', '')).toUpperCase() === 'DEV' &&
+      meetingAutomationEligible_(455) &&
+      configBool_('ROLE_SELECTION_ENABLED')) {
+    const props455 = PropertiesService.getScriptProperties();
+    const key455 = 'ATK455_INITIAL_ROLE_CALL_20261027';
+    if (!props455.getProperty(key455)) {
+      const lock455 = LockService.getScriptLock();
+      if (lock455.tryLock(10000)) {
+        try {
+          if (!props455.getProperty(key455)) {
+            const report455 = sendVacantRoleInvitesNow_(455);
+            if (report455 && report455.eligible > 0 &&
+                report455.open_roles > 0) {
+              // Record attempt once, even if some Meta destinations fail;
+              // duplicates or retries require deliberate human review.
+              props455.setProperty(key455, JSON.stringify({
+                at:new Date().toISOString(), report:report455
+              }));
+              logAutomation_('Role Selection', 455, '',
+                'Initial Utility V3 role call after VPE confirmation',
+                report455.sent > 0 ? 'Success' : 'Error',
+                JSON.stringify(report455));
+            } else {
+              logAutomation_('Role Selection', 455, '',
+                'Initial Utility V3 role call after VPE confirmation',
+                'Deferred', JSON.stringify(report455));
+            }
+          }
+        } catch (error455) {
+          logAutomation_('Role Selection', 455, '',
+            'Initial Utility V3 role call after VPE confirmation',
+            'Error', String(error455 && error455.message || error455));
+        } finally {
+          lock455.releaseLock();
+        }
+      }
+    }
+  }
+
   // VPE explicitly requested one more role call for Meeting 454 on 21 Oct.
   // Recheck vacancy and membership at the time of sending, avoid assigned
   // members and speakers, and use the approved View roles button only.

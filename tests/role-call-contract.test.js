@@ -93,4 +93,11 @@ assert.ok(templates.includes("name: 'atk_role_reminder_v3'"));
 assert.ok(templates.includes("category: 'UTILITY'"));
 assert.ok(templates.includes("text: 'View roles'"));
 assert.ok(setup.includes('roleReminderV3Spec_(),'));
+assert.ok(tasks.includes("const key455 = 'ATK455_INITIAL_ROLE_CALL_20261027'"),
+  'Meeting 455 initial broadcast must be guarded by a durable once-only marker');
+assert.ok(tasks.includes("sendVacantRoleInvitesNow_(455)"),
+  'Meeting 455 initial broadcast must use the standard vacancy-filtering sender');
+assert.ok(tasks.includes("meetingAutomationEligible_(455)"),
+  'Meeting 455 broadcast must require the ACTIVE meeting');
+
 console.log('Role call contract: Utility V3, meeting/date parameters, View roles and no fallback PASS');
