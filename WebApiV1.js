@@ -747,7 +747,6 @@ function apiGetMeeting_(clubId,meetingId) {
   const sheets = apiEnsureSheets_();
   const rec = apiFindMeetingRecord_(sheets,clubId,meetingId);
   const mr = rec.values;
-  const beforeItems = apiGetMeeting_(clubId,meetingId).items || [];
 
   const rows = sheets.items.getLastRow() >= 2
     ? sheets.items.getRange(2,1,sheets.items.getLastRow()-1,11).getValues()
