@@ -3157,13 +3157,27 @@ function sendSpeakerDetailsToTmod_(meetingNo, member, slotRef, parts) {
   const idx = ids.findIndex(v => Number(v) === Number(meetingNo));
   if (idx < 0) return false;
 
-  const tmod = String(planner.getRange(idx + 3, 19).getValue() || '').trim();
+  // A historic submission is not evidence of a current speech assignment.
+  // Speaker slot updates must match the live planner at send time, including
+  // after a speaker withdraws or a different person takes the slot.
+  const slotNumber = Number(String(slotRef || '').replace(/^S/i, ''));
+  const speakerColumns = [7, 11, 15];
+  if (!Number.isInteger(slotNumber) || slotNumber < 1 ||
+      slotNumber > speakerColumns.length) return false;
+  const plannerRow = planner.getRange(idx + 3, 1, 1, 28).getValues()[0];
+  const confirmedSpeaker = String(
+    plannerRow[speakerColumns[slotNumber - 1] - 1] || ''
+  ).trim();
+  if (!confirmedSpeaker || confirmedSpeaker !== String(member || '').trim()) {
+    return false;
+  }
+
+  const tmod = String(plannerRow[18] || '').trim();
   const phone = normalizePhone_(phoneForMember_(tmod));
   if (!tmod || !phone || !isWhatsAppRecipientAllowed_(phone)) return false;
 
   const normalizedParts = (parts || []).map(v => String(v || '').trim());
   const speechTime = normalizedParts[4] || 'TBC';
-  const slotNumber = Number(String(slotRef || '').replace(/^S/i, ''));
   const speakerLabel = 'Speaker ' +
     (slotNumber || String(slotRef || '').replace(/^S/i, '')) +
     ' — ' + member;
