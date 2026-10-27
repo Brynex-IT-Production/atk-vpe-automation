@@ -3615,20 +3615,35 @@ function apiDevPlannerLifecycleSelfTest_() {
       byCode.Timer ? byCode.Timer.member_name : 'missing'
     );
 
-    // API exists first; a later WhatsApp-style speaker booking must mirror in.
+    // Respect the VPE booking switch during lifecycle checks. When closed,
+    // a stale WhatsApp button must not reserve or mirror a speech slot.
+    const bookingEnabled = configBool_('SPEAKING_SLOT_WORKFLOW_ENABLED');
     const booked = reserveSpeechSlot_(meetingNo,members[2].name);
-    check(
-      'speech_booking_succeeds_with_api_present',
-      booked && booked.status === 'BOOKED' && booked.slot === 2,
-      booked ? JSON.stringify(booked) : 'missing'
-    );
     const afterBooking = apiGetMeeting_(clubId,meetingId);
     const s2 = afterBooking.items.find(x => x.code === 'S2');
-    check(
-      'speech_booking_mirrors_immediately_to_api',
-      s2 && s2.member_name === members[2].name,
-      s2 ? s2.member_name : 'missing'
-    );
+    if (bookingEnabled) {
+      check(
+        'speech_booking_succeeds_with_api_present',
+        booked && booked.status === 'BOOKED' && booked.slot === 2,
+        booked ? JSON.stringify(booked) : 'missing'
+      );
+      check(
+        'speech_booking_mirrors_immediately_to_api',
+        s2 && s2.member_name === members[2].name,
+        s2 ? s2.member_name : 'missing'
+      );
+    } else {
+      check(
+        'closed_speech_booking_rejected',
+        booked && booked.status === 'CLOSED',
+        booked ? JSON.stringify(booked) : 'missing'
+      );
+      check(
+        'closed_booking_does_not_modify_api',
+        s2 && !s2.member_name,
+        s2 ? s2.member_name : 'missing'
+      );
+    }
 
     // Simulate a stale UI draft: planner received Ah while UI still has it blank.
     planner.getRange(rowNo,ahDef.column).setValue(members[3].name);

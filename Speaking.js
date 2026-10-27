@@ -183,9 +183,13 @@ function sendSpeechBookingConfirmation_(member, phone, meetingNo, dateText, slot
 }
 
 
+function speechBookingClosedMessage_() {
+  return 'Prepared-speech booking is currently closed. Please contact the VPE for future availability.';
+}
+
 function handleSpeechSlotSelection_(member, phone, interaction) {
   if (!configBool_('SPEAKING_SLOT_WORKFLOW_ENABLED')) {
-    sendWhatsAppText_(phone, 'Prepared-speech self-booking is currently unavailable.');
+    sendWhatsAppText_(phone, speechBookingClosedMessage_());
     return;
   }
 
@@ -197,6 +201,10 @@ function handleSpeechSlotSelection_(member, phone, interaction) {
 
   try {
     const result = reserveSpeechSlot_(interaction.meetingNo, member);
+    if (result.status === 'CLOSED') {
+      sendWhatsAppText_(phone, speechBookingClosedMessage_());
+      return;
+    }
 
     if (result.status === 'BOOKED') {
       sendSpeechBookingConfirmation_(
@@ -246,6 +254,11 @@ function handleSpeechSlotSelection_(member, phone, interaction) {
 }
 
 function reserveSpeechSlot_(meetingNo, member) {
+  // Defence in depth: a direct reservation call cannot bypass the inbound
+  // button handler after self-booking is disabled. No planner or API write.
+  if (!configBool_('SPEAKING_SLOT_WORKFLOW_ENABLED')) {
+    return { status: 'CLOSED' };
+  }
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const sheet = ss.getSheetByName('VPE Weekly Planner');
   if (!sheet) return { status: 'NOT_FOUND' };
@@ -518,6 +531,8 @@ function countSuccessfulOutboxByPrefix_(prefix) {
 
 /** Invite once for the nearest open meeting; show up to four dates at tap time. */
 function processSpeechDateInvites_() {
+  // Also block direct/inadvertent calls to this sender (not just scheduler).
+  if (!configBool_('SPEAKING_SLOT_WORKFLOW_ENABLED')) return;
   const meetings = availableSpeechMeetings_();
   if (!meetings.length) return;
   const first = meetings[0];
@@ -578,7 +593,7 @@ function availableSpeechMeetings_() {
 function handleSpeechDateMenu_(member, phone) {
   if (!configBool_('SPEAKING_SLOT_WORKFLOW_ENABLED') ||
       templateNameForKind_('SPEECH_INVITE') !== 'atk_speech_invite_v2') {
-    sendWhatsAppText_(phone, 'Speech booking is not available right now.');
+    sendWhatsAppText_(phone, speechBookingClosedMessage_());
     return;
   }
   const dates = availableSpeechMeetings_().filter(meeting => {
