@@ -24,3 +24,4 @@ jobs:
           node tests/api-meeting-read-contract.test.js
           node tests/speaker-handoff-contract.test.js
           node tests/speech-booking-closure.test.js
+          node tests/theme-structured-reply-contract.test.js

@@ -115,7 +115,9 @@ function handleGuidedReply_(member, phone, text, messageId) {
 
   // Existing approved templates may still show the earlier structured syntax
   // until Meta approves the new ones. Let the legacy parser handle that reply.
-  if (/^(THEME|GRAMMAR|INTRO|SPEECH)(?:\\s+\\d+)?\\s*:/i.test(answer)) {
+  // Recognize structured replies with single-backslash regex escapes. If the
+  // member copies "Theme: ...", let handleStructuredSubmission_ save it.
+  if (/^(THEME|GRAMMAR|INTRO|SPEECH)(?:\s+\d+)?\s*:/i.test(answer)) {
     clearConversation_(phone);
     return false;
   }
